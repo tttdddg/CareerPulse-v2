@@ -1,0 +1,21 @@
+﻿@import url(''https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&display=swap'');
+
+:root {
+  --cp-primary: #6366f1;
+  --cp-secondary: #8b5cf6;
+  --cp-text: #0f172a;
+  --cp-text-muted: #475569;
+  --cp-border: #e2e8f0;
+  --cp-surface: #ffffff;
+  --cp-surface-subtle: #f8faff;
+  --cp-accent-gradient: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+
+  --el-color-primary: var(--cp-primary);
+  --el-color-primary-light-3: #9aa0ff;
+  --el-color-primary-light-5: #b2b6ff;
+  --el-color-primary-light-7: #caccff;
+  --el-color-primary-light-9: #e3e5ff;
+  --el-color-primary-dark-2: #4f46e5;
+  --el-border-radius-base: 10px;
+  --el-font-family: 'Noto Sans SC', 'Manrope', sans-serif;
+}
