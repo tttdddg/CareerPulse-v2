@@ -69,6 +69,7 @@ import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
 import { useAnalysisStore } from '../../stores/analysis'
+import { useHistoryStore } from '../../stores/history'
 import RadarChart from '../../components/business/RadarChart.vue'
 import { mockFetchJobProfiles, mockStartAnalysis } from '../../services/mockApi'
 
@@ -81,6 +82,7 @@ interface JobProfile {
 }
 
 const analysisStore = useAnalysisStore()
+const historyStore = useHistoryStore()
 const loading = ref(false)
 const jobsLoading = ref(false)
 const errorMessage = ref('')
@@ -95,7 +97,14 @@ const priorityMap = [
   { label: '一般', type: 'success' as const }
 ]
 
-const topJob = computed(() => jobProfiles.value[0] ?? null)
+const topJob = computed(() => {
+  if (jobProfiles.value[0]) {
+    return jobProfiles.value[0]
+  }
+
+  const latestTitle = historyStore.latestReport?.title ?? ''
+  return latestTitle ? { id: 'latest', name: latestTitle.replace('匹配报告', '').trim(), match: 0, highlights: [], description: '' } : null
+})
 
 const getGapDesc = (gap: string): string => {
   return `当前在「${gap}」维度仍有提升空间，建议通过专项练习与项目实践快速补强。`
@@ -178,7 +187,8 @@ const refreshRadar = async (): Promise<void> => {
 const fetchJobs = async (): Promise<void> => {
   try {
     jobsLoading.value = true
-    jobProfiles.value = await mockFetchJobProfiles()
+    const jobs = await mockFetchJobProfiles()
+    jobProfiles.value = [...jobs].sort((a, b) => b.match - a.match)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载岗位画像失败'
   } finally {

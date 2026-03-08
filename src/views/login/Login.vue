@@ -60,14 +60,14 @@
           <div class="content">
             <h3>还没注册？</h3>
             <p>创建账号后可保存职业分析与成长计划历史。</p>
-            <button class="btn transparent" type="button" @click="isSignUpMode = true">去注册</button>
+            <button class="btn transparent" type="button" @click="switchToSignUp">去注册</button>
           </div>
         </div>
         <div class="panel right-panel">
           <div class="content">
             <h3>已经注册？</h3>
             <p>登录后继续你的职业分析流程。</p>
-            <button class="btn transparent" type="button" @click="isSignUpMode = false">去登录</button>
+            <button class="btn transparent" type="button" @click="switchToSignIn">去登录</button>
           </div>
         </div>
       </div>
@@ -76,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref } from 'vue'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Iphone, Key, Lock, Message, User } from '@element-plus/icons-vue'
@@ -95,8 +95,8 @@ const smsCodeSent = ref('')
 let smsTimer: ReturnType<typeof setInterval> | null = null
 
 const signInForm = reactive({
-  account: '',
-  password: ''
+  account: 'admin',
+  password: '123456'
 })
 
 const signUpForm = reactive({
@@ -106,6 +106,26 @@ const signUpForm = reactive({
   smsCode: '',
   password: ''
 })
+
+const syncModeWithRoute = (): void => {
+  isSignUpMode.value = route.name === 'register'
+}
+
+const switchToSignUp = async (): Promise<void> => {
+  signInError.value = ''
+  isSignUpMode.value = true
+  if (route.name !== 'register') {
+    await router.replace({ name: 'register' })
+  }
+}
+
+const switchToSignIn = async (): Promise<void> => {
+  signUpError.value = ''
+  isSignUpMode.value = false
+  if (route.name !== 'login') {
+    await router.replace({ name: 'login' })
+  }
+}
 
 const handleSignIn = async (): Promise<void> => {
   signInError.value = ''
@@ -195,8 +215,16 @@ const handleSignUp = (): void => {
   ElMessage.success('注册成功！快去登录吧！')
   signUpForm.smsCode = ''
   smsCodeSent.value = ''
-  isSignUpMode.value = false
+  void switchToSignIn()
 }
+
+watch(
+  () => route.name,
+  () => {
+    syncModeWithRoute()
+  },
+  { immediate: true }
+)
 
 onBeforeUnmount(() => {
   if (smsTimer) {

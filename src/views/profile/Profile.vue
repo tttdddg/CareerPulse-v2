@@ -17,11 +17,11 @@
         <div class="info-list">
           <div class="info-row">
             <span>Email</span>
-            <strong>{{ `${userStore.profile?.name || 'user'}@example.com` }}</strong>
+            <strong>{{ profileEmail }}</strong>
           </div>
           <div class="info-row">
             <span>Member since</span>
-            <strong>2023-01-15</strong>
+            <strong>{{ memberSince }}</strong>
           </div>
           <div class="info-row">
             <span>Level</span>
@@ -37,6 +37,7 @@
       <section class="right-col">
         <el-card class="panel report-panel" v-loading="loading">
           <div class="report-title">历史报告</div>
+          <el-empty v-if="!historyStore.reports.length" description="暂无历史报告，先去数据输入中心发起分析" />
           <article v-for="report in historyStore.reports" :key="report.id" class="report-item">
             <h3>岗位: {{ report.title.replace('匹配报告', '') }}</h3>
             <p>日期: {{ report.createdAt }}</p>
@@ -63,6 +64,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
 import { mockFetchHistory } from '../../services/mockApi'
+import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
 const historyStore = useHistoryStore()
@@ -70,6 +72,13 @@ const analysisStore = useAnalysisStore()
 
 const loading = ref(false)
 const errorMessage = ref('')
+
+const profileEmail = computed(() => {
+  const name = userStore.profile?.name?.trim() || 'user'
+  return `${name.toLowerCase()}@example.com`
+})
+
+const memberSince = computed(() => historyStore.reports[0]?.createdAt ?? new Date().toISOString().slice(0, 10))
 
 const growthSeries = computed(() => [
   {
@@ -85,11 +94,23 @@ const growthSeries = computed(() => [
   }
 ])
 
+const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummary[]): ReportSummary[] => {
+  const reportMap = new Map<string, ReportSummary>()
+  const mergedReports = [...localReports, ...remoteReports]
+
+  mergedReports.forEach((report) => {
+    reportMap.set(report.id, report)
+  })
+
+  return Array.from(reportMap.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
 onMounted(async () => {
   try {
     loading.value = true
+    const localReports = [...historyStore.reports]
     const result = await mockFetchHistory()
-    historyStore.setReports(result.reports)
+    historyStore.setReports(mergeReports(localReports, result.reports))
     historyStore.setGrowthSeries(result.growth)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载历史数据失败'

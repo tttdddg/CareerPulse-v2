@@ -73,6 +73,11 @@ const resources = [
 ]
 
 const handlePolish = async (value: string): Promise<void> => {
+  if (!value.trim()) {
+    ElMessage.warning('请先填写成长计划内容再润色')
+    return
+  }
+
   try {
     exporting.value = true
     content.value = await mockPolishContent(value)
@@ -85,6 +90,12 @@ const handlePolish = async (value: string): Promise<void> => {
 }
 
 const handleCheck = async (): Promise<void> => {
+  if (!content.value.trim()) {
+    checkTips.value = ['先补充目标与行动计划，再进行内容检查']
+    ElMessage.warning('暂无可检查内容')
+    return
+  }
+
   try {
     exporting.value = true
     checkTips.value = await mockCheckContent()

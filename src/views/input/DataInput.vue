@@ -79,7 +79,13 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button type="primary" class="start-button" :loading="analysisLoading" @click="handleStartAnalysis">
+        <el-button
+          type="primary"
+          class="start-button"
+          :loading="analysisLoading"
+          :disabled="!canStartAnalysis || analysisLoading"
+          @click="handleStartAnalysis"
+        >
           开始分析
         </el-button>
       </div>
@@ -88,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -114,6 +120,8 @@ const form = reactive({
   experience: '',
   selfEvaluation: ''
 })
+
+const canStartAnalysis = computed(() => Boolean(form.skills.trim() && form.targetRole.trim()))
 
 const handleUploadError = (message: string): void => {
   errorMessage.value = message
@@ -142,6 +150,11 @@ const handleStartAnalysis = async (): Promise<void> => {
 
   if (!form.skills || !form.targetRole) {
     errorMessage.value = '请完善技能与目标岗位信息'
+    return
+  }
+
+  if (form.targetRole.trim().length < 2) {
+    errorMessage.value = '目标岗位至少输入 2 个字符'
     return
   }
 

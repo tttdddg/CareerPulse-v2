@@ -12,7 +12,7 @@
     <header class="page-head">
       <h2>职业发展路径图谱</h2>
       <p>
-        探索从 <strong>Java 后端开发</strong> 出发的职业可能性。向上查看晋升路径，向两侧探索转岗机会。
+        探索从 <strong>{{ targetRole }}</strong> 出发的职业可能性。向上查看晋升路径，向两侧探索转岗机会。
       </p>
     </header>
 
@@ -45,7 +45,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
+import { useHistoryStore } from '../../stores/history'
 import PathGraph from '../../components/business/PathGraph.vue'
 import { mockFetchPathGraph } from '../../services/mockApi'
 
@@ -65,10 +67,20 @@ interface GraphEdge {
 }
 
 const analysisStore = useAnalysisStore()
+const historyStore = useHistoryStore()
+const router = useRouter()
 const loading = ref(false)
 const errorMessage = ref('')
 const graphData = ref<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] })
 const activeNode = ref<GraphNode | null>(null)
+
+const targetRole = computed(() => {
+  const latestTitle = historyStore.latestReport?.title ?? ''
+  if (!latestTitle) {
+    return '目标岗位'
+  }
+  return latestTitle.replace('匹配报告', '').trim()
+})
 
 const nodeTags = computed(() => {
   if (!activeNode.value) {
@@ -105,7 +117,9 @@ const handleNodeClick = (node: GraphNode): void => {
 
 onMounted(async () => {
   if (!analysisStore.hasRadar) {
-    errorMessage.value = '尚未完成分析，请先在数据输入中心启动分析'
+    ElMessage.warning('尚未完成分析，已为你跳转到数据输入中心')
+    await router.replace('/app/input')
+    return
   }
   await reloadGraph()
 })
