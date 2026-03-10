@@ -1,0 +1,11 @@
+﻿fastapi
+uvicorn
+pydantic
+psycopg2
+openai
+python-docx
+pdfplumber
+pytesseract
+Pillow
+pandas
+python-multipart
