@@ -1,0 +1,35 @@
+﻿*
+*::before
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: 'Noto Sans SC', 'Manrope', sans-serif;
+  color: var(--cp-text);
+  background: var(--cp-surface);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: 'Manrope', 'Noto Sans SC', sans-serif;
+}
+
+.el-card {
+  box-shadow: none;
+}
+
+.el-button--primary {
+  box-shadow: 0 10px 20px rgba(99, 102, 241, 0.2);
+}
+
+.el-input__wrapper {
+  box-shadow: none;
+}
+
+.el-table th {
+  background: var(--cp-surface-subtle);
+}

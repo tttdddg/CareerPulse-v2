@@ -1,0 +1,35 @@
+﻿@forward "element-plus/theme-chalk/src/common/var.scss" with (
+  $colors: (
+    "primary": (
+      "base": #6366f1
+    ),
+    "success": (
+      "base": #22c55e
+    ),
+    "warning": (
+      "base": #f59e0b
+    ),
+    "danger": (
+      "base": #ef4444
+    ),
+    "info": (
+      "base": #94a3b8
+    )
+  )
+);
+
+@use "element-plus/theme-chalk/src/index.scss" as *;
+
+:root {
+  --cp-primary: #6366f1;
+  --cp-secondary: #8b5cf6;
+  --cp-text: #0f172a;
+  --cp-text-muted: #475569;
+  --cp-border: #e2e8f0;
+  --cp-surface: #ffffff;
+  --cp-surface-subtle: #f8faff;
+  --cp-accent-gradient: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+  --el-color-primary: var(--cp-primary);
+  --el-color-primary-dark-2: #4f46e5;
+  --el-font-family: 'Noto Sans SC', 'Manrope', sans-serif;
+}

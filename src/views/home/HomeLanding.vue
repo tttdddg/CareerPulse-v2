@@ -1,0 +1,346 @@
+﻿<template>
+  <div class="landing-page">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">◆</span>
+        <span class="brand-text">AI Career Planner</span>
+      </div>
+
+
+      <div class="auth-links">
+        <router-link :to="{ path: '/login', query: { force: '1' } }" class="signup-btn">登录</router-link>
+      </div>
+    </header>
+
+    <main class="hero-wrap">
+      <section class="hero-copy">
+        <span class="badge">2026 德国竞争级版本已上线</span>
+        <h1>
+          AI Career <span>Planner</span><br />
+          重塑您的职业未来
+        </h1>
+        <p>
+          基于 2026 年最新劳动力市场大数据，我们通过神经网络智能分析您的职业潜力，
+          为您量身规划从技能习得到高薪就业的个性化成长路径。
+        </p>
+
+        <div class="hero-actions">
+          <router-link :to="{ path: '/login', query: { force: '1' } }" class="start-btn">开始分析</router-link>
+        </div>
+
+        <div class="social-proof">
+          <div class="avatars">
+            <span>AA</span>
+            <span>JP</span>
+            <span>XM</span>
+          </div>
+          <p>目前已有 <strong>1,240,000+</strong> 专业人士获益</p>
+        </div>
+      </section>
+
+      <section class="hero-visual" aria-label="career visual card">
+        <div class="visual-head">AI Career Roadmap</div>
+        <div class="roadmap-list">
+          <span>阶段 1 目标定位</span>
+          <span>阶段 2 能力提升</span>
+          <span>阶段 3 岗位匹配</span>
+          <span>阶段 4 高薪就业</span>
+        </div>
+        <div class="person-shape"></div>
+      </section>
+    </main>
+
+    <section class="metrics">
+      <article>
+        <h3>98.5%</h3>
+        <p>匹配准确度</p>
+      </article>
+      <article>
+        <h3>500强</h3>
+        <p>深度合作单位</p>
+      </article>
+      <article>
+        <h3>+45%</h3>
+        <p>平均薪资提升</p>
+      </article>
+      <article>
+        <h3>24h</h3>
+        <p>实时职业洞察</p>
+      </article>
+    </section>
+  </div>
+</template>
+
+<script setup lang="ts"></script>
+
+<style scoped>
+.landing-page {
+  min-height: 100vh;
+  background: linear-gradient(90deg, #edf8ff 0%, #f8f0ff 100%);
+  color: #1f2b46;
+}
+
+.topbar {
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 42px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5ebf6;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #2c64ff 0%, #7749f8 100%);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+.brand-text {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e63ad;
+}
+
+.nav-links {
+  display: inline-flex;
+  gap: 34px;
+}
+
+.nav-links a {
+  color: #2c3650;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.auth-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+}
+
+
+.signup-btn {
+  text-decoration: none;
+  color: #fff;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #2f7bff 0%, #3255e8 100%);
+  box-shadow: 0 8px 18px rgba(53, 97, 238, 0.25);
+}
+
+.hero-wrap {
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 60px 26px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(460px, 0.9fr);
+  gap: 34px;
+  align-items: center;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #3270c3;
+  background: #edf4ff;
+  border: 1px solid #dce8fa;
+}
+
+.hero-copy h1 {
+  margin: 18px 0 16px;
+  line-height: 1.14;
+  font-size: 64px;
+  color: #0f1731;
+}
+
+.hero-copy h1 span {
+  color: #5347e8;
+}
+
+.hero-copy p {
+  margin: 0;
+  font-size: 27px;
+  line-height: 1.75;
+  color: #4f5d78;
+  max-width: 680px;
+}
+
+.hero-actions {
+  margin-top: 30px;
+}
+
+.start-btn {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 34px;
+  border-radius: 14px;
+  color: #ffffff;
+  font-size: 31px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #15a4ff 0%, #2f64ff 100%);
+  box-shadow: 0 12px 28px rgba(32, 107, 246, 0.28);
+}
+
+.social-proof {
+  margin-top: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatars {
+  display: inline-flex;
+}
+
+.avatars span {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  margin-right: -8px;
+  border: 2px solid #ffffff;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3f76ff 0%, #8b58ee 100%);
+}
+
+.social-proof p {
+  margin: 0;
+  font-size: 15px;
+  color: #4a5670;
+}
+
+.hero-visual {
+  min-height: 520px;
+  border-radius: 24px;
+  position: relative;
+  padding: 30px;
+  overflow: hidden;
+  background: radial-gradient(circle at 16% 18%, #5f77ff 0%, #4d48e6 38%, #2d2b9c 100%);
+  box-shadow: 0 28px 60px rgba(91, 79, 224, 0.28);
+}
+
+.visual-head {
+  color: #f4f7ff;
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 18px;
+}
+
+.roadmap-list {
+  display: grid;
+  gap: 10px;
+  max-width: 56%;
+}
+
+.roadmap-list span {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 19px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.person-shape {
+  position: absolute;
+  right: -22px;
+  bottom: -18px;
+  width: 360px;
+  height: 500px;
+  border-radius: 220px 220px 24px 24px;
+  background: linear-gradient(160deg, rgba(28, 39, 114, 0.9), rgba(12, 14, 48, 0.96));
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.metrics {
+  max-width: 1240px;
+  margin: 18px auto 0;
+  padding: 0 26px 40px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+}
+
+.metrics article {
+  background: #fff;
+  border: 1px solid #e5e9f2;
+  padding: 22px 16px;
+  text-align: center;
+}
+
+.metrics article + article {
+  border-left: 0;
+}
+
+.metrics h3 {
+  margin: 0;
+  font-size: 27px;
+}
+
+.metrics p {
+  margin: 6px 0 0;
+  color: #69748a;
+  font-size: 14px;
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    padding: 0 18px;
+  }
+
+  .nav-links {
+    display: none;
+  }
+
+  .hero-wrap {
+    grid-template-columns: 1fr;
+    padding-top: 30px;
+  }
+
+  .hero-copy h1 {
+    font-size: 46px;
+  }
+
+  .hero-copy p {
+    font-size: 18px;
+  }
+
+  .start-btn {
+    font-size: 20px;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .metrics article + article {
+    border-left: 1px solid #e5e9f2;
+  }
+}
+</style>
