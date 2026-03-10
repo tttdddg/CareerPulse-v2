@@ -22,7 +22,7 @@
 <script setup lang="ts">
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
-import type { UploadRequestOptions, UploadRawFile } from 'element-plus'
+import type { UploadRawFile, UploadRequestHandler, UploadRequestOptions } from 'element-plus'
 
 export interface ResumeUploadPayload {
   formData: FormData
@@ -91,7 +91,7 @@ const beforeUpload = (file: UploadRawFile): boolean => {
 }
 
 // 统一处理 FormData，并交给外部上传
-const handleRequest = (options: UploadRequestOptions): void => {
+const handleRequest: UploadRequestHandler = async (options: UploadRequestOptions) => {
   const formData = new FormData()
   formData.append(props.fieldName, options.file)
 
@@ -102,7 +102,8 @@ const handleRequest = (options: UploadRequestOptions): void => {
   })
 
   // 默认回调为成功，具体上传结果由外部控制
-  options.onSuccess?.({ ok: true }, options.file)
+  options.onSuccess?.({ ok: true })
+  return Promise.resolve({ ok: true })
 }
 </script>
 

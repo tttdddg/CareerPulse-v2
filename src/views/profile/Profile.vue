@@ -63,7 +63,7 @@ import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
-import { mockFetchHistory } from '../../services/mockApi'
+import { fetchUserHistories } from '../../api/modules/career'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -109,7 +109,7 @@ onMounted(async () => {
   try {
     loading.value = true
     const localReports = [...historyStore.reports]
-    const result = await mockFetchHistory()
+    const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
     historyStore.setReports(mergeReports(localReports, result.reports))
     historyStore.setGrowthSeries(result.growth)
   } catch (error) {

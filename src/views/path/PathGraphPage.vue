@@ -49,7 +49,7 @@ import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import PathGraph from '../../components/business/PathGraph.vue'
-import { mockFetchPathGraph } from '../../services/mockApi'
+import { fetchJobGraph } from '../../api/modules/career'
 
 interface GraphNode {
   id: string
@@ -99,9 +99,14 @@ const nodeTags = computed(() => {
 })
 
 const reloadGraph = async (): Promise<void> => {
+  if (!analysisStore.jobId) {
+    errorMessage.value = '未找到目标岗位，请先回到数据输入中心完成分析'
+    return
+  }
+
   try {
     loading.value = true
-    const data = await mockFetchPathGraph()
+    const data = await fetchJobGraph(analysisStore.jobId)
     graphData.value = data
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '路径图谱加载失败'

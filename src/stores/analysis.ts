@@ -18,6 +18,9 @@ export interface AnalysisState {
   radarSeries: RadarSeries[]
   strengths: string[]
   gaps: string[]
+  studentId: number | null
+  jobId: number | null
+  reportId: number | null
   updatedAt: string | null
 }
 
@@ -28,6 +31,9 @@ export const useAnalysisStore = defineStore('analysis', {
     radarSeries: [],
     strengths: [],
     gaps: [],
+    studentId: null,
+    jobId: null,
+    reportId: null,
     updatedAt: null
   }),
   getters: {
@@ -55,6 +61,20 @@ export const useAnalysisStore = defineStore('analysis', {
       this.updatedAt = new Date().toISOString()
     },
 
+    // 保存当前分析上下文（学生、岗位、报告）
+    setContext(payload: { studentId?: number | null; jobId?: number | null; reportId?: number | null }): void {
+      if (payload.studentId !== undefined) {
+        this.studentId = payload.studentId
+      }
+      if (payload.jobId !== undefined) {
+        this.jobId = payload.jobId
+      }
+      if (payload.reportId !== undefined) {
+        this.reportId = payload.reportId
+      }
+      this.updatedAt = new Date().toISOString()
+    },
+
     // 重置分析数据
     reset(): void {
       this.matchScore = 0
@@ -62,6 +82,9 @@ export const useAnalysisStore = defineStore('analysis', {
       this.radarSeries = []
       this.strengths = []
       this.gaps = []
+      this.studentId = null
+      this.jobId = null
+      this.reportId = null
       this.updatedAt = null
     }
   }

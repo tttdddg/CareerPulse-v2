@@ -1,9 +1,16 @@
-﻿import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig, type AxiosResponse } from 'axios'
+import axios, {
+  AxiosError,
+  AxiosHeaders,
+  type AxiosInstance,
+  type AxiosRequestConfig,
+  type AxiosResponse
+} from 'axios'
 import { useUserStore } from '../stores/user'
 
 export interface ApiResponse<T> {
   code: number
-  message: string
+  message?: string
+  msg?: string
   data: T
 }
 
@@ -19,7 +26,7 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const API_BASE_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_BASE_URL ?? '')
 
 const resolveToken = (): string | null => {
   try {
@@ -53,15 +60,18 @@ const isApiResponse = <T>(value: unknown): value is ApiResponse<T> => {
   }
 
   const record = value as Record<string, unknown>
-  return typeof record.code === 'number' && typeof record.message === 'string' && 'data' in record
+  return typeof record.code === 'number' && 'data' in record
 }
 
 const normalizeError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ message?: string; code?: number }>
+    const axiosError = error as AxiosError<{ message?: string; msg?: string; code?: number }>
     const status = axiosError.response?.status
     const message =
-      axiosError.response?.data?.message ?? axiosError.message ?? 'Request failed with unknown error'
+      axiosError.response?.data?.message ??
+      axiosError.response?.data?.msg ??
+      axiosError.message ??
+      'Request failed with unknown error'
     const code = axiosError.response?.data?.code
     return new ApiError(message, code, status)
   }
@@ -78,14 +88,18 @@ const instance: AxiosInstance = axios.create({
   timeout: 15000
 })
 
+interface RequestConfigWithAuth extends AxiosRequestConfig {
+  skipAuth?: boolean
+}
+
 instance.interceptors.request.use(
   (config) => {
+    const requestConfig = config as RequestConfigWithAuth
     const token = resolveToken()
-    if (token) {
-      config.headers = {
-        ...config.headers,
-        Authorization: `Bearer ${token}`
-      }
+    if (token && !requestConfig.skipAuth) {
+      const headers = AxiosHeaders.from(config.headers)
+      headers.set('Authorization', `Bearer ${token}`)
+      config.headers = headers
     }
     return config
   },
@@ -96,8 +110,9 @@ instance.interceptors.response.use(
   (response: AxiosResponse) => {
     const data = response.data
     if (isApiResponse<unknown>(data)) {
-      if (data.code !== 0) {
-        throw new ApiError(data.message, data.code, response.status)
+      const success = data.code === 0 || data.code === 1 || data.code === 200
+      if (!success) {
+        throw new ApiError(data.message ?? data.msg ?? 'Request failed', data.code, response.status)
       }
       return data.data
     }
@@ -106,7 +121,8 @@ instance.interceptors.response.use(
   (error) => Promise.reject(normalizeError(error))
 )
 
-export const request = async <T>(config: AxiosRequestConfig): Promise<T> =>
+export const request = async <T>(config: RequestConfigWithAuth): Promise<T> =>
   instance.request<unknown, T>(config)
 
 export default instance
+

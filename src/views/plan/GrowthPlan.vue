@@ -43,15 +43,28 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useAnalysisStore } from '../../stores/analysis'
+import { useHistoryStore } from '../../stores/history'
+import { useUserStore } from '../../stores/user'
 import RichTextEditor from '../../components/business/RichTextEditor.vue'
 import ExportButton from '../../components/business/ExportButton.vue'
-import { mockCheckContent, mockFetchGrowthPlan, mockPolishContent } from '../../services/mockApi'
+import {
+  exportReport,
+  fetchRecommendations,
+  fetchReport,
+  generateReport,
+  polishReport
+} from '../../api/modules/career'
 
+const analysisStore = useAnalysisStore()
+const historyStore = useHistoryStore()
+const userStore = useUserStore()
 const loading = ref(false)
 const exporting = ref(false)
 const errorMessage = ref('')
 const content = ref('')
 const checkTips = ref<string[]>([])
+const reportId = ref<number | null>(null)
 
 const resources = [
   {
@@ -78,9 +91,14 @@ const handlePolish = async (value: string): Promise<void> => {
     return
   }
 
+  if (!reportId.value) {
+    errorMessage.value = '缺少报告编号，请先生成报告后再润色'
+    return
+  }
+
   try {
     exporting.value = true
-    content.value = await mockPolishContent(value)
+    content.value = await polishReport(reportId.value, { text: value, paragraphIndex: 0 })
     ElMessage.success('内容已润色')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '润色失败'
@@ -98,7 +116,8 @@ const handleCheck = async (): Promise<void> => {
 
   try {
     exporting.value = true
-    checkTips.value = await mockCheckContent()
+    const tips = await fetchRecommendations(analysisStore.gaps[0] ?? '')
+    checkTips.value = tips.length ? tips : ['建议补充量化目标、时间节点与评估方式']
     ElMessage.success('内容检查完成')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '检查失败'
@@ -108,14 +127,14 @@ const handleCheck = async (): Promise<void> => {
 }
 
 const handleExport = async (payload: { type: 'pdf' | 'word'; fileName: string }): Promise<void> => {
+  if (!reportId.value) {
+    errorMessage.value = '缺少报告编号，请先生成报告后再导出'
+    return
+  }
+
   try {
     exporting.value = true
-    const blob = new Blob([content.value || '暂无内容'], {
-      type:
-        payload.type === 'pdf'
-          ? 'application/pdf'
-          : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    })
+    const blob = await exportReport(reportId.value, payload.type)
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
@@ -129,11 +148,57 @@ const handleExport = async (payload: { type: 'pdf' | 'word'; fileName: string })
   }
 }
 
+const parseReportId = (value: string | null): number | null => {
+  if (!value) {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+const resolveReportId = async (): Promise<number | null> => {
+  const cached = analysisStore.reportId ?? parseReportId(historyStore.lastViewedReportId)
+  if (cached) {
+    return cached
+  }
+
+  if (!analysisStore.studentId || !analysisStore.jobId) {
+    return null
+  }
+
+  const generated = await generateReport({
+    studentId: analysisStore.studentId,
+    jobId: analysisStore.jobId,
+    userId: userStore.profile?.id ?? 'default'
+  })
+
+  if (!generated.reportId) {
+    return null
+  }
+
+  analysisStore.setContext({ reportId: generated.reportId })
+  historyStore.setLastViewedReport(String(generated.reportId))
+
+  if (generated.content) {
+    content.value = generated.content
+  }
+
+  return generated.reportId
+}
+
 onMounted(async () => {
   try {
     loading.value = true
-    const result = await mockFetchGrowthPlan()
-    content.value = result.content
+    reportId.value = await resolveReportId()
+    if (!reportId.value) {
+      errorMessage.value = '暂无可用报告，请先在数据输入中心完成分析'
+      return
+    }
+
+    if (!content.value.trim()) {
+      const result = await fetchReport(reportId.value)
+      content.value = result.content || '<p>暂无成长计划内容，请点击内容检查获取建议。</p>'
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载成长计划失败'
   } finally {

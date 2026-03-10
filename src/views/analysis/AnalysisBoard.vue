@@ -71,22 +71,14 @@ import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import RadarChart from '../../components/business/RadarChart.vue'
-import { mockFetchJobProfiles, mockStartAnalysis } from '../../services/mockApi'
-
-interface JobProfile {
-  id: string
-  name: string
-  match: number
-  highlights: string[]
-  description: string
-}
+import { fetchJobs as fetchJobsApi, matchingAnalyze, type JobItem } from '../../api/modules/career'
 
 const analysisStore = useAnalysisStore()
 const historyStore = useHistoryStore()
 const loading = ref(false)
 const jobsLoading = ref(false)
 const errorMessage = ref('')
-const jobProfiles = ref<JobProfile[]>([])
+const jobProfiles = ref<JobItem[]>([])
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
 let gaugeChart: echarts.ECharts | null = null
@@ -169,12 +161,23 @@ const renderGauge = (): void => {
 }
 
 const refreshRadar = async (): Promise<void> => {
+  if (!analysisStore.studentId || !analysisStore.jobId) {
+    errorMessage.value = '缺少分析上下文，请先在数据输入中心完成一次分析'
+    return
+  }
+
   try {
     loading.value = true
-    const result = await mockStartAnalysis()
+    const result = await matchingAnalyze({
+      studentId: analysisStore.studentId,
+      jobId: analysisStore.jobId
+    })
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
     analysisStore.setInsights(result.strengths, result.gaps)
+    if (result.reportId) {
+      analysisStore.setContext({ reportId: result.reportId })
+    }
     ElMessage.success('分析结果已更新')
     renderGauge()
   } catch (error) {
@@ -187,7 +190,12 @@ const refreshRadar = async (): Promise<void> => {
 const fetchJobs = async (): Promise<void> => {
   try {
     jobsLoading.value = true
-    const jobs = await mockFetchJobProfiles()
+    const keyword = (historyStore.latestReport?.title ?? '').replace('匹配报告', '').trim()
+    const jobs = await fetchJobsApi({
+      keyword: keyword || '产品经理',
+      page: 1,
+      size: 20
+    })
     jobProfiles.value = [...jobs].sort((a, b) => b.match - a.match)
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载岗位画像失败'

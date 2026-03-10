@@ -100,16 +100,19 @@ import { Search } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
+import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
-import { mockParseResume, mockStartAnalysis } from '../../services/mockApi'
+import { fetchJobs, matchingAnalyze, uploadStudentProfile, uploadStudentResume } from '../../api/modules/career'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
 const historyStore = useHistoryStore()
+const userStore = useUserStore()
 
 const loading = ref(false)
 const analysisLoading = ref(false)
 const errorMessage = ref('')
+const uploadedStudentId = ref<number | null>(null)
 
 const form = reactive({
   role: '',
@@ -132,11 +135,15 @@ const handleResumeUpload = async (payload: { file: File }): Promise<void> => {
 
   try {
     loading.value = true
-    const parsed = await mockParseResume(payload.file.name)
-    form.role = parsed.role
-    form.skills = parsed.skills
-    form.industry = parsed.industry
-    form.targetRole = parsed.targetRole
+    const formData = new FormData()
+    formData.append('file', payload.file)
+    const parsed = await uploadStudentResume(formData)
+    uploadedStudentId.value = parsed.studentId
+    form.role = parsed.name || form.role
+    form.skills = parsed.skills || form.skills
+    form.certificates = parsed.certificates || form.certificates
+    form.experience = parsed.internships || form.experience
+    form.selfEvaluation = parsed.selfEvaluation || form.selfEvaluation
     ElMessage.success('简历解析完成')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '简历解析失败'
@@ -160,17 +167,58 @@ const handleStartAnalysis = async (): Promise<void> => {
 
   try {
     analysisLoading.value = true
-    const result = await mockStartAnalysis()
+    const jobs = await fetchJobs({
+      keyword: form.targetRole,
+      page: 1,
+      size: 20
+    })
+    const topJob = jobs[0]
+    if (!topJob) {
+      throw new Error('未查询到可分析的目标岗位，请调整岗位关键词后重试')
+    }
+
+    const profile = await uploadStudentProfile({
+      name: form.role || undefined,
+      skills: form.skills,
+      certificates: form.certificates,
+      internships: form.experience,
+      selfEvaluation: form.selfEvaluation
+    })
+    const studentId = profile.studentId ?? uploadedStudentId.value
+    if (!studentId) {
+      throw new Error('后端未返回 student_id，无法发起匹配分析，请让后端在上传接口返回 student_id。')
+    }
+    const analyzeResult = await matchingAnalyze({
+      studentId,
+      jobId: topJob.id,
+      userId: userStore.profile?.id ?? 'default'
+    })
+
+    const title = `${topJob.name || form.targetRole} 匹配报告`
+    const reportId = analyzeResult.reportId ? String(analyzeResult.reportId) : `report-${Date.now()}`
+
+    const result = {
+      ...analyzeResult,
+      reportId,
+      title,
+      tags: [topJob.name || form.targetRole, form.industry || '行业未知']
+    }
+
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
     analysisStore.setInsights(result.strengths, result.gaps)
+    analysisStore.setContext({
+      studentId,
+      jobId: topJob.id,
+      reportId: analyzeResult.reportId
+    })
 
     historyStore.addReport({
-      id: `report-${Date.now()}`,
-      title: `${form.targetRole} 匹配报告`,
+      id: result.reportId,
+      title: result.title,
       createdAt: new Date().toISOString().slice(0, 10),
       score: result.matchScore,
-      tags: [form.targetRole, form.industry || '行业未知']
+      tags: result.tags
     })
 
     ElMessage.success('分析任务已启动')
