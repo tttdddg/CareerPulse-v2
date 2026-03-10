@@ -47,7 +47,7 @@ def extract_all_content(file_bytes: bytes, filename: str) -> str:
                         if ocr_text:
                             text_parts.append(ocr_text)
 
-    elif lower_name.endswith((".docx", ".doc")):
+    elif lower_name.endswith(".docx"):
         try:
             import docx
         except Exception as e:
@@ -55,6 +55,9 @@ def extract_all_content(file_bytes: bytes, filename: str) -> str:
 
         doc = docx.Document(BytesIO(file_bytes))
         text_parts.extend(p.text.strip() for p in doc.paragraphs if p.text.strip())
+
+    elif lower_name.endswith(".doc"):
+        raise ValueError("暂不支持 .doc（旧版 Word）格式，请另存为 .docx 后上传")
 
     elif lower_name.endswith((".png", ".jpg", ".jpeg")):
         text_parts.append(extract_image_text(file_bytes))
@@ -72,3 +75,5 @@ def parse_llm_json(result_text: str) -> dict:
     if start == -1 or end <= start:
         raise ValueError("模型返回不包含有效 JSON")
     return json.loads(result_text[start:end])
+
+

@@ -64,9 +64,9 @@ def get_student_profile_api(student_id: int):
 @router.post("/student/upload/resume")
 async def upload_resume(file: UploadFile = File(...)):
     """Upload resume file and parse to structured student profile."""
-    allowed_types = [".txt", ".pdf", ".docx", ".doc", ".png", ".jpg", ".jpeg"]
+    allowed_types = [".txt", ".pdf", ".docx", ".png", ".jpg", ".jpeg"]
     if not file.filename or not any(file.filename.lower().endswith(ext) for ext in allowed_types):
-        raise HTTPException(status_code=400, detail="仅支持 TXT/PDF/Word/图片 文件")
+        raise HTTPException(status_code=400, detail="仅支持 TXT/PDF/DOCX/图片 文件")
 
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
@@ -135,3 +135,4 @@ async def upload_profile(profile: ProfileUploadRequest):
         raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析请求失败: {str(e)}")
+
