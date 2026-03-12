@@ -64,6 +64,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
 import { fetchUserHistories } from '../../api/modules/career'
+import { fetchGrowthSeries, fetchHistorySummary } from '../../api/modules/history'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -106,14 +107,32 @@ const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummar
 }
 
 onMounted(async () => {
+  const localReports = [...historyStore.reports]
+
+  const applyHistoryData = (reports: ReportSummary[], growth: { date: string; value: number; label?: string }[]): void => {
+    historyStore.setReports(mergeReports(localReports, reports))
+    historyStore.setGrowthSeries(growth)
+  }
+
   try {
     loading.value = true
-    const localReports = [...historyStore.reports]
     const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
-    historyStore.setReports(mergeReports(localReports, result.reports))
-    historyStore.setGrowthSeries(result.growth)
+    const hasRemoteData = result.reports.length > 0 || result.growth.length > 0
+    if (hasRemoteData) {
+      applyHistoryData(result.reports, result.growth)
+      return
+    }
+
+    const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
+    applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '加载历史数据失败'
+    try {
+      const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
+      applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
+      errorMessage.value = ''
+    } catch (fallbackError) {
+      errorMessage.value = fallbackError instanceof Error ? fallbackError.message : '加载历史数据失败'
+    }
   } finally {
     loading.value = false
   }

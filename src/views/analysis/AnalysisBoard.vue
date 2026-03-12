@@ -54,7 +54,7 @@
                 </el-tag>
               </div>
               <p>{{ getGapDesc(gap) }}</p>
-              <a href="javascript:void(0)">查看详情 →</a>
+              <a href="javascript:void(0)" @click.prevent="goToPlan">查看详情 →</a>
             </div>
           </article>
         </div>
@@ -68,11 +68,13 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import * as echarts from 'echarts'
 import { ElMessage } from 'element-plus'
 import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import RadarChart from '../../components/business/RadarChart.vue'
 import { fetchJobs as fetchJobsApi, matchingAnalyze, type JobItem } from '../../api/modules/career'
 
+const router = useRouter()
 const analysisStore = useAnalysisStore()
 const historyStore = useHistoryStore()
 const loading = ref(false)
@@ -100,6 +102,10 @@ const topJob = computed(() => {
 
 const getGapDesc = (gap: string): string => {
   return `当前在「${gap}」维度仍有提升空间，建议通过专项练习与项目实践快速补强。`
+}
+
+const goToPlan = async (): Promise<void> => {
+  await router.push('/app/plan')
 }
 
 const renderGauge = (): void => {

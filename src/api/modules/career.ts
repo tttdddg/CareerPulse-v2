@@ -12,7 +12,8 @@ const toNumber = (value: unknown, fallback = 0): number => {
     return value
   }
   if (typeof value === 'string') {
-    const parsed = Number(value)
+    const normalized = value.replace(/%/g, '').trim()
+    const parsed = Number(normalized)
     if (Number.isFinite(parsed)) {
       return parsed
     }
@@ -65,11 +66,43 @@ const pickPayloadRecord = (source: unknown): UnknownRecord => {
   if (!isRecord(source)) {
     return {}
   }
-  const inner = source.data
-  if (isRecord(inner)) {
-    return inner
+
+  const queue: unknown[] = [source]
+  const visited = new Set<unknown>()
+  const preferredKeys = ['data', 'result', 'analysis', 'payload']
+
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!isRecord(current) || visited.has(current)) {
+      continue
+    }
+    visited.add(current)
+
+    for (const key of preferredKeys) {
+      const next = current[key]
+      if (isRecord(next)) {
+        return next
+      }
+      if (next !== undefined) {
+        queue.push(next)
+      }
+    }
   }
+
   return source
+}
+
+const toStringArray = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((item) => toStringSafe(item)).filter(Boolean)
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[;,，；\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
 }
 
 export interface JobItem {
@@ -177,6 +210,32 @@ export interface ReportGeneratePayload {
 export interface ReportDocument {
   reportId: number | null
   content: string
+  status?: string
+}
+
+const extractContent = (source: unknown): string => {
+  if (typeof source === 'string') {
+    return source
+  }
+  if (!isRecord(source)) {
+    return ''
+  }
+
+  const direct = getByKeys(source, ['content', 'text', 'markdown', 'plan'])
+  if (typeof direct === 'string' && direct.trim()) {
+    return direct
+  }
+
+  const nestedKeys = ['report', 'data', 'result', 'payload']
+  for (const key of nestedKeys) {
+    const nested = source[key]
+    const extracted = extractContent(nested)
+    if (extracted) {
+      return extracted
+    }
+  }
+
+  return ''
 }
 
 const normalizeJob = (input: UnknownRecord): JobItem => {
@@ -191,15 +250,26 @@ const normalizeJob = (input: UnknownRecord): JobItem => {
 }
 
 const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
-  const record = isRecord(source) ? source : {}
-  const strengths = asArray(getByKeys(record, ['strengths', 'advantages']))
-    .map((item) => toStringSafe(item))
-    .filter(Boolean)
-  const gaps = asArray(getByKeys(record, ['gaps', 'weaknesses']))
-    .map((item) => toStringSafe(item))
-    .filter(Boolean)
+  const record = pickPayloadRecord(source)
+  const nested = pickPayloadRecord(record)
+  const payload = Object.keys(nested).length > 0 ? nested : record
 
-  const radarIndicatorsSource = asArray(getByKeys(record, ['radar_indicators', 'radarIndicators']))
+  const strengths = toStringArray(getByKeys(payload, ['strengths', 'advantages', 'highlights']))
+  const gaps = toStringArray(getByKeys(payload, ['gaps', 'weaknesses', 'deficiencies']))
+
+  const gapAnalysis = asArray(getByKeys(payload, ['gap_analysis', 'gapAnalysis']))
+    .map((item) => {
+      if (!isRecord(item)) {
+        return ''
+      }
+      return toStringSafe(getByKeys(item, ['item', 'name', 'title']), '')
+    })
+    .filter(Boolean)
+  const normalizedGaps = gaps.length > 0 ? gaps : gapAnalysis
+
+  const radarIndicatorsSource = asArray(
+    getByKeys(payload, ['radar_indicators', 'radarIndicators', 'indicators', 'dimensions'])
+  )
   const radarIndicators = radarIndicatorsSource
     .map((item) => {
       if (!isRecord(item)) {
@@ -216,7 +286,7 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
     })
     .filter((item): item is RadarIndicator => item !== null)
 
-  const radarSeriesSource = asArray(getByKeys(record, ['radar_series', 'radarSeries']))
+  const radarSeriesSource = asArray(getByKeys(payload, ['radar_series', 'radarSeries', 'series']))
   const radarSeries = radarSeriesSource
     .map((item) => {
       if (!isRecord(item)) {
@@ -234,12 +304,52 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
     })
     .filter((item): item is RadarSeries => item !== null)
 
-  const fallbackNames = gaps.length
-    ? gaps
+  const dimensions = asArray(getByKeys(payload, ['dimensions']))
+    .map((item) => {
+      if (!isRecord(item)) {
+        return null
+      }
+      const name = toStringSafe(getByKeys(item, ['name', 'label']), '')
+      if (!name) {
+        return null
+      }
+      return {
+        name,
+        candidate: toNumber(getByKeys(item, ['student_score', 'studentScore', 'score']), 0),
+        target: toNumber(getByKeys(item, ['job_required', 'jobRequired', 'required']), 0)
+      }
+    })
+    .filter((item): item is { name: string; candidate: number; target: number } => item !== null)
+
+  const derivedIndicators =
+    dimensions.length > 0
+      ? dimensions.map((item) => ({
+          name: item.name,
+          max: 100
+        }))
+      : []
+  const derivedSeries =
+    dimensions.length > 0
+      ? [
+          {
+            name: 'Candidate',
+            values: dimensions.map((item) => item.candidate)
+          },
+          {
+            name: 'Target Role',
+            values: dimensions.map((item) => item.target)
+          }
+        ]
+      : []
+
+  const fallbackNames = normalizedGaps.length
+    ? normalizedGaps
     : ['Business Understanding', 'Data Skill', 'Role Competency', 'Communication', 'Execution']
   const fallbackIndicators =
     radarIndicators.length > 0
       ? radarIndicators
+      : derivedIndicators.length > 0
+        ? derivedIndicators
       : fallbackNames.map((name) => ({
           name,
           max: 100
@@ -247,6 +357,8 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
   const fallbackSeries =
     radarSeries.length > 0
       ? radarSeries
+      : derivedSeries.length > 0
+        ? derivedSeries
       : [
           {
             name: 'Candidate',
@@ -259,30 +371,109 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
         ]
 
   return {
-    matchScore: toNumber(getByKeys(record, ['match_score', 'matchScore', 'score']), 0),
+    matchScore: toNumber(getByKeys(payload, ['match_score', 'matchScore', 'score', 'overall_score', 'match']), 0),
     radarIndicators: fallbackIndicators,
     radarSeries: fallbackSeries,
     strengths,
-    gaps,
-    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? null
+    gaps: normalizedGaps,
+    reportId: toOptionalNumber(getByKeys(payload, ['report_id', 'reportId'])) ?? null
   }
 }
 
 const normalizeGraph = (source: unknown): PathGraphResult => {
-  const record = isRecord(source) ? source : {}
-  const nodes = pickRecordList(record, ['nodes', 'vertexes', 'data']).map((node, index) => ({
+  const record = pickPayloadRecord(source)
+
+  const centerRaw = getByKeys(record, ['center'])
+  const verticalRaw = asArray(getByKeys(record, ['vertical']))
+  const lateralRaw = asArray(getByKeys(record, ['lateral']))
+  const hasCenterStylePayload = isRecord(centerRaw) || verticalRaw.length > 0 || lateralRaw.length > 0
+
+  if (hasCenterStylePayload) {
+    const center = isRecord(centerRaw) ? centerRaw : {}
+    const centerId = toStringSafe(getByKeys(center, ['id', 'job_id']), 'center')
+    const centerLabel = toStringSafe(getByKeys(center, ['name', 'label', 'title']), '目标岗位')
+
+    const centerNode: PathGraphNode = {
+      id: centerId,
+      label: centerLabel,
+      x: 80,
+      y: 280,
+      type: 'target'
+    }
+
+    const verticalNodes = verticalRaw
+      .filter(isRecord)
+      .map((item, index) => ({
+        id: toStringSafe(getByKeys(item, ['id', 'job_id']), `vertical-${index}`),
+        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `纵向岗位 ${index + 1}`),
+        x: 80,
+        y: 80 + index * 100,
+        type: 'vertical' as const
+      }))
+
+    const lateralNodes = lateralRaw
+      .filter(isRecord)
+      .map((item, index) => ({
+        id: toStringSafe(getByKeys(item, ['id', 'job_id']), `lateral-${index}`),
+        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `横向岗位 ${index + 1}`),
+        x: 320,
+        y: 180 + index * 100,
+        type: 'horizontal' as const
+      }))
+
+    const allNodes = [centerNode, ...verticalNodes, ...lateralNodes]
+    const edges: PathGraphEdge[] = [
+      ...verticalNodes.map((node) => ({
+        source: node.id,
+        target: centerNode.id,
+        type: 'vertical' as const
+      })),
+      ...lateralNodes.map((node) => ({
+        source: centerNode.id,
+        target: node.id,
+        type: 'horizontal' as const
+      }))
+    ]
+
+    return {
+      nodes: allNodes.filter((item) => item.id && item.label),
+      edges
+    }
+  }
+
+  const nodeCandidates = pickRecordList(record, ['nodes', 'vertexes', 'vertices', 'data', 'positions', 'jobs'])
+  const edgeCandidates = pickRecordList(record, ['edges', 'links', 'relations', 'connections', 'paths'])
+
+  const nodes = nodeCandidates.map((node, index) => ({
     id: toStringSafe(getByKeys(node, ['id', 'node_id']), `node-${index}`),
     label: toStringSafe(getByKeys(node, ['label', 'name', 'title']), `Node ${index + 1}`),
     x: toOptionalNumber(getByKeys(node, ['x', 'posX'])),
     y: toOptionalNumber(getByKeys(node, ['y', 'posY'])),
     type: toStringSafe(getByKeys(node, ['type']), '') as PathGraphNode['type']
   }))
-  const edges = pickRecordList(record, ['edges', 'links']).map((edge) => ({
-    source: toStringSafe(getByKeys(edge, ['source', 'from']), ''),
-    target: toStringSafe(getByKeys(edge, ['target', 'to']), ''),
+
+  const edges = edgeCandidates.map((edge) => ({
+    source: toStringSafe(getByKeys(edge, ['source', 'from', 'start', 'from_id', 'source_id']), ''),
+    target: toStringSafe(getByKeys(edge, ['target', 'to', 'end', 'to_id', 'target_id']), ''),
     label: toStringSafe(getByKeys(edge, ['label', 'name']), '') || undefined,
     type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type']
   }))
+
+  if (nodes.length === 0 && edges.length > 0) {
+    const uniqueIds = [...new Set(edges.flatMap((edge) => [edge.source, edge.target]).filter(Boolean))]
+    const derivedNodes = uniqueIds.map((id, index) => ({
+      id,
+      label: id,
+      x: index % 2 === 0 ? 60 : 260,
+      y: 60 + Math.floor(index / 2) * 100,
+      type: (index === uniqueIds.length - 1 ? 'target' : 'vertical') as PathGraphNode['type']
+    }))
+
+    return {
+      nodes: derivedNodes,
+      edges: edges.filter((item) => item.source && item.target)
+    }
+  }
 
   return {
     nodes: nodes.filter((item) => item.id && item.label),
@@ -432,10 +623,11 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
     }
   })
 
-  const record = isRecord(response) ? response : {}
+  const record = pickPayloadRecord(response)
   return {
     reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? null,
-    content: toStringSafe(getByKeys(record, ['content', 'report', 'text']), '')
+    content: extractContent(record),
+    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
   }
 }
 
@@ -444,10 +636,11 @@ export const fetchReport = async (reportId: number): Promise<ReportDocument> => 
     url: `/reports/${reportId}`,
     method: 'GET'
   })
-  const record = isRecord(response) ? response : {}
+  const record = pickPayloadRecord(response)
   return {
     reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
-    content: toStringSafe(getByKeys(record, ['content', 'report', 'text']), '')
+    content: extractContent(record),
+    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
   }
 }
 
@@ -510,7 +703,23 @@ export const fetchRecommendations = async (gap = ''): Promise<string[]> => {
   })
 
   if (Array.isArray(response)) {
-    return response.map((item) => toStringSafe(item)).filter(Boolean)
+    return response
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item
+        }
+        if (!isRecord(item)) {
+          return ''
+        }
+        const title = toStringSafe(getByKeys(item, ['title', 'name', 'item']), '')
+        const url = toStringSafe(getByKeys(item, ['url', 'link']), '')
+        const suggestion = toStringSafe(getByKeys(item, ['suggestion', 'desc', 'description']), '')
+        if (title && url) {
+          return `${title}：${url}`
+        }
+        return title || suggestion
+      })
+      .filter(Boolean)
   }
 
   if (isRecord(response)) {

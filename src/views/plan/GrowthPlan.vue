@@ -66,24 +66,13 @@ const content = ref('')
 const checkTips = ref<string[]>([])
 const reportId = ref<number | null>(null)
 
-const resources = [
-  {
-    title: 'Coursera: 产品管理基础',
-    desc: '课程覆盖需求分析与产品规划，适合系统建立岗位知识体系。'
-  },
-  {
-    title: '《启示录》(Inspired)',
-    desc: '产品经理经典读物，帮助理解从洞察到落地的完整链路。'
-  },
-  {
-    title: 'Notion: 个人知识库模板',
-    desc: '高效组织和管理学习笔记与项目复盘。'
-  },
-  {
-    title: '人人都是产品经理 FM',
-    desc: '行业案例解析，适合碎片时间跟进岗位趋势。'
-  }
-]
+interface ResourceItem {
+  title: string
+  desc: string
+}
+
+const defaultResources: ResourceItem[] = []
+const resources = ref<ResourceItem[]>([...defaultResources])
 
 const handlePolish = async (value: string): Promise<void> => {
   if (!value.trim()) {
@@ -186,6 +175,38 @@ const resolveReportId = async (): Promise<number | null> => {
   return generated.reportId
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms))
+
+const fetchReportWithRetry = async (id: number): Promise<string> => {
+  for (let i = 0; i < 3; i += 1) {
+    const result = await fetchReport(id)
+    if (result.content.trim()) {
+      return result.content
+    }
+    if (i < 2) {
+      await sleep(800)
+    }
+  }
+  return ''
+}
+
+const loadResources = async (): Promise<void> => {
+  try {
+    const tips = await fetchRecommendations(analysisStore.gaps[0] ?? '')
+    if (!tips.length) {
+      resources.value = [...defaultResources]
+      return
+    }
+
+    resources.value = tips.slice(0, 6).map((tip, index) => ({
+      title: `学习建议 ${index + 1}`,
+      desc: tip
+    }))
+  } catch {
+    resources.value = [...defaultResources]
+  }
+}
+
 onMounted(async () => {
   try {
     loading.value = true
@@ -196,9 +217,28 @@ onMounted(async () => {
     }
 
     if (!content.value.trim()) {
-      const result = await fetchReport(reportId.value)
-      content.value = result.content || '<p>暂无成长计划内容，请点击内容检查获取建议。</p>'
+      content.value = await fetchReportWithRetry(reportId.value)
     }
+
+    if (!content.value.trim() && analysisStore.studentId && analysisStore.jobId) {
+      const generated = await generateReport({
+        studentId: analysisStore.studentId,
+        jobId: analysisStore.jobId,
+        userId: userStore.profile?.id ?? 'default'
+      })
+      if (generated.reportId) {
+        reportId.value = generated.reportId
+        analysisStore.setContext({ reportId: generated.reportId })
+        historyStore.setLastViewedReport(String(generated.reportId))
+      }
+      content.value = generated.content || ''
+    }
+
+    if (!content.value.trim()) {
+      content.value = '<p>暂无成长计划内容，请点击内容检查获取建议。</p>'
+    }
+
+    await loadResources()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载成长计划失败'
   } finally {
