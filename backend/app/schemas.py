@@ -1,4 +1,6 @@
-﻿from pydantic import BaseModel, Field
+﻿from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class ProfileUploadRequest(BaseModel):
@@ -25,3 +27,15 @@ class ReportGenerateRequest(BaseModel):
 class ReportPolishRequest(BaseModel):
     paragraph_index: int = 0
     text: str
+
+
+class StudentUploadResponseData(BaseModel):
+    student_id: int
+    student_name: str
+    profile: dict[str, Any]
+
+
+class StudentUploadResponse(BaseModel):
+    code: int
+    msg: str
+    data: StudentUploadResponseData

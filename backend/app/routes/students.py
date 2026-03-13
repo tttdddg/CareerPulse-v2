@@ -8,7 +8,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from openai import AsyncOpenAI
 
-from ..schemas import ProfileUploadRequest
+from ..schemas import ProfileUploadRequest, StudentUploadResponse
 from ..services.resume_service import extract_all_content, parse_llm_json
 from ..services.student_service import get_student_profile, save_resume_profile
 
@@ -61,7 +61,7 @@ def get_student_profile_api(student_id: int):
         raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/student/upload/resume")
+@router.post("/student/upload/resume", response_model=StudentUploadResponse)
 async def upload_resume(file: UploadFile = File(...)):
     """Upload resume file and parse to structured student profile."""
     allowed_types = [".txt", ".pdf", ".docx", ".png", ".jpg", ".jpeg"]
@@ -89,15 +89,21 @@ async def upload_resume(file: UploadFile = File(...)):
         )
         data = parse_llm_json(response.choices[0].message.content)
         student_name = data.get("name") or "未知"
-        save_resume_profile(student_name=student_name, parsed_data=data)
-        return JSONResponse(content={"code": 1, "msg": "success", "data": data})
+        student_id = save_resume_profile(student_name=student_name, parsed_data=data)
+        return JSONResponse(
+            content={
+                "code": 1,
+                "msg": "success",
+                "data": {"student_id": student_id, "student_name": student_name, "profile": data},
+            }
+        )
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析请求失败: {str(e)}")
 
 
-@router.post("/student/upload/profile")
+@router.post("/student/upload/profile", response_model=StudentUploadResponse)
 async def upload_profile(profile: ProfileUploadRequest):
     """Upload manually entered profile text fields and parse to structured JSON."""
     if not any([
@@ -129,8 +135,14 @@ async def upload_profile(profile: ProfileUploadRequest):
             data["name"] = profile.name
 
         student_name = data.get("name") or profile.name or "未知"
-        save_resume_profile(student_name=student_name, parsed_data=data)
-        return JSONResponse(content={"code": 1, "msg": "success", "data": data})
+        student_id = save_resume_profile(student_name=student_name, parsed_data=data)
+        return JSONResponse(
+            content={
+                "code": 1,
+                "msg": "success",
+                "data": {"student_id": student_id, "student_name": student_name, "profile": data},
+            }
+        )
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
