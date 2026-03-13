@@ -124,7 +124,19 @@ const form = reactive({
   selfEvaluation: ''
 })
 
-const canStartAnalysis = computed(() => Boolean(form.skills.trim() && form.targetRole.trim()))
+const hasManualProfileInput = computed(() =>
+  Boolean(
+    form.role.trim() ||
+      form.skills.trim() ||
+      form.certificates.trim() ||
+      form.experience.trim() ||
+      form.selfEvaluation.trim()
+  )
+)
+
+const hasResumeSource = computed(() => uploadedStudentId.value !== null)
+
+const canStartAnalysis = computed(() => Boolean(form.targetRole.trim() && (hasManualProfileInput.value || hasResumeSource.value)))
 
 const handleUploadError = (message: string): void => {
   errorMessage.value = message
@@ -155,8 +167,13 @@ const handleResumeUpload = async (payload: { file: File }): Promise<void> => {
 const handleStartAnalysis = async (): Promise<void> => {
   errorMessage.value = ''
 
-  if (!form.skills || !form.targetRole) {
-    errorMessage.value = '请完善技能与目标岗位信息'
+  if (!form.targetRole.trim()) {
+    errorMessage.value = '请填写目标岗位'
+    return
+  }
+
+  if (!hasManualProfileInput.value && !hasResumeSource.value) {
+    errorMessage.value = '请至少填写一项个人信息或上传简历'
     return
   }
 
@@ -177,14 +194,18 @@ const handleStartAnalysis = async (): Promise<void> => {
       throw new Error('未查询到可分析的目标岗位，请调整岗位关键词后重试')
     }
 
-    const profile = await uploadStudentProfile({
-      name: form.role || undefined,
-      skills: form.skills,
-      certificates: form.certificates,
-      internships: form.experience,
-      selfEvaluation: form.selfEvaluation
-    })
-    const studentId = profile.studentId ?? uploadedStudentId.value
+    let studentId = uploadedStudentId.value
+    if (hasManualProfileInput.value || !studentId) {
+      const profile = await uploadStudentProfile({
+        name: form.role || undefined,
+        skills: form.skills,
+        certificates: form.certificates,
+        internships: form.experience,
+        selfEvaluation: form.selfEvaluation
+      })
+      studentId = profile.studentId ?? studentId
+    }
+
     if (!studentId) {
       throw new Error('后端未返回 student_id，无法发起匹配分析，请让后端在上传接口返回 student_id。')
     }

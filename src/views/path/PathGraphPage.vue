@@ -108,6 +108,11 @@ const reloadGraph = async (): Promise<void> => {
     loading.value = true
     const data = await fetchJobGraph(analysisStore.jobId)
     graphData.value = data
+    if (!data.nodes.length || !data.edges.length) {
+      errorMessage.value = '后端暂未返回完整图谱数据，当前展示默认路径示意图'
+    } else {
+      errorMessage.value = ''
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '路径图谱加载失败'
   } finally {

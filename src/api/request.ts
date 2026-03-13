@@ -8,7 +8,9 @@ import axios, {
 import { useUserStore } from '../stores/user'
 
 export interface ApiResponse<T> {
-  code: number
+  code?: number | string
+  status?: number | string
+  success?: boolean
   message?: string
   msg?: string
   data: T
@@ -60,7 +62,26 @@ const isApiResponse = <T>(value: unknown): value is ApiResponse<T> => {
   }
 
   const record = value as Record<string, unknown>
-  return typeof record.code === 'number' && 'data' in record
+  return 'data' in record && ('code' in record || 'status' in record || 'success' in record)
+}
+
+const parseNumericCode = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+const isSuccessCode = (value: unknown): boolean | null => {
+  const parsed = parseNumericCode(value)
+  if (parsed === null) {
+    return null
+  }
+  return parsed === 0 || parsed === 1 || parsed === 200
 }
 
 const normalizeError = (error: unknown): ApiError => {
@@ -110,9 +131,16 @@ instance.interceptors.response.use(
   (response: AxiosResponse) => {
     const data = response.data
     if (isApiResponse<unknown>(data)) {
-      const success = data.code === 0 || data.code === 1 || data.code === 200
+      const successByFlag = typeof data.success === 'boolean' ? data.success : null
+      const successByCode = isSuccessCode(data.code)
+      const successByStatus = isSuccessCode(data.status)
+      const success = successByFlag ?? successByCode ?? successByStatus ?? true
       if (!success) {
-        throw new ApiError(data.message ?? data.msg ?? 'Request failed', data.code, response.status)
+        throw new ApiError(
+          data.message ?? data.msg ?? 'Request failed',
+          parseNumericCode(data.code ?? data.status) ?? undefined,
+          response.status
+        )
       }
       return data.data
     }

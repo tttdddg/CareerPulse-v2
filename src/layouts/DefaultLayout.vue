@@ -11,11 +11,11 @@
         </el-menu-item>
         <el-menu-item index="/app/analysis">
           <el-icon><TrendCharts /></el-icon>
-          <span>职业分析</span>
+          <span>岗位匹配</span>
         </el-menu-item>
         <el-menu-item index="/app/path">
           <el-icon><Share /></el-icon>
-          <span>岗位匹配</span>
+          <span>职业分析</span>
         </el-menu-item>
         <el-menu-item index="/app/plan">
           <el-icon><DocumentChecked /></el-icon>

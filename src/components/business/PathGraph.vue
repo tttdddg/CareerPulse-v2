@@ -123,7 +123,10 @@ const renderGraph = (): void => {
 
   graph.clearCells()
 
-  const { nodes, edges } = props.nodes && props.edges ? { nodes: props.nodes, edges: props.edges } : getDefaultData()
+  const hasRemoteGraph = Boolean((props.nodes?.length ?? 0) > 0 || (props.edges?.length ?? 0) > 0)
+  const { nodes, edges } = hasRemoteGraph
+    ? { nodes: props.nodes as PathNode[], edges: props.edges as PathEdge[] }
+    : getDefaultData()
 
   nodes.forEach((node) => {
     const style = getNodeStyle(node.type)
