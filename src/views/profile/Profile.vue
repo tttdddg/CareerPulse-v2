@@ -38,12 +38,23 @@
         <el-card class="panel report-panel" v-loading="loading">
           <div class="report-title">历史报告</div>
           <el-empty v-if="!historyStore.reports.length" description="暂无历史报告，先去数据输入中心发起分析" />
-          <article v-for="report in historyStore.reports" :key="report.id" class="report-item">
-            <h3>岗位: {{ report.title.replace('匹配报告', '') }}</h3>
+          <article
+            v-for="report in historyStore.reports"
+            :key="report.id"
+            class="report-item"
+            role="button"
+            tabindex="0"
+            @click="openReportDetail(report.id)"
+            @keyup.enter="openReportDetail(report.id)"
+          >
+            <h3>岗位: {{ formatReportRole(report.title) }}</h3>
             <p>日期: {{ report.createdAt }}</p>
             <p>Match Score: {{ report.score }}% (匹配分)</p>
             <div class="score-bar">
               <span :style="{ width: `${report.score}%` }"></span>
+            </div>
+            <div class="report-item-actions">
+              <el-button type="primary" text @click.stop="openReportDetail(report.id)">查看详情</el-button>
             </div>
           </article>
         </el-card>
@@ -54,6 +65,24 @@
         </el-card>
       </section>
     </section>
+
+    <el-dialog v-model="detailVisible" title="历史报告详情" width="560px">
+      <el-alert v-if="detailErrorMessage" type="warning" :title="detailErrorMessage" show-icon class="detail-error" />
+      <div v-loading="detailLoading" class="detail-body">
+        <template v-if="activeReport">
+          <h4 class="detail-role">岗位: {{ formatReportRole(activeReport.title) }}</h4>
+          <p><strong>报告编号:</strong> {{ activeReport.id }}</p>
+          <p><strong>生成日期:</strong> {{ activeReport.createdAt }}</p>
+          <p><strong>匹配分:</strong> {{ activeReport.score }}%</p>
+          <div class="detail-tags">
+            <strong>标签:</strong>
+            <el-tag v-for="tag in activeReport.tags" :key="tag" size="small" effect="plain" class="tag-item">{{ tag }}</el-tag>
+            <span v-if="!activeReport.tags.length" class="tag-empty">暂无标签</span>
+          </div>
+        </template>
+        <el-empty v-else description="暂无详情数据" />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -64,7 +93,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
 import { fetchUserHistories } from '../../api/modules/career'
-import { fetchGrowthSeries, fetchHistorySummary } from '../../api/modules/history'
+import { fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -73,6 +102,10 @@ const analysisStore = useAnalysisStore()
 
 const loading = ref(false)
 const errorMessage = ref('')
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailErrorMessage = ref('')
+const activeReport = ref<ReportSummary | null>(null)
 
 const profileEmail = computed(() => {
   const name = userStore.profile?.name?.trim() || 'user'
@@ -104,6 +137,27 @@ const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummar
   })
 
   return Array.from(reportMap.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+}
+
+const formatReportRole = (title: string): string => title.replace('匹配报告', '').trim()
+
+const openReportDetail = async (reportId: string): Promise<void> => {
+  detailVisible.value = true
+  detailLoading.value = true
+  detailErrorMessage.value = ''
+  historyStore.setLastViewedReport(reportId)
+
+  const localReport = historyStore.reports.find((report) => report.id === reportId) ?? null
+  activeReport.value = localReport
+
+  try {
+    const detail = await fetchReportDetail(reportId)
+    activeReport.value = detail
+  } catch (error) {
+    detailErrorMessage.value = error instanceof Error ? `详情加载失败，已展示本地数据：${error.message}` : '详情加载失败，已展示本地数据'
+  } finally {
+    detailLoading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -232,6 +286,14 @@ onMounted(async () => {
   border-radius: 12px;
   padding: 14px;
   margin-bottom: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.report-item:hover,
+.report-item:focus-visible {
+  border-color: #7892ff;
+  box-shadow: 0 10px 24px rgba(59, 93, 201, 0.12);
 }
 
 .report-item h3 {
@@ -258,6 +320,41 @@ onMounted(async () => {
   height: 100%;
   border-radius: inherit;
   background: linear-gradient(90deg, #4d6df2 0%, #a55de4 100%);
+}
+
+.report-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.detail-error {
+  margin-bottom: 12px;
+}
+
+.detail-body {
+  min-height: 180px;
+}
+
+.detail-role {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.detail-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-item {
+  margin-right: 0;
+}
+
+.tag-empty {
+  color: #7b8396;
+  font-size: 13px;
 }
 
 .curve-panel h3 {
