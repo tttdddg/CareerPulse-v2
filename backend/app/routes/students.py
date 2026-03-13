@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
@@ -15,11 +16,14 @@ from ..services.student_service import get_student_profile, save_resume_profile
 router = APIRouter()
 
 
-client = AsyncOpenAI(
-    # api_key=os.environ.get("DEEPSEEK_API_KEY"),
-    api_key="sk-cd8d792d6874441188c983a81c4b5d84",
-    base_url="https://api.deepseek.com",
-)
+def _get_llm_client() -> AsyncOpenAI:
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY 环境变量")
+    return AsyncOpenAI(
+        api_key=api_key,
+        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+    )
 
 
 def _build_resume_messages(text: str):
@@ -80,8 +84,9 @@ async def upload_resume(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"文件处理失败: {str(e)}")
 
     try:
+        client = _get_llm_client()
         response = await client.chat.completions.create(
-            model="deepseek-chat",
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
             messages=_build_resume_messages(text),
             temperature=0.3,
             max_tokens=1500,
@@ -122,8 +127,9 @@ async def upload_profile(profile: ProfileUploadRequest):
     )
 
     try:
+        client = _get_llm_client()
         response = await client.chat.completions.create(
-            model="deepseek-chat",
+            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
             messages=_build_manual_profile_messages(user_text),
             temperature=0.3,
             max_tokens=1500,
@@ -147,4 +153,3 @@ async def upload_profile(profile: ProfileUploadRequest):
         raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析请求失败: {str(e)}")
-
