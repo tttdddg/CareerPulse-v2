@@ -2,7 +2,7 @@
   <el-container class="app-shell">
     <el-aside width="240px" class="sidebar">
       <div class="brand">
-        <span class="brand-text">AI Career Planner</span>
+        <img :src="brandLogo" alt="Logo" class="brand-logo" />
       </div>
       <el-menu :default-active="activeMenu" router class="nav-menu">
         <el-menu-item index="/app/input">
@@ -46,6 +46,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import brandLogo from '@/assets/logoo.png'
 import {
   EditPen,
   TrendCharts,
@@ -81,12 +82,21 @@ const activeMenu = computed(() => route.path)
 }
 
 .brand {
-  height: 74px;
+  height: 78px;
   display: flex;
   align-items: center;
-  padding: 0 18px;
-  background: linear-gradient(135deg, #5d68e8 0%, #7b52ef 100%);
-  border-bottom: 1px solid #8f87f5;
+  padding: 0 16px;
+  background: linear-gradient(135deg, #5a74e8 0%, #6570ea 100%);
+  border-bottom: 1px solid #8496ef;
+}
+
+.brand-logo {
+  height: 520px;
+  width: auto;
+  max-width: 100%;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 4px 10px rgba(35, 62, 170, 0.2));
 }
 
 .brand-text {

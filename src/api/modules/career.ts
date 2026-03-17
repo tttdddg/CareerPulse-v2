@@ -574,6 +574,7 @@ export const uploadStudentProfile = async (
   const response = await request<unknown>({
     url: '/student/upload/profile',
     method: 'POST',
+    skipAuth: true,
     data: {
       name: payload.name,
       skills: payload.skills,
@@ -601,6 +602,7 @@ export const matchingAnalyze = async (payload: MatchingAnalyzePayload): Promise<
   const response = await request<unknown>({
     url: '/matching/analyze',
     method: 'POST',
+    skipAuth: true,
     data: {
       student_id: payload.studentId,
       job_id: payload.jobId,

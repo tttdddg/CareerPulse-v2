@@ -39,14 +39,7 @@
       </section>
 
       <section class="hero-visual" aria-label="career visual card">
-        <div class="visual-head">AI Career Roadmap</div>
-        <div class="roadmap-list">
-          <span>阶段 1 目标定位</span>
-          <span>阶段 2 能力提升</span>
-          <span>阶段 3 岗位匹配</span>
-          <span>阶段 4 高薪就业</span>
-        </div>
-        <div class="person-shape"></div>
+        <img :src="Airi" alt="AI Career Roadmap" class="airi-image">
       </section>
     </main>
 
@@ -71,7 +64,9 @@
   </div>
 </template>
 
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import Airi from '@/assets/Airi.png'
+</script>
 
 <style scoped>
 .landing-page {
@@ -244,6 +239,15 @@
   box-shadow: 0 28px 60px rgba(91, 79, 224, 0.28);
 }
 
+.airi-image {
+  width: min(86%, 430px);
+  max-height: 460px;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto;
+}
+
 .visual-head {
   color: #f4f7ff;
   font-size: 32px;
@@ -320,6 +324,11 @@
   .hero-wrap {
     grid-template-columns: 1fr;
     padding-top: 30px;
+  }
+
+  .airi-image {
+    width: min(80%, 340px);
+    max-height: 360px;
   }
 
   .hero-copy h1 {
