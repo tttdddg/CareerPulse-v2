@@ -88,6 +88,9 @@ const normalizeError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
     const axiosError = error as AxiosError<{ message?: string; msg?: string; code?: number }>
     const status = axiosError.response?.status
+    if (axiosError.code === 'ECONNABORTED' || axiosError.message.toLowerCase().includes('timeout')) {
+      return new ApiError('请求超时，请稍后重试（后端响应超过等待时间）', undefined, status)
+    }
     const message =
       axiosError.response?.data?.message ??
       axiosError.response?.data?.msg ??

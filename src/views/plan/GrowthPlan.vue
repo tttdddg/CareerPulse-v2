@@ -212,7 +212,14 @@ onMounted(async () => {
     loading.value = true
     reportId.value = await resolveReportId()
     if (!reportId.value) {
-      errorMessage.value = '暂无可用报告，请先在数据输入中心完成分析'
+      errorMessage.value = '暂无可用报告，已为你加载默认成长规划模板，可先编辑后保存'
+      content.value = [
+        '<h3>职业成长规划（模板）</h3>',
+        '<p><strong>阶段目标（1-3 个月）：</strong>明确目标岗位核心能力模型，完成差距盘点。</p>',
+        '<p><strong>行动计划：</strong>每周学习 2 个知识点，完成 1 个项目实践并复盘。</p>',
+        '<p><strong>评估方式：</strong>以作品质量、面试反馈和阶段测评结果作为迭代依据。</p>'
+      ].join('')
+      await loadResources()
       return
     }
 
