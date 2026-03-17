@@ -55,6 +55,14 @@
             </div>
             <div class="report-item-actions">
               <el-button type="primary" text @click.stop="openReportDetail(report.id)">查看详情</el-button>
+              <el-button
+                type="danger"
+                text
+                :loading="deletingReportId === report.id"
+                @click.stop="handleDeleteReport(report.id)"
+              >
+                删除
+              </el-button>
             </div>
           </article>
         </el-card>
@@ -67,7 +75,6 @@
     </section>
 
     <el-dialog v-model="detailVisible" title="历史报告详情" width="560px">
-      <el-alert v-if="detailErrorMessage" type="warning" :title="detailErrorMessage" show-icon class="detail-error" />
       <div v-loading="detailLoading" class="detail-body">
         <template v-if="activeReport">
           <h4 class="detail-role">岗位: {{ formatReportRole(activeReport.title) }}</h4>
@@ -88,6 +95,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
@@ -104,8 +112,8 @@ const loading = ref(false)
 const errorMessage = ref('')
 const detailVisible = ref(false)
 const detailLoading = ref(false)
-const detailErrorMessage = ref('')
 const activeReport = ref<ReportSummary | null>(null)
+const deletingReportId = ref<string | null>(null)
 
 const profileEmail = computed(() => {
   const name = userStore.profile?.name?.trim() || 'user'
@@ -113,6 +121,11 @@ const profileEmail = computed(() => {
 })
 
 const memberSince = computed(() => historyStore.reports[0]?.createdAt ?? new Date().toISOString().slice(0, 10))
+
+const normalizeGrowthInput = (
+  points: { date: string; value: number; label?: string }[]
+): { date: string; value: number; label?: string }[] =>
+  points.filter((point) => typeof point.date === 'string' && point.date.trim().length > 0 && Number.isFinite(point.value))
 
 const growthSeries = computed(() => [
   {
@@ -141,10 +154,33 @@ const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummar
 
 const formatReportRole = (title: string): string => title.replace('匹配报告', '').trim()
 
+const handleDeleteReport = async (reportId: string): Promise<void> => {
+  const target = historyStore.reports.find((report) => report.id === reportId)
+  const roleName = target ? formatReportRole(target.title) : reportId
+  try {
+    await ElMessageBox.confirm(`确认删除「${roleName}」历史报告吗？`, '删除确认', {
+      type: 'warning',
+      confirmButtonText: '删除',
+      cancelButtonText: '取消'
+    })
+  } catch {
+    return
+  }
+
+  deletingReportId.value = reportId
+  historyStore.removeReport(reportId)
+  if (activeReport.value?.id === reportId) {
+    activeReport.value = null
+    detailVisible.value = false
+  }
+
+  ElMessage.success('历史报告已删除')
+  deletingReportId.value = null
+}
+
 const openReportDetail = async (reportId: string): Promise<void> => {
   detailVisible.value = true
   detailLoading.value = true
-  detailErrorMessage.value = ''
   historyStore.setLastViewedReport(reportId)
 
   const localReport = historyStore.reports.find((report) => report.id === reportId) ?? null
@@ -153,8 +189,8 @@ const openReportDetail = async (reportId: string): Promise<void> => {
   try {
     const detail = await fetchReportDetail(reportId)
     activeReport.value = detail
-  } catch (error) {
-    detailErrorMessage.value = error instanceof Error ? `详情加载失败，已展示本地数据：${error.message}` : '详情加载失败，已展示本地数据'
+  } catch {
+    // 静默降级到本地缓存数据，避免打断阅读体验
   } finally {
     detailLoading.value = false
   }
@@ -165,7 +201,7 @@ onMounted(async () => {
 
   const applyHistoryData = (reports: ReportSummary[], growth: { date: string; value: number; label?: string }[]): void => {
     historyStore.setReports(mergeReports(localReports, reports))
-    historyStore.setGrowthSeries(growth)
+    historyStore.setGrowthSeries(normalizeGrowthInput(growth))
   }
 
   try {
@@ -325,6 +361,7 @@ onMounted(async () => {
 .report-item-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
   margin-top: 8px;
 }
 

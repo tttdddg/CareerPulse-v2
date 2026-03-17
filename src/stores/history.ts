@@ -20,13 +20,15 @@ export interface HistoryState {
   reports: ReportSummary[]
   growthSeries: GrowthPoint[]
   lastViewedReportId: string | null
+  deletedReportIds: string[]
 }
 
 export const useHistoryStore = defineStore('history', {
   state: (): HistoryState => ({
     reports: [],
     growthSeries: [],
-    lastViewedReportId: null
+    lastViewedReportId: null,
+    deletedReportIds: []
   }),
   getters: {
     latestReport: (state): ReportSummary | null => state.reports[0] ?? null
@@ -34,12 +36,16 @@ export const useHistoryStore = defineStore('history', {
   actions: {
     // 设置历史报告列表
     setReports(reports: ReportSummary[]): void {
-      this.reports = reports
-      this.lastViewedReportId = reports[0]?.id ?? null
+      const nextReports = reports.filter((report) => !this.deletedReportIds.includes(report.id))
+      this.reports = nextReports
+      this.lastViewedReportId = nextReports[0]?.id ?? null
     },
 
     // 追加单条报告
     addReport(report: ReportSummary): void {
+      if (this.deletedReportIds.includes(report.id)) {
+        return
+      }
       this.reports = [report, ...this.reports]
       this.lastViewedReportId = report.id
     },
@@ -52,6 +58,17 @@ export const useHistoryStore = defineStore('history', {
     // 更新最后查看的报告
     setLastViewedReport(reportId: string | null): void {
       this.lastViewedReportId = reportId
+    },
+
+    // 删除单条历史报告
+    removeReport(reportId: string): void {
+      if (!this.deletedReportIds.includes(reportId)) {
+        this.deletedReportIds = [...this.deletedReportIds, reportId]
+      }
+      this.reports = this.reports.filter((report) => report.id !== reportId)
+      if (this.lastViewedReportId === reportId) {
+        this.lastViewedReportId = this.reports[0]?.id ?? null
+      }
     }
   }
 })

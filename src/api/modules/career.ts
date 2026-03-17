@@ -221,9 +221,62 @@ const extractContent = (source: unknown): string => {
     return ''
   }
 
-  const direct = getByKeys(source, ['content', 'text', 'markdown', 'plan'])
+  const sectionToHtml = (value: unknown): string => {
+    if (!isRecord(value)) {
+      return ''
+    }
+    const sectionTitle = toStringSafe(getByKeys(value, ['title', 'name']), '').trim()
+    const sectionContent = toStringSafe(getByKeys(value, ['content', 'text', 'desc', 'description']), '').trim()
+    if (!sectionTitle && !sectionContent) {
+      return ''
+    }
+    if (sectionTitle && sectionContent) {
+      return `<h3>${sectionTitle}</h3><p>${sectionContent}</p>`
+    }
+    if (sectionTitle) {
+      return `<h3>${sectionTitle}</h3>`
+    }
+    return `<p>${sectionContent}</p>`
+  }
+
+  const renderStructuredContent = (value: UnknownRecord): string => {
+    const title = toStringSafe(getByKeys(value, ['title', 'name']), '').trim()
+    const intro = toStringSafe(getByKeys(value, ['content', 'text', 'summary']), '').trim()
+    const sections = asArray(getByKeys(value, ['sections', 'items', 'chapters'])).map(sectionToHtml).filter(Boolean)
+
+    const chunks: string[] = []
+    if (title) {
+      chunks.push(`<h2>${title}</h2>`)
+    }
+    if (intro) {
+      chunks.push(`<p>${intro}</p>`)
+    }
+    if (sections.length) {
+      chunks.push(sections.join(''))
+    }
+    return chunks.join('')
+  }
+
+  const direct = getByKeys(source, [
+    'content',
+    'text',
+    'markdown',
+    'plan',
+    'report_content',
+    'reportContent',
+    'body',
+    'detail',
+    'html',
+    'article'
+  ])
   if (typeof direct === 'string' && direct.trim()) {
     return direct
+  }
+  if (isRecord(direct)) {
+    const rendered = renderStructuredContent(direct)
+    if (rendered) {
+      return rendered
+    }
   }
 
   const nestedKeys = ['report', 'data', 'result', 'payload']
