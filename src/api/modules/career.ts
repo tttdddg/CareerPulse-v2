@@ -574,6 +574,7 @@ export const uploadStudentProfile = async (
   const response = await request<unknown>({
     url: '/student/upload/profile',
     method: 'POST',
+    skipAuth: true,
     data: {
       name: payload.name,
       skills: payload.skills,
@@ -601,6 +602,8 @@ export const matchingAnalyze = async (payload: MatchingAnalyzePayload): Promise<
   const response = await request<unknown>({
     url: '/matching/analyze',
     method: 'POST',
+    skipAuth: true,
+    timeout: 45000,
     data: {
       student_id: payload.studentId,
       job_id: payload.jobId,
@@ -615,6 +618,8 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
   const response = await request<unknown>({
     url: '/reports/generate',
     method: 'POST',
+    skipAuth: true,
+    timeout: 45000,
     data: {
       student_id: payload.studentId,
       job_id: payload.jobId,
@@ -634,7 +639,9 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
 export const fetchReport = async (reportId: number): Promise<ReportDocument> => {
   const response = await request<unknown>({
     url: `/reports/${reportId}`,
-    method: 'GET'
+    method: 'GET',
+    skipAuth: true,
+    timeout: 30000
   })
   const record = pickPayloadRecord(response)
   return {

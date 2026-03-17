@@ -195,7 +195,8 @@ const handleStartAnalysis = async (): Promise<void> => {
     }
 
     let studentId = uploadedStudentId.value
-    if (hasManualProfileInput.value || !studentId) {
+    // 如果简历解析已返回 studentId，直接复用，避免再次上传资料导致流程中断。
+    if (!studentId && hasManualProfileInput.value) {
       const profile = await uploadStudentProfile({
         name: form.role || undefined,
         skills: form.skills,
