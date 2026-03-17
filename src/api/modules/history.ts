@@ -19,6 +19,54 @@ export interface HistorySummaryResult {
   growth: GrowthPoint[]
 }
 
+type UnknownRecord = Record<string, unknown>
+
+const isRecord = (value: unknown): value is UnknownRecord =>
+  typeof value === 'object' && value !== null
+
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value.replace(/%/g, '').trim())
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return fallback
+}
+
+const toStringSafe = (value: unknown, fallback = ''): string =>
+  typeof value === 'string' ? value : fallback
+
+const normalizeGrowthPoint = (input: unknown): GrowthPoint | null => {
+  if (!isRecord(input)) {
+    return null
+  }
+
+  const date = toStringSafe(input.date ?? input.x ?? input.month, '').trim()
+  const value = toNumber(input.value ?? input.score ?? input.y, Number.NaN)
+
+  if (!date || !Number.isFinite(value)) {
+    return null
+  }
+
+  return {
+    date,
+    value,
+    label: toStringSafe(input.label, '') || undefined
+  }
+}
+
+const normalizeGrowthSeries = (input: unknown): GrowthPoint[] => {
+  if (!Array.isArray(input)) {
+    return []
+  }
+
+  return input.map(normalizeGrowthPoint).filter((item): item is GrowthPoint => item !== null)
+}
+
 export const fetchHistorySummary = (): Promise<HistorySummaryResult> =>
   request<HistorySummaryResult>({
     url: '/history/summary',
@@ -32,7 +80,13 @@ export const fetchReportDetail = (reportId: string): Promise<ReportSummary> =>
   })
 
 export const fetchGrowthSeries = (): Promise<GrowthPoint[]> =>
-  request<GrowthPoint[]>({
+  request<unknown>({
     url: '/history/growth',
     method: 'GET'
+  }).then(normalizeGrowthSeries)
+
+export const deleteHistoryReport = (reportId: string): Promise<void> =>
+  request<void>({
+    url: `/history/reports/${reportId}`,
+    method: 'DELETE'
   })

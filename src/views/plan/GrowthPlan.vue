@@ -74,8 +74,16 @@ interface ResourceItem {
 const defaultResources: ResourceItem[] = []
 const resources = ref<ResourceItem[]>([...defaultResources])
 
+const hasMeaningfulContent = (value: string): boolean => {
+  const plainText = value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, '')
+  return plainText.length > 0
+}
+
 const handlePolish = async (value: string): Promise<void> => {
-  if (!value.trim()) {
+  if (!hasMeaningfulContent(value)) {
     ElMessage.warning('请先填写成长计划内容再润色')
     return
   }
@@ -97,7 +105,7 @@ const handlePolish = async (value: string): Promise<void> => {
 }
 
 const handleCheck = async (): Promise<void> => {
-  if (!content.value.trim()) {
+  if (!hasMeaningfulContent(content.value)) {
     checkTips.value = ['先补充目标与行动计划，再进行内容检查']
     ElMessage.warning('暂无可检查内容')
     return
@@ -223,11 +231,11 @@ onMounted(async () => {
       return
     }
 
-    if (!content.value.trim()) {
+    if (!hasMeaningfulContent(content.value)) {
       content.value = await fetchReportWithRetry(reportId.value)
     }
 
-    if (!content.value.trim() && analysisStore.studentId && analysisStore.jobId) {
+    if (!hasMeaningfulContent(content.value) && analysisStore.studentId && analysisStore.jobId) {
       const generated = await generateReport({
         studentId: analysisStore.studentId,
         jobId: analysisStore.jobId,
@@ -241,7 +249,7 @@ onMounted(async () => {
       content.value = generated.content || ''
     }
 
-    if (!content.value.trim()) {
+    if (!hasMeaningfulContent(content.value)) {
       content.value = '<p>暂无成长计划内容，请点击内容检查获取建议。</p>'
     }
 
