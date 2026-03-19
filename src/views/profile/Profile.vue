@@ -206,6 +206,7 @@ onMounted(async () => {
 
   try {
     loading.value = true
+    // 优先从后端加载用户历史报告
     const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
     const hasRemoteData = result.reports.length > 0 || result.growth.length > 0
     if (hasRemoteData) {
@@ -213,15 +214,17 @@ onMounted(async () => {
       return
     }
 
+    // 如果后端没有数据，尝试从备用接口加载
     const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
     applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
   } catch (error) {
-    try {
-      const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
-      applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
+    console.error('加载远程历史数据失败:', error)
+    // 降级处理：使用本地缓存数据
+    if (localReports.length > 0) {
+      historyStore.setReports(localReports)
       errorMessage.value = ''
-    } catch (fallbackError) {
-      errorMessage.value = fallbackError instanceof Error ? fallbackError.message : '加载历史数据失败'
+    } else {
+      errorMessage.value = '加载历史数据失败，请检查网络连接'
     }
   } finally {
     loading.value = false

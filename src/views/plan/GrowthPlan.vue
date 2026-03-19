@@ -14,8 +14,6 @@
         <div class="editor-head">
           <h2>职业目标</h2>
           <div class="actions">
-            <el-button class="tool-btn" type="primary" plain @click="handlePolish(content)">智能润色</el-button>
-            <el-button class="tool-btn" type="primary" plain @click="handleCheck">内容检查</el-button>
             <export-button :loading="exporting" type="word" label="导出PDF/Word" @export="handleExport" />
           </div>
         </div>

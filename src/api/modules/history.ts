@@ -90,3 +90,24 @@ export const deleteHistoryReport = (reportId: string): Promise<void> =>
     url: `/history/reports/${reportId}`,
     method: 'DELETE'
   })
+
+export interface SaveReportPayload {
+  userId: string
+  title: string
+  score: number
+  tags: string[]
+  matchScore: number
+  radarIndicators: { name: string; max: number }[]
+  radarSeries: { name: string; values: number[] }[]
+  strengths: string[]
+  gaps: string[]
+  studentId?: number | null
+  jobId?: number | null
+}
+
+export const saveAnalysisReport = (payload: SaveReportPayload): Promise<{ reportId: number }> =>
+  request<{ reportId: number }>({
+    url: '/history/reports',
+    method: 'POST',
+    data: payload
+  })
