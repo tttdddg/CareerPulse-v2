@@ -1,12 +1,4 @@
-﻿"""Job query services.
-
-负责岗位相关读取逻辑：
-- 岗位检索
-- 岗位画像（基于 job_type_profile 聚合画像）
-- 岗位图谱（基于 job_type_graph_edge）
-"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 
@@ -14,15 +6,11 @@ from ..db import get_db_conn, make_type_key, table_exists
 
 
 def search_jobs(keyword: str, page: int, size: int) -> dict[str, Any]:
-    """Search jobs from cleaned table.
-
-    使用 job_clean 做检索，避免原始 job 表脏数据影响。
-    """
     conn = get_db_conn()
     cur = conn.cursor()
     try:
         if not table_exists(conn, "job_clean"):
-            raise RuntimeError("缺少 job_clean 表，请先运行岗位处理脚本")
+            raise RuntimeError("缺少 job_clean 表")
 
         offset = max(page - 1, 0) * size
         kw = f"%{keyword}%"
@@ -74,15 +62,14 @@ def search_jobs(keyword: str, page: int, size: int) -> dict[str, Any]:
 
 
 def get_job_profile(job_id: int) -> dict[str, Any]:
-    """Return profile for a specific job instance.
-
+    """
     读取 job_clean 的实例基础信息，再映射到 job_type_profile 的聚合画像。
     """
     conn = get_db_conn()
     cur = conn.cursor()
     try:
         if not table_exists(conn, "job_clean"):
-            raise RuntimeError("缺少 job_clean 表，请先运行岗位处理脚本")
+            raise RuntimeError("缺少 job_clean 表")
 
         cur.execute(
             """
@@ -138,12 +125,11 @@ def get_job_profile(job_id: int) -> dict[str, Any]:
 
 
 def get_job_graph(job_id: int) -> dict[str, Any]:
-    """Return type-level graph around one job instance."""
     conn = get_db_conn()
     cur = conn.cursor()
     try:
         if not table_exists(conn, "job_clean"):
-            raise RuntimeError("缺少 job_clean 表，请先运行岗位处理脚本")
+            raise RuntimeError("缺少 job_clean 表")
 
         cur.execute(
             """

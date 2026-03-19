@@ -157,6 +157,7 @@ def build_matching_analysis(student_data: dict[str, Any], job_data: dict[str, An
         "dimensions 必须包含四项：专业技能、学习能力、实践能力、通用素养；"
         "每项包含 name、student_score、job_required、gap。"
         "gap_analysis 为数组，每项包含 item、status、suggestion。"
+        "重要：在评估学生技能与岗位要求的匹配度时，应采用语义相似度而非严格匹配。对于语义相关的技能，即使不完全匹配，也应给予部分分数，并确保分数不会过低。请注意，岗位技能需求通常较为广泛，旨在覆盖多个同类岗位，但实际工作中未必全部用到；且入门级岗位对技能水平要求不高，除非是高级岗位。"
     )
 
     user_payload = {

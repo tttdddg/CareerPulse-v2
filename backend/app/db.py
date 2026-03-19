@@ -45,7 +45,6 @@ def table_exists(conn, table_name: str) -> bool:
 
 
 def ensure_business_tables(conn):
-    """Create lightweight business tables used by matching/report/history APIs."""
     with conn.cursor() as cur:
         cur.execute(
             """

@@ -13,6 +13,27 @@ from .matching_service import build_matching_analysis
 from .student_service import get_student_profile
 
 
+def _build_gap_section(analysis: dict[str, Any]) -> dict[str, str]:
+    """Build a readable gap-analysis section from matching analysis payload."""
+    items = analysis.get("gap_analysis") or []
+    if not items:
+        return {
+            "title": "能力差距明细",
+            "content": "当前未识别到明确能力差距项，建议结合目标岗位JD补充专项训练计划。",
+        }
+
+    lines: list[str] = []
+    for idx, item in enumerate(items, start=1):
+        name = str(item.get("item") or f"差距项{idx}").strip()
+        status = str(item.get("status") or "待提升").strip()
+        suggestion = str(item.get("suggestion") or "建议补充学习与项目实践。").strip()
+        lines.append(f"{idx}. {name}（现状：{status}）")
+        lines.append(f"   建议：{suggestion}")
+
+    return {"title": "能力差距明细", "content": "\n".join(lines)}
+
+
+# 生成人岗匹配报告函数
 def generate_report(
     student_id: int,
     job_id: int,
@@ -23,7 +44,7 @@ def generate_report(
     job = get_job_profile(job_id)
     analysis = build_matching_analysis(student["profile"], job)
 
-    title = f"{student.get('student_name') or '学生'} - {job.get('title') or '目标岗位'} 职业规划报告"
+    title = f"{job.get('title') or '目标岗位'} 职业规划报告"
     sections = [
         {
             "title": "职业探索与岗位匹配",
@@ -38,6 +59,7 @@ def generate_report(
             "content": "先补齐关键缺失技能，再通过项目与实习强化岗位竞争力。",
         },
     ]
+    sections.append(_build_gap_section(analysis))
     if custom_instructions:
         sections.append({"title": "个性化补充", "content": custom_instructions})
 
@@ -144,7 +166,7 @@ def export_report(report_id: int, fmt: str) -> tuple[str, bytes, str]:
 
     fmt = (fmt or "pdf").lower()
     if fmt not in {"pdf", "docx", "txt"}:
-        fmt = "txt"
+        raise ValueError("导出格式仅支持 pdf/docx/txt")
 
     mime_map = {
         "pdf": "application/pdf",
@@ -223,7 +245,7 @@ def export_report(report_id: int, fmt: str) -> tuple[str, bytes, str]:
         c.save()
         data = output.getvalue()
     else:
-        data = text.encode("utf-8")
+        data = text.encode("utf-8-sig")
 
     filename = f"report_{report_id}.{fmt}"
     return filename, data, mime_map[fmt]
