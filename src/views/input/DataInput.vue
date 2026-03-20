@@ -253,6 +253,11 @@ const handleStartAnalysis = async (): Promise<void> => {
       })
       
       const finalReportId = savedReport.reportId ? String(savedReport.reportId) : result.reportId
+
+      if (savedReport.reportId) {
+        analysisStore.setContext({ reportId: savedReport.reportId })
+        historyStore.setLastViewedReport(String(savedReport.reportId))
+      }
       
       historyStore.addReport({
         id: finalReportId,

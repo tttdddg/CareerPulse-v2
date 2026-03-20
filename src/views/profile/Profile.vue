@@ -153,6 +153,7 @@ const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummar
 }
 
 const formatReportRole = (title: string): string => title.replace('匹配报告', '').trim()
+const isServerReportId = (id: string): boolean => /^[1-9]\d*$/.test(id)
 
 const handleDeleteReport = async (reportId: string): Promise<void> => {
   const target = historyStore.reports.find((report) => report.id === reportId)
@@ -169,13 +170,15 @@ const handleDeleteReport = async (reportId: string): Promise<void> => {
 
   deletingReportId.value = reportId
   try {
-    await deleteHistoryReport(reportId)
+    if (isServerReportId(reportId)) {
+      await deleteHistoryReport(reportId)
+    }
     historyStore.removeReport(reportId)
     if (activeReport.value?.id === reportId) {
       activeReport.value = null
       detailVisible.value = false
     }
-    ElMessage.success('历史报告已删除')
+    ElMessage.success(isServerReportId(reportId) ? '历史报告已删除' : '本地临时报告已删除')
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '删除失败，请稍后重试')
   } finally {

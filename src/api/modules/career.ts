@@ -732,12 +732,54 @@ export const polishReport = async (
 }
 
 export const exportReport = async (reportId: number, format: 'pdf' | 'word' = 'pdf'): Promise<Blob> => {
-  return request<Blob>({
-    url: `/reports/${reportId}/export`,
-    method: 'GET',
-    params: { format },
-    responseType: 'blob'
-  })
+  try {
+    return await request<Blob>({
+      url: `/reports/${reportId}/export`,
+      method: 'GET',
+      params: { format },
+      responseType: 'blob'
+    })
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
+
+    const fallbackRequests = [
+      () =>
+        request<Blob>({
+          url: `/history/reports/${reportId}/export`,
+          method: 'GET',
+          params: { format },
+          responseType: 'blob'
+        }),
+      () =>
+        request<Blob>({
+          url: `/reports/${reportId}/export`,
+          method: 'POST',
+          data: { format },
+          responseType: 'blob'
+        }),
+      () =>
+        request<Blob>({
+          url: `/history/reports/${reportId}/export`,
+          method: 'POST',
+          data: { format },
+          responseType: 'blob'
+        })
+    ]
+
+    let lastError: unknown = error
+    for (const run of fallbackRequests) {
+      try {
+        return await run()
+      } catch (fallbackError) {
+        lastError = fallbackError
+      }
+    }
+
+    throw lastError
+  }
 }
 
 export const fetchUserHistories = async (userId: string): Promise<UserHistoriesResult> => {
