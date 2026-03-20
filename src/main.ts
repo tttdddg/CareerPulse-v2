@@ -7,6 +7,7 @@ import './styles/base.css'
 import App from './App.vue'
 import router from './router'
 import { useUserStore } from './stores/user'
+import { useHistoryStore } from './stores/history'
 
 const app = createApp(App)
 const pinia = createPinia()
@@ -16,5 +17,6 @@ app.use(router)
 app.use(ElementPlus)
 
 useUserStore(pinia).hydrateFromStorage()
+useHistoryStore(pinia).hydrateFromStorage()
 
 app.mount('#app')

@@ -101,7 +101,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
 import { fetchUserHistories } from '../../api/modules/career'
-import { fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
+import { deleteHistoryReport, fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -168,14 +168,19 @@ const handleDeleteReport = async (reportId: string): Promise<void> => {
   }
 
   deletingReportId.value = reportId
-  historyStore.removeReport(reportId)
-  if (activeReport.value?.id === reportId) {
-    activeReport.value = null
-    detailVisible.value = false
+  try {
+    await deleteHistoryReport(reportId)
+    historyStore.removeReport(reportId)
+    if (activeReport.value?.id === reportId) {
+      activeReport.value = null
+      detailVisible.value = false
+    }
+    ElMessage.success('历史报告已删除')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '删除失败，请稍后重试')
+  } finally {
+    deletingReportId.value = null
   }
-
-  ElMessage.success('历史报告已删除')
-  deletingReportId.value = null
 }
 
 const openReportDetail = async (reportId: string): Promise<void> => {
