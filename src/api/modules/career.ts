@@ -612,6 +612,7 @@ export const uploadStudentResume = async (formData: FormData): Promise<StudentUp
     url: '/student/upload/resume',
     method: 'POST',
     data: formData,
+    timeout: 90000,
     skipAuth: true
   })
 
@@ -661,7 +662,7 @@ export const matchingAnalyze = async (payload: MatchingAnalyzePayload): Promise<
     url: '/matching/analyze',
     method: 'POST',
     skipAuth: true,
-    timeout: 45000,
+    timeout: 120000,
     data: {
       student_id: payload.studentId,
       job_id: payload.jobId,

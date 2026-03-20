@@ -28,6 +28,8 @@ export interface ResumeUploadPayload {
   formData: FormData
   file: File
   options: UploadRequestOptions
+  onSuccess: (response?: unknown) => void
+  onError: (error: Error) => void
 }
 
 export interface ResumeUploadProps {
@@ -94,16 +96,30 @@ const beforeUpload = (file: UploadRawFile): boolean => {
 const handleRequest: UploadRequestHandler = async (options: UploadRequestOptions) => {
   const formData = new FormData()
   formData.append(props.fieldName, options.file)
+  return new Promise((resolve, reject) => {
+    const resolveUpload = (response?: unknown): void => {
+      const result = response ?? { ok: true }
+      options.onSuccess?.(result)
+      resolve(result)
+    }
 
-  emit('upload', {
-    formData,
-    file: options.file,
-    options
+    const rejectUpload = (error: Error): void => {
+      options.onError?.(error)
+      reject(error)
+    }
+
+    try {
+      emit('upload', {
+        formData,
+        file: options.file,
+        options,
+        onSuccess: resolveUpload,
+        onError: rejectUpload
+      })
+    } catch (error) {
+      rejectUpload(error instanceof Error ? error : new Error('上传失败'))
+    }
   })
-
-  // 默认回调为成功，具体上传结果由外部控制
-  options.onSuccess?.({ ok: true })
-  return Promise.resolve({ ok: true })
 }
 </script>
 

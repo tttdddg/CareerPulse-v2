@@ -89,7 +89,10 @@ const normalizeError = (error: unknown): ApiError => {
     const axiosError = error as AxiosError<{ message?: string; msg?: string; code?: number }>
     const status = axiosError.response?.status
     if (axiosError.code === 'ECONNABORTED' || axiosError.message.toLowerCase().includes('timeout')) {
-      return new ApiError('请求超时，请稍后重试（后端响应超过等待时间）', undefined, status)
+      return new ApiError('Request timed out. Backend did not respond within the timeout window.', undefined, status)
+    }
+    if (!axiosError.response) {
+      return new ApiError('No response from backend. Please check backend service or gateway forwarding.')
     }
     const message =
       axiosError.response?.data?.message ??
