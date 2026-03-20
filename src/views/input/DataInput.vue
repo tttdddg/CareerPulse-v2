@@ -273,7 +273,6 @@ const handleStartAnalysis = async (): Promise<void> => {
         score: result.matchScore,
         tags: result.tags
       })
-      ElMessage.warning('分析完成，但保存失败，数据仅存储在本地')
     }
 
     await router.push('/app/analysis')
