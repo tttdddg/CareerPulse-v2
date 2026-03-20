@@ -103,12 +103,6 @@ router.beforeEach((to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
-  const forceLogin = to.name === 'login' && to.query.force === '1'
-
-  if (to.name === 'login' && token && !forceLogin) {
-    return { path: '/app/input' }
-  }
-
   if (typeof document !== 'undefined' && typeof to.meta.title === 'string') {
     document.title = `${to.meta.title} - 吾 AI 职导`
   }

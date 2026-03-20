@@ -534,10 +534,10 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
   }
 }
 
-const normalizeReport = (source: unknown): ReportItem => {
+const normalizeReport = (source: unknown): ReportItem | null => {
   const record = isRecord(source) ? source : {}
-  const reportId = toStringSafe(getByKeys(record, ['report_id', 'id']), '')
-  const title = toStringSafe(getByKeys(record, ['title', 'report_title', 'job_name']), 'Career Report')
+  const reportId = toStringSafe(getByKeys(record, ['report_id', 'reportId', 'id']), '').trim()
+  const title = toStringSafe(getByKeys(record, ['title', 'report_title', 'job_name']), '').trim()
   const createdAt = toStringSafe(
     getByKeys(record, ['created_at', 'createdAt', 'date']),
     new Date().toISOString().slice(0, 10)
@@ -545,8 +545,13 @@ const normalizeReport = (source: unknown): ReportItem => {
   const score = toNumber(getByKeys(record, ['score', 'match_score', 'matchScore']), 0)
   const tags = asArray(getByKeys(record, ['tags', 'labels'])).map((item) => toStringSafe(item)).filter(Boolean)
 
+  // 后端返回空对象/占位对象时，不生成默认假报告，避免登录后重复出现 "Career Report"。
+  if (!reportId || !title) {
+    return null
+  }
+
   return {
-    id: reportId || `report-${Date.now()}`,
+    id: reportId,
     title,
     createdAt: createdAt.slice(0, 10),
     score,
@@ -741,7 +746,9 @@ export const fetchUserHistories = async (userId: string): Promise<UserHistoriesR
     method: 'GET'
   })
 
-  const reports = pickRecordList(response, ['reports', 'histories', 'items', 'list']).map(normalizeReport)
+  const reports = pickRecordList(response, ['reports', 'histories', 'items', 'list'])
+    .map(normalizeReport)
+    .filter((item): item is ReportItem => item !== null)
   const growth = normalizeGrowth(response)
 
   return { reports, growth }

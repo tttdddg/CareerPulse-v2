@@ -225,3 +225,19 @@ export const mockFetchHistory = async (): Promise<{ reports: MockReportSummary[]
     ]
   }
 }
+
+export const mockSaveAnalysisReport = async (payload: {
+  userId: string
+  title: string
+  score: number
+  tags: string[]
+}): Promise<{ reportId: number }> => {
+  await sleep(500)
+  
+  // 模拟保存到数据库，返回新的报告 ID
+  const reportId = Date.now()
+  
+  console.log('[Mock] 保存分析报告:', payload)
+  
+  return { reportId }
+}

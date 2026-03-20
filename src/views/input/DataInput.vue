@@ -103,6 +103,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
 import { fetchJobs, matchingAnalyze, uploadStudentProfile, uploadStudentResume } from '../../api/modules/career'
+import { saveAnalysisReport } from '../../api/modules/history'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -235,15 +236,45 @@ const handleStartAnalysis = async (): Promise<void> => {
       reportId: analyzeResult.reportId
     })
 
-    historyStore.addReport({
-      id: result.reportId,
-      title: result.title,
-      createdAt: new Date().toISOString().slice(0, 10),
-      score: result.matchScore,
-      tags: result.tags
-    })
+    // 保存报告到后端数据库
+    try {
+      const savedReport = await saveAnalysisReport({
+        userId: userStore.profile?.id ?? 'default',
+        title: result.title,
+        score: result.matchScore,
+        tags: result.tags,
+        matchScore: result.matchScore,
+        radarIndicators: result.radarIndicators,
+        radarSeries: result.radarSeries,
+        strengths: result.strengths,
+        gaps: result.gaps,
+        studentId,
+        jobId: topJob.id
+      })
+      
+      const finalReportId = savedReport.reportId ? String(savedReport.reportId) : result.reportId
+      
+      historyStore.addReport({
+        id: finalReportId,
+        title: result.title,
+        createdAt: new Date().toISOString().slice(0, 10),
+        score: result.matchScore,
+        tags: result.tags
+      })
+      
+      ElMessage.success('分析完成并保存')
+    } catch (saveError) {
+      console.error('保存报告失败:', saveError)
+      // 如果保存失败，仍然添加到历史记录（本地）
+      historyStore.addReport({
+        id: result.reportId,
+        title: result.title,
+        createdAt: new Date().toISOString().slice(0, 10),
+        score: result.matchScore,
+        tags: result.tags
+      })
+    }
 
-    ElMessage.success('分析任务已启动')
     await router.push('/app/analysis')
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '启动分析失败'

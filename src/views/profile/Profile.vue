@@ -101,7 +101,7 @@ import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
 import { fetchUserHistories } from '../../api/modules/career'
-import { fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
+import { deleteHistoryReport, fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -168,14 +168,19 @@ const handleDeleteReport = async (reportId: string): Promise<void> => {
   }
 
   deletingReportId.value = reportId
-  historyStore.removeReport(reportId)
-  if (activeReport.value?.id === reportId) {
-    activeReport.value = null
-    detailVisible.value = false
+  try {
+    await deleteHistoryReport(reportId)
+    historyStore.removeReport(reportId)
+    if (activeReport.value?.id === reportId) {
+      activeReport.value = null
+      detailVisible.value = false
+    }
+    ElMessage.success('历史报告已删除')
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '删除失败，请稍后重试')
+  } finally {
+    deletingReportId.value = null
   }
-
-  ElMessage.success('历史报告已删除')
-  deletingReportId.value = null
 }
 
 const openReportDetail = async (reportId: string): Promise<void> => {
@@ -206,6 +211,7 @@ onMounted(async () => {
 
   try {
     loading.value = true
+    // 优先从后端加载用户历史报告
     const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
     const hasRemoteData = result.reports.length > 0 || result.growth.length > 0
     if (hasRemoteData) {
@@ -213,15 +219,17 @@ onMounted(async () => {
       return
     }
 
+    // 如果后端没有数据，尝试从备用接口加载
     const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
     applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
   } catch (error) {
-    try {
-      const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
-      applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
+    console.error('加载远程历史数据失败:', error)
+    // 降级处理：使用本地缓存数据
+    if (localReports.length > 0) {
+      historyStore.setReports(localReports)
       errorMessage.value = ''
-    } catch (fallbackError) {
-      errorMessage.value = fallbackError instanceof Error ? fallbackError.message : '加载历史数据失败'
+    } else {
+      errorMessage.value = '加载历史数据失败，请检查网络连接'
     }
   } finally {
     loading.value = false

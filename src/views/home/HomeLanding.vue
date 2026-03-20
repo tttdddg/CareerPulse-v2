@@ -2,8 +2,7 @@
   <div class="landing-page">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">◆</span>
-        <span class="brand-text">AI Career Planner</span>
+        <img :src="CareerPulseLogo" alt="CareerPulse" class="brand-logo">
       </div>
 
 
@@ -14,9 +13,9 @@
 
     <main class="hero-wrap">
       <section class="hero-copy">
-        <span class="badge">2026 德国竞争级版本已上线</span>
+        <span class="badge">2026 版本已上线</span>
         <h1>
-          AI Career <span>Planner</span><br />
+          CareerPulse<br />
           重塑您的职业未来
         </h1>
         <p>
@@ -66,6 +65,7 @@
 
 <script setup lang="ts">
 import Airi from '@/assets/Airi.png'
+import CareerPulseLogo from '@/assets/logoo.png'
 </script>
 
 <style scoped>
@@ -91,22 +91,10 @@ import Airi from '@/assets/Airi.png'
   gap: 10px;
 }
 
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #2c64ff 0%, #7749f8 100%);
-  color: #ffffff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-
-.brand-text {
-  font-size: 18px;
-  font-weight: 700;
-  color: #1e63ad;
+.brand-logo {
+  height: 320px;
+  width: auto;
+  display: block;
 }
 
 .nav-links {
