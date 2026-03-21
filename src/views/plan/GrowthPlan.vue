@@ -80,6 +80,23 @@ const hasMeaningfulContent = (value: string): boolean => {
   return plainText.length > 0
 }
 
+const downloadBlob = (blob: Blob, fileName: string): void => {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+const exportCurrentContentLocally = (payload: { type: 'pdf' | 'word'; fileName: string }): void => {
+  const html = `<!doctype html><html><head><meta charset="utf-8" /></head><body>${content.value || ''}</body></html>`
+  const isWord = payload.type === 'word'
+  const blob = new Blob([html], { type: isWord ? 'application/msword;charset=utf-8' : 'text/html;charset=utf-8' })
+  const fileName = isWord ? payload.fileName.replace(/\.docx$/i, '.doc') : payload.fileName.replace(/\.pdf$/i, '.html')
+  downloadBlob(blob, fileName)
+}
+
 const handlePolish = async (value: string): Promise<void> => {
   if (!hasMeaningfulContent(value)) {
     ElMessage.warning('请先填写成长计划内容再润色')
@@ -122,21 +139,24 @@ const handleCheck = async (): Promise<void> => {
 }
 
 const handleExport = async (payload: { type: 'pdf' | 'word'; fileName: string }): Promise<void> => {
-  if (!reportId.value) {
-    errorMessage.value = '缺少报告编号，请先生成报告后再导出'
-    return
-  }
-
   try {
     exporting.value = true
+    if (!reportId.value) {
+      reportId.value = await resolveReportId()
+    }
+    if (!reportId.value) {
+      throw new Error('缺少报告编号，请先生成报告后再导出')
+    }
+
     const blob = await exportReport(reportId.value, payload.type)
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = payload.fileName
-    anchor.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, payload.fileName)
   } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status === 404 || status === 405) {
+      exportCurrentContentLocally(payload)
+      ElMessage.warning('后端导出接口不可用，已为你导出当前页面内容（本地兜底）')
+      return
+    }
     errorMessage.value = error instanceof Error ? error.message : '导出失败'
   } finally {
     exporting.value = false
@@ -151,8 +171,25 @@ const parseReportId = (value: string | null): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+const pickLatestNumericReportId = (): number | null => {
+  const candidates = [
+    historyStore.lastViewedReportId,
+    historyStore.latestReport?.id ?? null,
+    ...historyStore.reports.map((item) => item.id)
+  ]
+
+  for (const id of candidates) {
+    const parsed = parseReportId(id)
+    if (parsed) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
 const resolveReportId = async (): Promise<number | null> => {
-  const cached = analysisStore.reportId ?? parseReportId(historyStore.lastViewedReportId)
+  const cached = analysisStore.reportId ?? pickLatestNumericReportId()
   if (cached) {
     return cached
   }

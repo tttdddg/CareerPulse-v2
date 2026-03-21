@@ -143,23 +143,29 @@ const handleUploadError = (message: string): void => {
   errorMessage.value = message
 }
 
-const handleResumeUpload = async (payload: { file: File }): Promise<void> => {
+const handleResumeUpload = async (payload: {
+  file: File
+  formData: FormData
+  onSuccess?: (response?: unknown) => void
+  onError?: (error: Error) => void
+}): Promise<void> => {
   errorMessage.value = ''
 
   try {
     loading.value = true
-    const formData = new FormData()
-    formData.append('file', payload.file)
-    const parsed = await uploadStudentResume(formData)
+    const parsed = await uploadStudentResume(payload.formData)
     uploadedStudentId.value = parsed.studentId
     form.role = parsed.name || form.role
     form.skills = parsed.skills || form.skills
     form.certificates = parsed.certificates || form.certificates
     form.experience = parsed.internships || form.experience
     form.selfEvaluation = parsed.selfEvaluation || form.selfEvaluation
+    payload.onSuccess?.(parsed)
     ElMessage.success('简历解析完成')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '简历解析失败'
+    const uploadError = error instanceof Error ? error : new Error('简历解析失败')
+    errorMessage.value = uploadError.message
+    payload.onError?.(uploadError)
   } finally {
     loading.value = false
   }
@@ -253,6 +259,11 @@ const handleStartAnalysis = async (): Promise<void> => {
       })
       
       const finalReportId = savedReport.reportId ? String(savedReport.reportId) : result.reportId
+
+      if (savedReport.reportId) {
+        analysisStore.setContext({ reportId: savedReport.reportId })
+        historyStore.setLastViewedReport(String(savedReport.reportId))
+      }
       
       historyStore.addReport({
         id: finalReportId,

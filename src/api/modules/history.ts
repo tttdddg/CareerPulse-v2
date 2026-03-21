@@ -157,6 +157,8 @@ const extractReportId = (input: unknown): number => {
   return 0
 }
 
+const isPositiveIntegerString = (value: string): boolean => /^[1-9]\d*$/.test(value)
+
 export const fetchHistorySummary = async (): Promise<HistorySummaryResult> => {
   const response = await request<unknown>({
     url: '/history/summary',
@@ -191,11 +193,54 @@ export const fetchGrowthSeries = (): Promise<GrowthPoint[]> =>
     method: 'GET'
   }).then(normalizeGrowthSeries)
 
-export const deleteHistoryReport = (reportId: string): Promise<void> =>
-  request<void>({
-    url: `/history/reports/${reportId}`,
-    method: 'DELETE'
-  })
+export const deleteHistoryReport = async (reportId: string): Promise<void> => {
+  // 本地临时报告（例如 report-时间戳）没有后端实体，直接跳过远程删除。
+  if (!isPositiveIntegerString(reportId)) {
+    return
+  }
+
+  try {
+    await request<void>({
+      url: `/history/reports/${reportId}`,
+      method: 'DELETE'
+    })
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
+
+    const fallbackRequests = [
+      () =>
+        request<void>({
+          url: `/reports/${reportId}`,
+          method: 'DELETE'
+        }),
+      () =>
+        request<void>({
+          url: `/history/reports/${reportId}/delete`,
+          method: 'POST'
+        }),
+      () =>
+        request<void>({
+          url: `/reports/${reportId}/delete`,
+          method: 'POST'
+        })
+    ]
+
+    let lastError: unknown = error
+    for (const run of fallbackRequests) {
+      try {
+        await run()
+        return
+      } catch (fallbackError) {
+        lastError = fallbackError
+      }
+    }
+
+    throw lastError
+  }
+}
 
 export interface SaveReportPayload {
   userId: string
