@@ -8,7 +8,6 @@ import { Graph } from '@antv/x6'
 
 export type PathNodeType = 'vertical' | 'horizontal' | 'target'
 
-// 路径节点定义
 export interface PathNode {
   id: string
   label: string
@@ -18,7 +17,6 @@ export interface PathNode {
   meta?: Record<string, string>
 }
 
-// 路径连线定义
 export interface PathEdge {
   id?: string
   source: string
@@ -49,42 +47,50 @@ const containerStyle = computed(() => ({
   height: typeof props.height === 'number' ? `${props.height}px` : props.height
 }))
 
-const getDefaultData = (): { nodes: PathNode[]; edges: PathEdge[] } => {
-  const nodes: PathNode[] = [
-    { id: 'n1', label: '助理岗位', x: 60, y: 60, type: 'vertical' },
-    { id: 'n2', label: '初级岗位', x: 60, y: 160, type: 'vertical' },
-    { id: 'n3', label: '资深岗位', x: 60, y: 260, type: 'vertical' },
-    { id: 'n4', label: '管理岗位', x: 60, y: 360, type: 'target' },
-    { id: 'n5', label: '横向岗位 A', x: 260, y: 160, type: 'horizontal' },
-    { id: 'n6', label: '横向岗位 B', x: 260, y: 260, type: 'horizontal' }
-  ]
-
-  const edges: PathEdge[] = [
-    { source: 'n1', target: 'n2', type: 'vertical' },
-    { source: 'n2', target: 'n3', type: 'vertical' },
-    { source: 'n3', target: 'n4', type: 'vertical' },
-    { source: 'n2', target: 'n5', type: 'horizontal' },
-    { source: 'n3', target: 'n6', type: 'horizontal' }
-  ]
-
-  return { nodes, edges }
+interface NodeStyle {
+  stroke: string
+  fill: string
+  text: string
+  badge: string
+  shadow: string
 }
 
-const getNodeStyle = (type: PathNodeType | undefined): { stroke: string; fill: string } => {
+const getNodeStyle = (type: PathNodeType | undefined): NodeStyle => {
   if (type === 'target') {
-    return { stroke: '#6366F1', fill: '#EEF2FF' }
+    return {
+      stroke: '#1D4ED8',
+      fill: '#EAF1FF',
+      text: '#0B2A62',
+      badge: '#D7E6FF',
+      shadow: '0 12px 30px rgba(29, 78, 216, 0.18)'
+    }
   }
   if (type === 'horizontal') {
-    return { stroke: '#8B5CF6', fill: '#F5F3FF' }
+    return {
+      stroke: '#0E9AA7',
+      fill: '#E9FCFD',
+      text: '#0D4451',
+      badge: '#CEF3F5',
+      shadow: '0 12px 30px rgba(14, 154, 167, 0.2)'
+    }
   }
-  return { stroke: '#CBD5F5', fill: '#FFFFFF' }
+  return {
+    stroke: '#2F67D8',
+    fill: '#F7FAFF',
+    text: '#1A386F',
+    badge: '#E9F0FF',
+    shadow: '0 10px 26px rgba(47, 103, 216, 0.14)'
+  }
 }
 
-const getEdgeColor = (type: PathNodeType | undefined): string => {
+const getEdgeStyle = (type: PathNodeType | undefined): { color: string; dash?: string } => {
   if (type === 'horizontal') {
-    return '#8B5CF6'
+    return { color: '#0E9AA7', dash: '6 4' }
   }
-  return '#6366F1'
+  if (type === 'target') {
+    return { color: '#1D4ED8' }
+  }
+  return { color: '#2F67D8' }
 }
 
 const renderGraph = (): void => {
@@ -95,17 +101,29 @@ const renderGraph = (): void => {
   if (!graph) {
     graph = new Graph({
       container: graphEl.value,
-      background: { color: '#FFFFFF' },
-      grid: { size: 12, visible: true, type: 'dot', args: { color: '#EEF2FF' } },
+      background: {
+        color: '#F8FBFF'
+      },
+      grid: {
+        size: 20,
+        visible: true,
+        type: 'dot',
+        args: { color: '#DCE7FA', thickness: 1 }
+      },
       panning: true,
-      mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'] },
+      mousewheel: { enabled: true, modifiers: ['ctrl', 'meta'], minScale: 0.65, maxScale: 1.75 },
       interacting: { nodeMovable: false }
     })
 
     graph.on('node:mouseenter', ({ node }) => {
       const data = node.getData() as PathNode
-      node.attr('body/stroke', '#6366F1')
+      const style = getNodeStyle(data.type)
+      node.attr('body/stroke', '#0F172A')
       node.attr('body/strokeWidth', 2)
+      node.attr('body/filter', {
+        name: 'dropShadow',
+        args: { dx: 0, dy: 8, blur: 16, color: style.stroke, opacity: 0.26 }
+      })
       emit('node-hover', data)
     })
 
@@ -113,7 +131,8 @@ const renderGraph = (): void => {
       const data = node.getData() as PathNode
       const style = getNodeStyle(data.type)
       node.attr('body/stroke', style.stroke)
-      node.attr('body/strokeWidth', 1)
+      node.attr('body/strokeWidth', 1.2)
+      node.attr('body/filter', null)
     })
 
     graph.on('node:click', ({ node }) => {
@@ -123,32 +142,34 @@ const renderGraph = (): void => {
 
   graph.clearCells()
 
-  const hasRemoteGraph = Boolean((props.nodes?.length ?? 0) > 0 || (props.edges?.length ?? 0) > 0)
-  const { nodes, edges } = hasRemoteGraph
-    ? { nodes: props.nodes as PathNode[], edges: props.edges as PathEdge[] }
-    : getDefaultData()
+  const nodes = (props.nodes ?? []) as PathNode[]
+  const edges = (props.edges ?? []) as PathEdge[]
 
   nodes.forEach((node) => {
     const style = getNodeStyle(node.type)
+    const width = node.type === 'target' ? 168 : 150
+    const height = node.type === 'target' ? 52 : 46
+
     graph?.addNode({
       id: node.id,
       x: node.x ?? 0,
       y: node.y ?? 0,
-      width: 140,
-      height: 44,
+      width,
+      height,
       attrs: {
         body: {
-          rx: 10,
-          ry: 10,
+          rx: 12,
+          ry: 12,
           stroke: style.stroke,
-          strokeWidth: 1,
-          fill: style.fill
+          strokeWidth: 1.2,
+          fill: style.fill,
+          shadowColor: style.shadow
         },
         label: {
           text: node.label,
-          fill: '#0F172A',
-          fontSize: 13,
-          fontWeight: 600
+          fill: style.text,
+          fontSize: node.type === 'target' ? 14 : 13,
+          fontWeight: node.type === 'target' ? 700 : 600
         }
       },
       data: node
@@ -156,7 +177,8 @@ const renderGraph = (): void => {
   })
 
   edges.forEach((edge, index) => {
-    const color = getEdgeColor(edge.type)
+    const edgeStyle = getEdgeStyle(edge.type)
+
     graph?.addEdge({
       id: edge.id ?? `edge-${index}`,
       source: edge.source,
@@ -165,12 +187,14 @@ const renderGraph = (): void => {
       connector: { name: 'rounded' },
       attrs: {
         line: {
-          stroke: color,
-          strokeWidth: 2,
+          stroke: edgeStyle.color,
+          strokeWidth: edge.type === 'target' ? 2.8 : 2.2,
+          strokeDasharray: edgeStyle.dash,
           targetMarker: {
             name: 'classic',
-            size: 8,
-            fill: color
+            size: 9,
+            fill: edgeStyle.color,
+            stroke: edgeStyle.color
           }
         }
       },
@@ -178,8 +202,18 @@ const renderGraph = (): void => {
         ? [
             {
               attrs: {
-                label: { text: edge.label, fill: '#475569', fontSize: 12 },
-                body: { fill: '#FFFFFF', stroke: '#E2E8F0' }
+                label: {
+                  text: edge.label,
+                  fill: '#334155',
+                  fontSize: 12,
+                  fontWeight: 600
+                },
+                body: {
+                  fill: '#FFFFFF',
+                  stroke: '#C9D8F7',
+                  rx: 8,
+                  ry: 8
+                }
               }
             }
           ]
@@ -215,8 +249,24 @@ watch(
 <style scoped>
 .path-graph {
   width: 100%;
-  border: 1px dashed rgba(99, 102, 241, 0.3);
-  border-radius: 16px;
-  background: #ffffff;
+  border: 1px solid rgba(61, 112, 205, 0.18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 10% 0%, rgba(84, 132, 230, 0.09), transparent 30%),
+    radial-gradient(circle at 90% 100%, rgba(10, 167, 175, 0.09), transparent 32%),
+    linear-gradient(180deg, #f8fbff 0%, #f3f8ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.85);
+  animation: graph-fade-in 360ms ease-out;
+}
+
+@keyframes graph-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

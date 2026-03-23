@@ -18,9 +18,47 @@
       <div ref="gaugeEl" class="gauge"></div>
       <p class="target-role">
         <el-icon><SuitcaseLine /></el-icon>
-        <span>目标岗位:</span>
-        <strong>{{ topJob?.name || '高级产品经理' }}</strong>
+        <span>当前目标岗位:</span>
+        <strong>{{ currentJob?.name || '未选择岗位' }}</strong>
       </p>
+    </el-card>
+
+    <el-card class="panel jobs-panel" v-loading="jobsLoading">
+      <div class="panel-head">
+        <h3>岗位画像列表（Top 10）</h3>
+        <div class="head-actions">
+          <el-button type="primary" plain size="small" :loading="complianceLoading" @click="checkGraphCompliance">
+            校验图谱约束
+          </el-button>
+          <el-button type="primary" plain size="small" @click="fetchJobs">刷新岗位</el-button>
+        </div>
+      </div>
+      <p class="compliance" v-if="complianceResult">{{ complianceResult }}</p>
+      <el-empty v-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
+      <div v-else class="job-grid">
+        <article
+          v-for="job in jobProfiles"
+          :key="job.id"
+          class="job-card"
+          :class="{ active: job.id === analysisStore.jobId }"
+        >
+          <div class="job-head">
+            <h4>{{ job.name }}</h4>
+            <el-tag type="success">{{ Math.round(job.match || 0) }}%</el-tag>
+          </div>
+          <p class="job-meta">{{ job.company || '企业信息待补充' }} · {{ job.industry || '行业未知' }}</p>
+          <p class="job-meta">薪资：{{ job.salaryRange || '待补充' }}</p>
+          <div class="tag-row">
+            <el-tag v-for="tag in (job.requiredSkills.length ? job.requiredSkills.slice(0, 3) : job.highlights.slice(0, 3))" :key="tag" effect="plain">
+              {{ tag }}
+            </el-tag>
+          </div>
+          <div class="job-actions">
+            <el-button size="small" type="primary" plain @click="selectTargetJob(job)">设为目标</el-button>
+            <el-button size="small" @click="viewJobProfile(job)">查看画像</el-button>
+          </div>
+        </article>
+      </div>
     </el-card>
 
     <section class="detail-grid">
@@ -60,6 +98,33 @@
         </div>
       </el-card>
     </section>
+
+    <el-dialog v-model="profileDialogVisible" title="岗位画像详情" width="680px">
+      <el-skeleton v-if="profileLoading" :rows="6" animated />
+      <template v-else-if="profileDetail">
+        <h3 class="dialog-title">{{ profileDetail.name }}</h3>
+        <p class="dialog-desc">{{ profileDetail.description || '暂无岗位描述' }}</p>
+        <p class="dialog-meta">薪资范围：{{ profileDetail.salaryRange || '待补充' }}</p>
+
+        <div class="dialog-block">
+          <strong>专业技能：</strong>
+          <el-tag v-for="item in profileDetail.requiredSkills" :key="item" effect="plain">{{ item }}</el-tag>
+        </div>
+        <div class="dialog-block">
+          <strong>证书要求：</strong>
+          <el-tag v-for="item in profileDetail.requiredCerts" :key="item" type="success" effect="plain">{{ item }}</el-tag>
+        </div>
+        <div class="dialog-block dimensions">
+          <strong>能力维度：</strong>
+          <span>创新 {{ profileDetail.abilityDimensions.innovation }}</span>
+          <span>学习 {{ profileDetail.abilityDimensions.learning }}</span>
+          <span>抗压 {{ profileDetail.abilityDimensions.stressTolerance }}</span>
+          <span>沟通 {{ profileDetail.abilityDimensions.communication }}</span>
+          <span>实习 {{ profileDetail.abilityDimensions.internship }}</span>
+        </div>
+      </template>
+      <el-empty v-else description="暂无画像详情" />
+    </el-dialog>
   </div>
 </template>
 
@@ -72,15 +137,19 @@ import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import RadarChart from '../../components/business/RadarChart.vue'
-import { fetchJobs as fetchJobsApi, matchingAnalyze, type JobItem } from '../../api/modules/career'
+import { fetchJobGraph, fetchJobProfile, fetchJobs as fetchJobsApi, matchingAnalyze, type JobItem } from '../../api/modules/career'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
 const historyStore = useHistoryStore()
 const loading = ref(false)
 const jobsLoading = ref(false)
+const complianceLoading = ref(false)
 const errorMessage = ref('')
-const jobProfiles = ref<JobItem[]>([])
+const complianceResult = ref('')
+const profileDialogVisible = ref(false)
+const profileLoading = ref(false)
+const profileDetail = ref<JobItem | null>(null)
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
 let gaugeChart: echarts.ECharts | null = null
@@ -91,13 +160,13 @@ const priorityMap = [
   { label: '一般', type: 'success' as const }
 ]
 
-const topJob = computed(() => {
-  if (jobProfiles.value[0]) {
-    return jobProfiles.value[0]
-  }
+const jobProfiles = computed(() => analysisStore.candidateJobs.slice(0, 10))
 
-  const latestTitle = historyStore.latestReport?.title ?? ''
-  return latestTitle ? { id: 'latest', name: latestTitle.replace('匹配报告', '').trim(), match: 0, highlights: [], description: '' } : null
+const currentJob = computed(() => {
+  if (!jobProfiles.value.length) {
+    return null
+  }
+  return jobProfiles.value.find((item) => item.id === analysisStore.jobId) ?? jobProfiles.value[0]
 })
 
 const getGapDesc = (gap: string): string => {
@@ -196,17 +265,110 @@ const refreshRadar = async (): Promise<void> => {
 const fetchJobs = async (): Promise<void> => {
   try {
     jobsLoading.value = true
-    const keyword = (historyStore.latestReport?.title ?? '').replace('匹配报告', '').trim()
+
+    if (analysisStore.candidateJobs.length >= 10) {
+      if (!analysisStore.jobId) {
+        analysisStore.setContext({ jobId: analysisStore.candidateJobs[0].id })
+      }
+      return
+    }
+
+    const keywordFromHistory = (historyStore.latestReport?.title ?? '').replace('匹配报告', '').trim()
+    const keyword = analysisStore.targetKeyword || keywordFromHistory || '产品经理'
     const jobs = await fetchJobsApi({
-      keyword: keyword || '产品经理',
+      keyword,
       page: 1,
       size: 20
     })
-    jobProfiles.value = [...jobs].sort((a, b) => b.match - a.match)
+
+    const topJobs = [...jobs].sort((a, b) => b.match - a.match).slice(0, 10)
+    analysisStore.setCandidateJobs(topJobs)
+    analysisStore.setTargetKeyword(keyword)
+
+    if (!analysisStore.jobId && topJobs[0]) {
+      analysisStore.setContext({ jobId: topJobs[0].id })
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载岗位画像失败'
   } finally {
     jobsLoading.value = false
+  }
+}
+
+const selectTargetJob = async (job: JobItem): Promise<void> => {
+  if (analysisStore.jobId === job.id) {
+    return
+  }
+
+  analysisStore.setContext({ jobId: job.id })
+
+  if (!analysisStore.studentId) {
+    ElMessage.warning('缺少学生画像上下文，已切换目标岗位，请先返回数据输入中心完成分析')
+    return
+  }
+
+  try {
+    loading.value = true
+    const result = await matchingAnalyze({
+      studentId: analysisStore.studentId,
+      jobId: job.id
+    })
+    analysisStore.setMatchScore(result.matchScore)
+    analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
+    analysisStore.setInsights(result.strengths, result.gaps)
+    if (result.reportId) {
+      analysisStore.setContext({ reportId: result.reportId })
+    }
+    renderGauge()
+    ElMessage.success(`已切换目标岗位：${job.name}`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '切换岗位失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+const viewJobProfile = async (job: JobItem): Promise<void> => {
+  profileDialogVisible.value = true
+  profileDetail.value = job
+
+  try {
+    profileLoading.value = true
+    const detail = await fetchJobProfile(job.id)
+    profileDetail.value = detail
+  } catch (error) {
+    ElMessage.warning(error instanceof Error ? error.message : '岗位画像详情加载失败')
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+const checkGraphCompliance = async (): Promise<void> => {
+  if (jobProfiles.value.length < 5) {
+    complianceResult.value = `当前仅 ${jobProfiles.value.length} 个岗位画像，不满足“至少5个可换岗岗位”校验条件。`
+    return
+  }
+
+  try {
+    complianceLoading.value = true
+    const graphs = await Promise.all(jobProfiles.value.map((job) => fetchJobGraph(job.id)))
+    const switchableCount = graphs.filter((graph) => graph.nodes.filter((node) => node.type === 'horizontal').length >= 2).length
+    const detailReady = graphs.every((graph) =>
+      graph.nodes.every((node) => Boolean(node.jobDescription && node.salaryRange && (node.coreSkills?.length ?? 0) > 0))
+    )
+
+    const switchablePass = switchableCount >= 5
+    complianceResult.value = `换岗路径达标岗位数：${switchableCount}/${jobProfiles.value.length}（要求至少5个岗位且每个不少于2条）；节点详情完整：${detailReady ? '是' : '否'}`
+
+    if (switchablePass && detailReady) {
+      ElMessage.success('图谱约束校验通过')
+    } else {
+      ElMessage.warning('图谱约束未完全通过，请补充后端图谱数据')
+    }
+  } catch (error) {
+    complianceResult.value = error instanceof Error ? error.message : '图谱约束校验失败'
+  } finally {
+    complianceLoading.value = false
   }
 }
 
@@ -215,12 +377,12 @@ const handleResize = (): void => {
 }
 
 onMounted(async () => {
-  if (!analysisStore.hasRadar) {
+  await fetchJobs()
+  if (!analysisStore.hasRadar && analysisStore.studentId && analysisStore.jobId) {
     await refreshRadar()
   }
   renderGauge()
   window.addEventListener('resize', handleResize)
-  await fetchJobs()
 })
 
 onBeforeUnmount(() => {
@@ -281,6 +443,75 @@ onBeforeUnmount(() => {
   color: #5f5ee7;
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.compliance {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.job-card {
+  border: 1px solid #e2e6ef;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card.active {
+  border-color: #5f5ee7;
+  box-shadow: 0 0 0 2px rgba(95, 94, 231, 0.1);
+}
+
+.job-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-head h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #1f2a3f;
+}
+
+.job-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.job-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -291,13 +522,6 @@ onBeforeUnmount(() => {
   margin: 0 0 16px;
   font-size: 22px;
   color: #1f2a3f;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
 }
 
 .gap-list {
@@ -352,6 +576,33 @@ onBeforeUnmount(() => {
   color: #5f5ee7;
   font-weight: 600;
   text-decoration: none;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.dialog-desc,
+.dialog-meta {
+  color: #475569;
+  line-height: 1.6;
+}
+
+.dialog-block {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.dialog-block.dimensions span {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .error-alert {

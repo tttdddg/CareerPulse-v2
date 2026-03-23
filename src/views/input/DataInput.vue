@@ -196,7 +196,12 @@ const handleStartAnalysis = async (): Promise<void> => {
       page: 1,
       size: 20
     })
-    const topJob = jobs[0]
+    const sortedJobs = [...jobs].sort((a, b) => b.match - a.match)
+    const topJobs = sortedJobs.slice(0, 10)
+    analysisStore.setTargetKeyword(form.targetRole)
+    analysisStore.setCandidateJobs(topJobs)
+
+    const topJob = topJobs[0]
     if (!topJob) {
       throw new Error('未查询到可分析的目标岗位，请调整岗位关键词后重试')
     }
