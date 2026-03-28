@@ -13,7 +13,7 @@ export interface PathNode {
   label: string
   x?: number
   y?: number
-  type?: PathNodeType
+  type?: PathNodeType | string
   meta?: Record<string, string>
 }
 
@@ -22,7 +22,7 @@ export interface PathEdge {
   source: string
   target: string
   label?: string
-  type?: PathNodeType
+  type?: PathNodeType | string
 }
 
 export interface PathGraphProps {
@@ -55,8 +55,29 @@ interface NodeStyle {
   shadow: string
 }
 
-const getNodeStyle = (type: PathNodeType | undefined): NodeStyle => {
-  if (type === 'target') {
+const normalizeNodeType = (type: PathNodeType | string | undefined): PathNodeType => {
+  const normalized = `${type ?? ''}`.trim().toLowerCase()
+  if (
+    normalized === 'horizontal' ||
+    normalized === 'lateral' ||
+    normalized === 'transfer' ||
+    normalized === 'cross' ||
+    normalized === 'side'
+  ) {
+    return 'horizontal'
+  }
+  if (normalized === 'target' || normalized === 'center' || normalized === 'goal') {
+    return 'target'
+  }
+  if (type === 'horizontal' || type === 'target') {
+    return type
+  }
+  return 'vertical'
+}
+
+const getNodeStyle = (type: PathNodeType | string | undefined): NodeStyle => {
+  const normalized = normalizeNodeType(type)
+  if (normalized === 'target') {
     return {
       stroke: '#1D4ED8',
       fill: '#EAF1FF',
@@ -65,7 +86,7 @@ const getNodeStyle = (type: PathNodeType | undefined): NodeStyle => {
       shadow: '0 12px 30px rgba(29, 78, 216, 0.18)'
     }
   }
-  if (type === 'horizontal') {
+  if (normalized === 'horizontal') {
     return {
       stroke: '#0E9AA7',
       fill: '#E9FCFD',
@@ -83,14 +104,251 @@ const getNodeStyle = (type: PathNodeType | undefined): NodeStyle => {
   }
 }
 
-const getEdgeStyle = (type: PathNodeType | undefined): { color: string; dash?: string } => {
-  if (type === 'horizontal') {
+const getEdgeStyle = (type: PathNodeType | string | undefined): { color: string; dash?: string } => {
+  const normalized = normalizeNodeType(type)
+  if (normalized === 'horizontal') {
     return { color: '#0E9AA7', dash: '6 4' }
   }
-  if (type === 'target') {
+  if (normalized === 'target') {
     return { color: '#1D4ED8' }
   }
   return { color: '#2F67D8' }
+}
+
+const isFiniteNumber = (value: number | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+const inferEdgeType = (edge: PathEdge): PathNodeType => {
+  const normalizedType = normalizeNodeType(edge.type)
+  if (normalizedType === 'horizontal' || normalizedType === 'target') {
+    return normalizedType
+  }
+  const text = `${edge.label ?? ''}`.trim()
+  if (/转岗|横向|平级|跨岗|换岗|lateral|transfer|cross/i.test(text)) {
+    return 'horizontal'
+  }
+  if (/目标|target/i.test(text)) {
+    return 'target'
+  }
+  return 'vertical'
+}
+
+const mergeNode = (current: PathNode, incoming: PathNode): PathNode => {
+  const incomingType = normalizeNodeType(incoming.type)
+  const currentType = normalizeNodeType(current.type)
+  const preferredType = currentType === 'target' || incomingType !== 'target' ? currentType : incomingType
+
+  return {
+    ...current,
+    ...incoming,
+    label: incoming.label || current.label,
+    type: preferredType,
+    x: isFiniteNumber(incoming.x) ? incoming.x : current.x,
+    y: isFiniteNumber(incoming.y) ? incoming.y : current.y,
+    meta: { ...(current.meta ?? {}), ...(incoming.meta ?? {}) }
+  }
+}
+
+const uniqueNodes = (nodes: PathNode[]): PathNode[] => {
+  const mapped = new Map<string, PathNode>()
+  nodes.forEach((node) => {
+    if (!node.id || !node.label) {
+      return
+    }
+    const existing = mapped.get(node.id)
+    if (existing) {
+      mapped.set(node.id, mergeNode(existing, node))
+      return
+    }
+    mapped.set(node.id, { ...node, type: normalizeNodeType(node.type) })
+  })
+  return [...mapped.values()]
+}
+
+const uniqueEdges = (edges: PathEdge[]): PathEdge[] => {
+  const mapped = new Map<string, PathEdge>()
+  edges.forEach((edge, index) => {
+    if (!edge.source || !edge.target) {
+      return
+    }
+    const resolvedType = inferEdgeType(edge)
+    const label = edge.label?.trim() || undefined
+    const key = `${edge.source}=>${edge.target}::${resolvedType}::${label ?? ''}`
+    if (mapped.has(key)) {
+      return
+    }
+    mapped.set(key, {
+      id: edge.id ?? `edge-${index}`,
+      source: edge.source,
+      target: edge.target,
+      label,
+      type: resolvedType
+    })
+  })
+  return [...mapped.values()]
+}
+
+const hasDenseOverlap = (nodes: PathNode[]): boolean => {
+  const points = new Set<string>()
+  for (const node of nodes) {
+    if (!isFiniteNumber(node.x) || !isFiniteNumber(node.y)) {
+      continue
+    }
+    const key = `${Math.round(node.x)}-${Math.round(node.y)}`
+    if (points.has(key)) {
+      return true
+    }
+    points.add(key)
+  }
+  return false
+}
+
+const buildAutoLayout = (nodes: PathNode[], edges: PathEdge[], width: number): PathNode[] => {
+  if (nodes.length === 0) {
+    return []
+  }
+
+  const sanitized = uniqueNodes(nodes)
+  const nodeById = new Map(sanitized.map((node) => [node.id, node] as const))
+  const filteredEdges = uniqueEdges(edges).filter((edge) => nodeById.has(edge.source) && nodeById.has(edge.target))
+
+  const targetNode = sanitized.find((node) => node.type === 'target') ?? sanitized[0]
+  const targetId = targetNode.id
+
+  const incoming = new Map<string, string[]>()
+  const outgoing = new Map<string, string[]>()
+  const horizontalTargets = new Set<string>()
+  sanitized.forEach((node) => {
+    const relationText = `${node.meta?.relation ?? ''}${(node as PathNode & { relation?: string }).relation ?? ''}`
+    if (/转岗|横向|平级|跨岗|换岗/i.test(relationText)) {
+      horizontalTargets.add(node.id)
+    }
+  })
+  filteredEdges.forEach((edge) => {
+    const list = incoming.get(edge.target) ?? []
+    list.push(edge.source)
+    incoming.set(edge.target, list)
+    const outList = outgoing.get(edge.source) ?? []
+    outList.push(edge.target)
+    outgoing.set(edge.source, outList)
+    if (inferEdgeType(edge) === 'horizontal') {
+      horizontalTargets.add(edge.source)
+      horizontalTargets.add(edge.target)
+    }
+  })
+
+  const distanceToTarget = new Map<string, number>([[targetId, 0]])
+  const queue = [targetId]
+  const shouldUseOutgoing = (incoming.get(targetId)?.length ?? 0) === 0 && (outgoing.get(targetId)?.length ?? 0) > 0
+  while (queue.length > 0) {
+    const current = queue.shift()
+    if (!current) {
+      continue
+    }
+    const currentDistance = distanceToTarget.get(current) ?? 0
+    const neighbors = shouldUseOutgoing ? outgoing.get(current) ?? [] : incoming.get(current) ?? []
+    neighbors.forEach((nextId) => {
+      if (distanceToTarget.has(nextId)) {
+        return
+      }
+      distanceToTarget.set(nextId, currentDistance + 1)
+      queue.push(nextId)
+    })
+  }
+
+  const safeWidth = Math.max(width, 360)
+  const targetWidth = 168
+  const branchNodeWidth = 150
+  const horizontalPadding = 28
+  const centerX = Math.round(safeWidth / 2)
+  const targetX = Math.max(
+    horizontalPadding,
+    Math.min(centerX - Math.round(targetWidth / 2), safeWidth - targetWidth - horizontalPadding)
+  )
+  const leftBranchX = horizontalPadding
+  const rightBranchX = Math.max(horizontalPadding, safeWidth - branchNodeWidth - horizontalPadding)
+  const targetY = 64
+  const rhythmStep = 124
+  const verticalGap = rhythmStep
+  const lateralGapY = rhythmStep
+  const branchStartOffsetY = 2 * rhythmStep
+  let verticalIndex = 0
+  let horizontalIndex = 0
+  const verticalRankOffset = new Map<number, number>()
+
+  return sanitized.map((node) => {
+    if (node.id === targetId) {
+      return { ...node, type: 'target', x: targetX, y: targetY }
+    }
+
+    const inferredType =
+      normalizeNodeType(node.type) === 'horizontal' ||
+      horizontalTargets.has(node.id) ||
+      filteredEdges.some((edge) => edge.source === targetId && edge.target === node.id && inferEdgeType(edge) === 'horizontal')
+        ? 'horizontal'
+        : 'vertical'
+    if (inferredType === 'horizontal') {
+      const side = horizontalIndex % 2 === 0 ? 1 : -1
+      const row = Math.floor(horizontalIndex / 2)
+      horizontalIndex += 1
+      return {
+        ...node,
+        type: 'horizontal',
+        x: side > 0 ? rightBranchX : leftBranchX,
+        y: targetY + branchStartOffsetY + row * lateralGapY
+      }
+    }
+
+    const rank = distanceToTarget.get(node.id) ?? 100 + verticalIndex
+    const rankSlot = verticalRankOffset.get(rank) ?? 0
+    verticalRankOffset.set(rank, rankSlot + 1)
+    const y = targetY + rhythmStep + Math.max(0, rank - 1) * verticalGap + rankSlot * Math.round(rhythmStep / 2)
+    verticalIndex += 1
+    return {
+      ...node,
+      type: 'vertical',
+      x: targetX,
+      y
+    }
+  })
+}
+
+const resolveRenderNodes = (nodes: PathNode[], edges: PathEdge[], width: number): PathNode[] => {
+  const sanitized = uniqueNodes(nodes)
+  if (sanitized.length <= 1) {
+    return sanitized
+  }
+
+  const positionedCount = sanitized.filter((node) => isFiniteNumber(node.x) && isFiniteNumber(node.y)).length
+  const needsAutoLayout = positionedCount < sanitized.length || hasDenseOverlap(sanitized)
+  if (!needsAutoLayout) {
+    return sanitized
+  }
+
+  return buildAutoLayout(sanitized, edges, width)
+}
+
+const resolveEdgeLabel = (edge: PathEdge): string | undefined => {
+  const label = edge.label?.trim()
+  if (!label) {
+    return undefined
+  }
+  const type = inferEdgeType(edge)
+  if (type === 'vertical' && /^(晋升|升职|晋级)$/i.test(label)) {
+    return undefined
+  }
+  if (type === 'horizontal' && /^(换岗|转岗|横向)$/i.test(label)) {
+    return undefined
+  }
+  return label
+}
+
+const stableOffset = (seed: string, amplitude: number): number => {
+  let hash = 0
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
+  }
+  return (hash % 2 === 0 ? 1 : -1) * amplitude
 }
 
 const renderGraph = (): void => {
@@ -143,9 +401,15 @@ const renderGraph = (): void => {
   graph.clearCells()
 
   const nodes = (props.nodes ?? []) as PathNode[]
-  const edges = (props.edges ?? []) as PathEdge[]
+  const edges = uniqueEdges((props.edges ?? []) as PathEdge[])
+  const resolvedNodes = resolveRenderNodes(nodes, edges, graphEl.value.clientWidth)
+  const nodeIds = new Set(resolvedNodes.map((node) => node.id))
+  const resolvedEdges = edges
+    .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+    .map((edge) => ({ ...edge, type: inferEdgeType(edge) }))
+  const nodeMap = new Map(resolvedNodes.map((node) => [node.id, node] as const))
 
-  nodes.forEach((node) => {
+  resolvedNodes.forEach((node) => {
     const style = getNodeStyle(node.type)
     const width = node.type === 'target' ? 168 : 150
     const height = node.type === 'target' ? 52 : 46
@@ -156,6 +420,7 @@ const renderGraph = (): void => {
       y: node.y ?? 0,
       width,
       height,
+      zIndex: 20,
       attrs: {
         body: {
           rx: 12,
@@ -176,15 +441,45 @@ const renderGraph = (): void => {
     })
   })
 
-  edges.forEach((edge, index) => {
+  resolvedEdges.forEach((edge, index) => {
     const edgeStyle = getEdgeStyle(edge.type)
+    const displayLabel = resolveEdgeLabel(edge)
+    const sourceNode = nodeMap.get(edge.source)
+    const targetNode = nodeMap.get(edge.target)
+    const sourceX = sourceNode?.x ?? 0
+    const sourceY = sourceNode?.y ?? 0
+    const targetX = targetNode?.x ?? 0
+    const targetY = targetNode?.y ?? 0
+    const sourceAnchor =
+      Math.abs(targetX - sourceX) > 60
+        ? { name: targetX > sourceX ? 'right' : 'left' }
+        : { name: targetY >= sourceY ? 'bottom' : 'top' }
+    const targetAnchor =
+      Math.abs(targetX - sourceX) > 60
+        ? { name: targetY >= sourceY ? 'top' : 'bottom' }
+        : { name: targetY >= sourceY ? 'top' : 'bottom' }
+    const key = `${edge.source}->${edge.target}::${edge.type ?? 'vertical'}`
+    const sameColumn = Math.abs(targetX - sourceX) <= 4 && Math.abs(targetY - sourceY) > 40
+    const edgeVertices =
+      sameColumn && edge.type === 'horizontal'
+        ? [
+            {
+              x: Math.round((sourceX + targetX) / 2 + stableOffset(key, 16)),
+              y: Math.round((sourceY + targetY) / 2)
+            }
+          ]
+        : undefined
 
     graph?.addEdge({
       id: edge.id ?? `edge-${index}`,
       source: edge.source,
       target: edge.target,
+      sourceAnchor,
+      targetAnchor,
+      zIndex: 5,
       router: { name: 'orth' },
       connector: { name: 'rounded' },
+      vertices: edgeVertices,
       attrs: {
         line: {
           stroke: edgeStyle.color,
@@ -198,12 +493,16 @@ const renderGraph = (): void => {
           }
         }
       },
-      labels: edge.label
+      labels: displayLabel
         ? [
             {
+              position: {
+                distance: 0.5,
+                offset: edge.type === 'horizontal' ? 12 : -10
+              },
               attrs: {
                 label: {
-                  text: edge.label,
+                  text: displayLabel,
                   fill: '#334155',
                   fontSize: 12,
                   fontWeight: 600
@@ -220,6 +519,8 @@ const renderGraph = (): void => {
         : undefined
     })
   })
+
+  graph.centerContent({ padding: 20 })
 }
 
 const resizeObserver = new ResizeObserver(() => {

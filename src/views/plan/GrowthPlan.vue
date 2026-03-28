@@ -222,9 +222,18 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.set
 
 const fetchReportWithRetry = async (id: number): Promise<string> => {
   for (let i = 0; i < 3; i += 1) {
-    const result = await fetchReport(id)
-    if (result.content.trim()) {
-      return result.content
+    try {
+      const result = await fetchReport(id)
+      if (result.content.trim()) {
+        return result.content
+      }
+    } catch (error) {
+      const status = (error as { status?: number })?.status
+      // 报告不存在时让上层走 generateReport 兜底，而不是直接中断页面初始化。
+      if (status === 404 || status === 405) {
+        return ''
+      }
+      throw error
     }
     if (i < 2) {
       await sleep(800)

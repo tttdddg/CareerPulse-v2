@@ -7,6 +7,7 @@ import AnalysisBoardView from '../views/analysis/AnalysisBoard.vue'
 import PathGraphPageView from '../views/path/PathGraphPage.vue'
 import GrowthPlanView from '../views/plan/GrowthPlan.vue'
 import ProfileView from '../views/profile/Profile.vue'
+import { useAnalysisStore } from '../stores/analysis'
 
 const AUTH_STORAGE_KEY = 'career-pulse:auth'
 
@@ -101,6 +102,13 @@ router.beforeEach((to) => {
 
   if (!isPublic && !token) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  if (to.name === 'path') {
+    const analysisStore = useAnalysisStore()
+    if (!analysisStore.canVisitPathGraph) {
+      return { name: 'analysis' }
+    }
   }
 
   if (typeof document !== 'undefined' && typeof to.meta.title === 'string') {

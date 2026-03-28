@@ -104,6 +104,7 @@ import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
 import { fetchJobs, matchingAnalyze, uploadStudentProfile, uploadStudentResume } from '../../api/modules/career'
 import { saveAnalysisReport } from '../../api/modules/history'
+import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -191,13 +192,7 @@ const handleStartAnalysis = async (): Promise<void> => {
 
   try {
     analysisLoading.value = true
-    const jobs = await fetchJobs({
-      keyword: form.targetRole,
-      page: 1,
-      size: 20
-    })
-    const sortedJobs = [...jobs].sort((a, b) => b.match - a.match)
-    const topJobs = sortedJobs.slice(0, 10)
+    const topJobs = await pickDiverseTopJobs(form.targetRole, fetchJobs, 10)
     analysisStore.setTargetKeyword(form.targetRole)
     analysisStore.setCandidateJobs(topJobs)
 

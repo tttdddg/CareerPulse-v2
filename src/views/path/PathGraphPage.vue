@@ -10,7 +10,6 @@
     />
 
     <header class="page-head">
-      <div class="head-badge">CAREER KNOWLEDGE MAP</div>
       <h2>职业发展路径图谱</h2>
       <p>
         探索从 <strong>{{ targetRole }}</strong> 出发的职业可能性。向上查看晋升路径，向两侧探索转岗机会。
@@ -58,7 +57,32 @@
             <span>转岗路径</span>
           </div>
         </div>
-        <path-graph :nodes="graphData.nodes" :edges="graphData.edges" :height="760" @node-click="handleNodeClick" />
+        <div class="split-graphs">
+          <section class="split-graph-col split-graph-vertical">
+            <div class="split-graph-head">
+              <h4>晋升图谱</h4>
+              <span class="split-graph-sub">纵向能力成长路径</span>
+            </div>
+            <path-graph
+              :nodes="verticalGraphData.nodes"
+              :edges="verticalGraphData.edges"
+              :height="760"
+              @node-click="handleNodeClick"
+            />
+          </section>
+          <section class="split-graph-col split-graph-horizontal">
+            <div class="split-graph-head">
+              <h4>换岗图谱</h4>
+              <span class="split-graph-sub">横向岗位迁移路径</span>
+            </div>
+            <path-graph
+              :nodes="horizontalGraphData.nodes"
+              :edges="horizontalGraphData.edges"
+              :height="760"
+              @node-click="handleNodeClick"
+            />
+          </section>
+        </div>
       </el-card>
 
       <el-card class="panel detail-panel">
@@ -137,6 +161,91 @@ const activeNode = ref<GraphNode | null>(null)
 
 const verticalNodeCount = computed(() => graphData.value.nodes.filter((node) => node.type === 'vertical').length)
 const horizontalNodeCount = computed(() => graphData.value.nodes.filter((node) => node.type === 'horizontal').length)
+
+const inferEdgeType = (edge: GraphEdge): 'vertical' | 'horizontal' | 'target' => {
+  if (edge.type === 'horizontal' || edge.type === 'target') {
+    return edge.type
+  }
+  const label = `${edge.label ?? ''}`.trim()
+  if (/转岗|横向|平级|跨岗|换岗|lateral|transfer|cross/i.test(label)) {
+    return 'horizontal'
+  }
+  if (/目标|target/i.test(label)) {
+    return 'target'
+  }
+  return 'vertical'
+}
+
+const splitGraphByType = (type: 'vertical' | 'horizontal'): { nodes: GraphNode[]; edges: GraphEdge[] } => {
+  const target = graphData.value.nodes.find((node) => node.type === 'target') ?? graphData.value.nodes[0]
+  if (!target) {
+    return { nodes: [], edges: [] }
+  }
+
+  const selectedEdges = graphData.value.edges.filter((edge) => inferEdgeType(edge) === type)
+  const nodeIds = new Set<string>([target.id])
+  selectedEdges.forEach((edge) => {
+    nodeIds.add(edge.source)
+    nodeIds.add(edge.target)
+  })
+
+  const selectedNodes = graphData.value.nodes
+    .filter((node) => nodeIds.has(node.id))
+    .map((node) => {
+      if (node.id === target.id) {
+        return { ...node, type: 'target' as const, x: undefined, y: undefined }
+      }
+      return {
+        ...node,
+        type: type === 'vertical' ? ('vertical' as const) : ('horizontal' as const),
+        x: undefined,
+        y: undefined
+      }
+    })
+
+  if (type === 'vertical') {
+    const orderSeed = graphData.value.nodes
+      .map((node, index) => ({ id: node.id, index, y: node.y }))
+      .reduce<Record<string, { index: number; y?: number }>>((acc, item) => {
+        acc[item.id] = { index: item.index, y: item.y }
+        return acc
+      }, {})
+
+    const verticalNodes = selectedNodes
+      .filter((node) => node.id !== target.id)
+      .sort((a, b) => {
+        const ay = orderSeed[a.id]?.y
+        const by = orderSeed[b.id]?.y
+        if (typeof ay === 'number' && typeof by === 'number' && ay !== by) {
+          return ay - by
+        }
+        return (orderSeed[a.id]?.index ?? 0) - (orderSeed[b.id]?.index ?? 0)
+      })
+
+    const chainEdges: GraphEdge[] = []
+    if (verticalNodes.length > 0) {
+      chainEdges.push({
+        source: target.id,
+        target: verticalNodes[0].id,
+        type: 'vertical'
+      })
+      for (let i = 1; i < verticalNodes.length; i += 1) {
+        chainEdges.push({
+          source: verticalNodes[i - 1].id,
+          target: verticalNodes[i].id,
+          type: 'vertical'
+        })
+      }
+    }
+
+    return { nodes: selectedNodes, edges: chainEdges }
+  }
+
+  return { nodes: selectedNodes, edges: selectedEdges.map((edge) => ({ ...edge, type })) }
+}
+
+const verticalGraphData = computed(() => splitGraphByType('vertical'))
+const horizontalGraphData = computed(() => splitGraphByType('horizontal'))
 
 const targetRole = computed(() => {
   const latestTitle = historyStore.latestReport?.title ?? ''
@@ -265,10 +374,6 @@ onMounted(async () => {
   flex-direction: column;
   gap: 18px;
   padding: 8px;
-  background:
-    radial-gradient(circle at 12% 0%, rgba(77, 143, 255, 0.14), transparent 38%),
-    radial-gradient(circle at 86% 18%, rgba(0, 197, 198, 0.12), transparent 34%),
-    linear-gradient(180deg, #f5f8ff 0%, #f8fbff 100%);
   border-radius: 24px;
   font-family: 'Outfit', 'DIN Alternate', 'PingFang SC', 'Microsoft YaHei', sans-serif;
 }
@@ -420,6 +525,49 @@ onMounted(async () => {
     radial-gradient(circle at 0% 100%, rgba(114, 160, 255, 0.12), transparent 45%);
 }
 
+.split-graphs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.split-graph-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(128, 155, 216, 0.3);
+  box-shadow: 0 12px 28px rgba(60, 95, 162, 0.09);
+}
+
+.split-graph-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.split-graph-col h4 {
+  margin: 0;
+  font-size: 17px;
+  color: #204173;
+}
+
+.split-graph-sub {
+  font-size: 12px;
+  color: #5a729f;
+}
+
+.split-graph-vertical {
+  border-color: rgba(77, 119, 211, 0.34);
+}
+
+.split-graph-horizontal {
+  border-color: rgba(17, 152, 166, 0.34);
+}
+
 .detail-head {
   display: flex;
   align-items: center;
@@ -509,6 +657,10 @@ onMounted(async () => {
 
 @media (max-width: 1200px) {
   .path-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .split-graphs {
     grid-template-columns: 1fr;
   }
 

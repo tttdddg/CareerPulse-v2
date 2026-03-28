@@ -13,7 +13,7 @@
           <el-icon><TrendCharts /></el-icon>
           <span>岗位匹配</span>
         </el-menu-item>
-        <el-menu-item index="/app/path">
+        <el-menu-item index="/app/path" :disabled="pathMenuDisabled">
           <el-icon><Share /></el-icon>
           <span>职业分析</span>
         </el-menu-item>
@@ -46,6 +46,7 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { useAnalysisStore } from '../stores/analysis'
 import brandLogo from '@/assets/logoo.png'
 import {
   EditPen,
@@ -59,6 +60,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const analysisStore = useAnalysisStore()
 
 const handleLogout = (): void => {
   userStore.logout()
@@ -66,6 +68,7 @@ const handleLogout = (): void => {
 }
 
 const activeMenu = computed(() => route.path)
+const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
 </script>
 
 <style scoped>

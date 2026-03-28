@@ -658,23 +658,54 @@ const normalizeGrowth = (source: unknown): GrowthPoint[] => {
 }
 
 export const fetchJobs = async (params: FetchJobsParams): Promise<JobItem[]> => {
-  const response = await request<unknown>({
-    url: '/jobs',
-    method: 'GET',
-    params: {
-      keyword: params.keyword,
-      page: params.page ?? 1,
-      size: params.size ?? 20
-    }
-  })
-
-  const items = pickRecordList(response, ['jobs', 'items', 'list', 'data'])
-  if (items.length > 0) {
-    return items.map(normalizeJob).filter((job) => job.id > 0)
+  const query = {
+    keyword: params.keyword,
+    q: params.keyword,
+    target_role: params.keyword,
+    job_name: params.keyword,
+    page: params.page ?? 1,
+    size: params.size ?? 20,
+    limit: params.size ?? 20
   }
 
-  if (Array.isArray(response)) {
-    return response.filter(isRecord).map(normalizeJob).filter((job) => job.id > 0)
+  const runAndNormalize = async (url: string): Promise<JobItem[]> => {
+    const response = await request<unknown>({
+      url,
+      method: 'GET',
+      params: query
+    })
+
+    const items = pickRecordList(response, ['jobs', 'items', 'list', 'data'])
+    if (items.length > 0) {
+      return items.map(normalizeJob).filter((job) => job.id > 0)
+    }
+
+    if (Array.isArray(response)) {
+      return response.filter(isRecord).map(normalizeJob).filter((job) => job.id > 0)
+    }
+
+    return []
+  }
+
+  try {
+    const jobs = await runAndNormalize('/jobs')
+    if (jobs.length > 0) {
+      return jobs
+    }
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
+  }
+
+  try {
+    return await runAndNormalize('/jobs/search')
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
   }
 
   return []
@@ -785,18 +816,59 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
 }
 
 export const fetchReport = async (reportId: number): Promise<ReportDocument> => {
-  const response = await request<unknown>({
-    url: `/reports/${reportId}`,
-    method: 'GET',
-    skipAuth: true,
-    timeout: 30000
-  })
-  const record = pickPayloadRecord(response)
-  return {
-    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
-    content: extractContent(record),
-    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+  const attempts = [
+    () =>
+      request<unknown>({
+        url: `/reports/${reportId}`,
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000
+      }),
+    () =>
+      request<unknown>({
+        url: `/history/reports/${reportId}`,
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000
+      }),
+    () =>
+      request<unknown>({
+        url: '/reports',
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000,
+        params: { report_id: reportId }
+      }),
+    () =>
+      request<unknown>({
+        url: '/history/reports',
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000,
+        params: { report_id: reportId }
+      })
+  ]
+
+  let lastError: unknown = null
+  for (const run of attempts) {
+    try {
+      const response = await run()
+      const record = pickPayloadRecord(response)
+      return {
+        reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
+        content: extractContent(record),
+        status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+      }
+    } catch (error) {
+      const status = (error as { status?: number })?.status
+      if (status !== 404 && status !== 405) {
+        throw error
+      }
+      lastError = error
+    }
   }
+
+  throw lastError ?? new Error('报告不存在或后端报告查询接口不可用')
 }
 
 export const polishReport = async (
