@@ -1,4 +1,4 @@
-﻿"""Job-related API routes."""
+"""Job-related API routes."""
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -9,7 +9,7 @@ router = APIRouter()
 
 
 @router.get("/jobs")
-def get_jobs(keyword: str = Query(...), page: int = 1, size: int = 20):
+def get_jobs(keyword: str = Query(default=""), page: int = 1, size: int = 10):
     return search_jobs(keyword, page, size)
 
 

@@ -1,4 +1,4 @@
-﻿"""Database helpers and shared utility functions.
+﻿"""
 
 本模块只放“跨业务可复用”的能力：
 1) 建立数据库连接
@@ -18,7 +18,6 @@ from .config import POSTGRES_CONFIG
 
 
 def get_db_conn():
-    """Create a PostgreSQL connection using project config."""
     return psycopg2.connect(
         host=POSTGRES_CONFIG["host"],
         port=POSTGRES_CONFIG["port"],
@@ -45,7 +44,6 @@ def table_exists(conn, table_name: str) -> bool:
 
 
 def ensure_business_tables(conn):
-    """Create lightweight business tables used by matching/report/history APIs."""
     with conn.cursor() as cur:
         cur.execute(
             """
