@@ -341,6 +341,10 @@ const reloadGraph = async (): Promise<void> => {
       errorMessage.value = '后端未返回完整图谱数据，请补齐岗位关联图谱后重试'
       activeNode.value = null
       return
+
+
+
+      
     }
 
     errorMessage.value = ''
