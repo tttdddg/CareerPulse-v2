@@ -1,4 +1,5 @@
 ﻿import { defineStore } from 'pinia'
+import type { JobItem } from '../api/modules/career'
 
 // 雷达图维度定义
 export interface RadarIndicator {
@@ -18,9 +19,12 @@ export interface AnalysisState {
   radarSeries: RadarSeries[]
   strengths: string[]
   gaps: string[]
+  targetKeyword: string
+  candidateJobs: JobItem[]
   studentId: number | null
   jobId: number | null
   reportId: number | null
+  pathAccessJobId: number | null
   updatedAt: string | null
 }
 
@@ -31,13 +35,18 @@ export const useAnalysisStore = defineStore('analysis', {
     radarSeries: [],
     strengths: [],
     gaps: [],
+    targetKeyword: '',
+    candidateJobs: [],
     studentId: null,
     jobId: null,
     reportId: null,
+    pathAccessJobId: null,
     updatedAt: null
   }),
   getters: {
-    hasRadar: (state): boolean => state.radarIndicators.length > 0 && state.radarSeries.length > 0
+    hasRadar: (state): boolean => state.radarIndicators.length > 0 && state.radarSeries.length > 0,
+    canVisitPathGraph: (state): boolean =>
+      state.jobId !== null && state.pathAccessJobId !== null && state.pathAccessJobId === state.jobId
   },
   actions: {
     // 设置匹配度并限制在 0-100
@@ -61,17 +70,36 @@ export const useAnalysisStore = defineStore('analysis', {
       this.updatedAt = new Date().toISOString()
     },
 
+    setTargetKeyword(keyword: string): void {
+      this.targetKeyword = keyword.trim()
+      this.updatedAt = new Date().toISOString()
+    },
+
+    setCandidateJobs(jobs: JobItem[]): void {
+      this.candidateJobs = jobs
+      this.pathAccessJobId = null
+      this.updatedAt = new Date().toISOString()
+    },
+
     // 保存当前分析上下文（学生、岗位、报告）
     setContext(payload: { studentId?: number | null; jobId?: number | null; reportId?: number | null }): void {
       if (payload.studentId !== undefined) {
         this.studentId = payload.studentId
       }
       if (payload.jobId !== undefined) {
+        if (payload.jobId !== this.jobId) {
+          this.pathAccessJobId = null
+        }
         this.jobId = payload.jobId
       }
       if (payload.reportId !== undefined) {
         this.reportId = payload.reportId
       }
+      this.updatedAt = new Date().toISOString()
+    },
+
+    grantPathAccess(jobId: number): void {
+      this.pathAccessJobId = jobId
       this.updatedAt = new Date().toISOString()
     },
 
@@ -82,9 +110,12 @@ export const useAnalysisStore = defineStore('analysis', {
       this.radarSeries = []
       this.strengths = []
       this.gaps = []
+      this.targetKeyword = ''
+      this.candidateJobs = []
       this.studentId = null
       this.jobId = null
       this.reportId = null
+      this.pathAccessJobId = null
       this.updatedAt = null
     }
   }

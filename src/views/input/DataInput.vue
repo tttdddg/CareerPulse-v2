@@ -104,6 +104,7 @@ import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
 import { fetchJobs, matchingAnalyze, uploadStudentProfile, uploadStudentResume } from '../../api/modules/career'
 import { saveAnalysisReport } from '../../api/modules/history'
+import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -191,12 +192,11 @@ const handleStartAnalysis = async (): Promise<void> => {
 
   try {
     analysisLoading.value = true
-    const jobs = await fetchJobs({
-      keyword: form.targetRole,
-      page: 1,
-      size: 20
-    })
-    const topJob = jobs[0]
+    const topJobs = await pickDiverseTopJobs(form.targetRole, fetchJobs, 10)
+    analysisStore.setTargetKeyword(form.targetRole)
+    analysisStore.setCandidateJobs(topJobs)
+
+    const topJob = topJobs[0]
     if (!topJob) {
       throw new Error('未查询到可分析的目标岗位，请调整岗位关键词后重试')
     }

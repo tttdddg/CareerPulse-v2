@@ -109,6 +109,19 @@ export interface JobItem {
   id: number
   name: string
   match: number
+  company: string
+  industry: string
+  salaryRange: string
+  requiredSkills: string[]
+  requiredCerts: string[]
+  softSkills: string[]
+  abilityDimensions: {
+    innovation: number
+    learning: number
+    stressTolerance: number
+    communication: number
+    internship: number
+  }
   highlights: string[]
   description: string
 }
@@ -167,6 +180,10 @@ export interface PathGraphNode {
   x?: number
   y?: number
   type?: 'vertical' | 'horizontal' | 'target'
+  relation?: string
+  jobDescription?: string
+  coreSkills?: string[]
+  salaryRange?: string
 }
 
 export interface PathGraphEdge {
@@ -179,6 +196,35 @@ export interface PathGraphEdge {
 export interface PathGraphResult {
   nodes: PathGraphNode[]
   edges: PathGraphEdge[]
+}
+
+const normalizeAbilityDimensions = (
+  value: unknown
+): {
+  innovation: number
+  learning: number
+  stressTolerance: number
+  communication: number
+  internship: number
+} => {
+  const defaults = {
+    innovation: 0,
+    learning: 0,
+    stressTolerance: 0,
+    communication: 0,
+    internship: 0
+  }
+  if (!isRecord(value)) {
+    return defaults
+  }
+
+  return {
+    innovation: toNumber(getByKeys(value, ['innovation', '创新能力']), 0),
+    learning: toNumber(getByKeys(value, ['learning', '学习能力']), 0),
+    stressTolerance: toNumber(getByKeys(value, ['stress_tolerance', 'stressTolerance', '抗压能力']), 0),
+    communication: toNumber(getByKeys(value, ['communication', '沟通能力']), 0),
+    internship: toNumber(getByKeys(value, ['internship', '实习能力']), 0)
+  }
 }
 
 export interface ReportItem {
@@ -296,10 +342,24 @@ const normalizeJob = (input: UnknownRecord): JobItem => {
   const name = toStringSafe(getByKeys(input, ['job_name', 'name', 'title', 'position']), `Job ${id || ''}`)
   const highlightsSource = getByKeys(input, ['highlights', 'advantages', 'strengths'])
   const highlights = asArray(highlightsSource).map((item) => toStringSafe(item)).filter(Boolean)
-  const description = toStringSafe(getByKeys(input, ['description', 'desc', 'summary']), '')
+  const description = toStringSafe(getByKeys(input, ['job_description', 'description', 'desc', 'summary']), '')
   const match = toNumber(getByKeys(input, ['match_score', 'match', 'score']), 0)
+  const abilityDimensions = normalizeAbilityDimensions(getByKeys(input, ['ability_dimensions', 'abilityDimensions']))
 
-  return { id, name, match, highlights, description }
+  return {
+    id,
+    name,
+    match,
+    company: toStringSafe(getByKeys(input, ['company', 'company_name']), ''),
+    industry: toStringSafe(getByKeys(input, ['industry']), ''),
+    salaryRange: toStringSafe(getByKeys(input, ['salary_range', 'salaryRange']), ''),
+    requiredSkills: toStringArray(getByKeys(input, ['required_skills', 'skills'])),
+    requiredCerts: toStringArray(getByKeys(input, ['required_certs', 'certificates'])),
+    softSkills: toStringArray(getByKeys(input, ['soft_skills'])),
+    abilityDimensions,
+    highlights,
+    description
+  }
 }
 
 const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
@@ -451,7 +511,11 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
       label: centerLabel,
       x: 80,
       y: 280,
-      type: 'target'
+      type: 'target',
+      relation: toStringSafe(getByKeys(center, ['relation']), ''),
+      jobDescription: toStringSafe(getByKeys(center, ['job_description', 'description', 'desc']), ''),
+      coreSkills: toStringArray(getByKeys(center, ['core_skills', 'required_skills', 'skills'])),
+      salaryRange: toStringSafe(getByKeys(center, ['salary_range', 'salaryRange']), '')
     }
 
     const verticalNodes = verticalRaw
@@ -461,7 +525,11 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
         label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `纵向岗位 ${index + 1}`),
         x: 80,
         y: 80 + index * 100,
-        type: 'vertical' as const
+        type: 'vertical' as const,
+        relation: toStringSafe(getByKeys(item, ['relation']), ''),
+        jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
+        coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
+        salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
       }))
 
     const lateralNodes = lateralRaw
@@ -471,22 +539,39 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
         label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `横向岗位 ${index + 1}`),
         x: 320,
         y: 180 + index * 100,
-        type: 'horizontal' as const
+        type: 'horizontal' as const,
+        relation: toStringSafe(getByKeys(item, ['relation']), ''),
+        jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
+        coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
+        salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
       }))
 
+    const relationEdges = pickRecordList(record, ['relations']).map((edge) => ({
+      source: toStringSafe(getByKeys(edge, ['source', 'from', 'start']), ''),
+      target: toStringSafe(getByKeys(edge, ['target', 'to', 'end']), ''),
+      label: toStringSafe(getByKeys(edge, ['label', 'name', 'relation']), '') || undefined,
+      type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type']
+    }))
+
     const allNodes = [centerNode, ...verticalNodes, ...lateralNodes]
-    const edges: PathGraphEdge[] = [
+    const fallbackEdges: PathGraphEdge[] = [
       ...verticalNodes.map((node) => ({
         source: node.id,
         target: centerNode.id,
+        label: node.relation || '晋升',
         type: 'vertical' as const
       })),
       ...lateralNodes.map((node) => ({
         source: centerNode.id,
         target: node.id,
+        label: node.relation || '换岗',
         type: 'horizontal' as const
       }))
     ]
+    const edges =
+      relationEdges.length > 0
+        ? relationEdges.filter((item) => item.source && item.target)
+        : fallbackEdges
 
     return {
       nodes: allNodes.filter((item) => item.id && item.label),
@@ -502,7 +587,11 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     label: toStringSafe(getByKeys(node, ['label', 'name', 'title']), `Node ${index + 1}`),
     x: toOptionalNumber(getByKeys(node, ['x', 'posX'])),
     y: toOptionalNumber(getByKeys(node, ['y', 'posY'])),
-    type: toStringSafe(getByKeys(node, ['type']), '') as PathGraphNode['type']
+    type: toStringSafe(getByKeys(node, ['type']), '') as PathGraphNode['type'],
+    relation: toStringSafe(getByKeys(node, ['relation']), ''),
+    jobDescription: toStringSafe(getByKeys(node, ['job_description', 'description', 'desc']), ''),
+    coreSkills: toStringArray(getByKeys(node, ['core_skills', 'required_skills', 'skills'])),
+    salaryRange: toStringSafe(getByKeys(node, ['salary_range', 'salaryRange']), '')
   }))
 
   const edges = edgeCandidates.map((edge) => ({
@@ -569,23 +658,54 @@ const normalizeGrowth = (source: unknown): GrowthPoint[] => {
 }
 
 export const fetchJobs = async (params: FetchJobsParams): Promise<JobItem[]> => {
-  const response = await request<unknown>({
-    url: '/jobs',
-    method: 'GET',
-    params: {
-      keyword: params.keyword,
-      page: params.page ?? 1,
-      size: params.size ?? 20
-    }
-  })
-
-  const items = pickRecordList(response, ['jobs', 'items', 'list', 'data'])
-  if (items.length > 0) {
-    return items.map(normalizeJob).filter((job) => job.id > 0)
+  const query = {
+    keyword: params.keyword,
+    q: params.keyword,
+    target_role: params.keyword,
+    job_name: params.keyword,
+    page: params.page ?? 1,
+    size: params.size ?? 20,
+    limit: params.size ?? 20
   }
 
-  if (Array.isArray(response)) {
-    return response.filter(isRecord).map(normalizeJob).filter((job) => job.id > 0)
+  const runAndNormalize = async (url: string): Promise<JobItem[]> => {
+    const response = await request<unknown>({
+      url,
+      method: 'GET',
+      params: query
+    })
+
+    const items = pickRecordList(response, ['jobs', 'items', 'list', 'data'])
+    if (items.length > 0) {
+      return items.map(normalizeJob).filter((job) => job.id > 0)
+    }
+
+    if (Array.isArray(response)) {
+      return response.filter(isRecord).map(normalizeJob).filter((job) => job.id > 0)
+    }
+
+    return []
+  }
+
+  try {
+    const jobs = await runAndNormalize('/jobs')
+    if (jobs.length > 0) {
+      return jobs
+    }
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
+  }
+
+  try {
+    return await runAndNormalize('/jobs/search')
+  } catch (error) {
+    const status = (error as { status?: number })?.status
+    if (status !== 404 && status !== 405) {
+      throw error
+    }
   }
 
   return []
@@ -696,18 +816,59 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
 }
 
 export const fetchReport = async (reportId: number): Promise<ReportDocument> => {
-  const response = await request<unknown>({
-    url: `/reports/${reportId}`,
-    method: 'GET',
-    skipAuth: true,
-    timeout: 30000
-  })
-  const record = pickPayloadRecord(response)
-  return {
-    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
-    content: extractContent(record),
-    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+  const attempts = [
+    () =>
+      request<unknown>({
+        url: `/reports/${reportId}`,
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000
+      }),
+    () =>
+      request<unknown>({
+        url: `/history/reports/${reportId}`,
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000
+      }),
+    () =>
+      request<unknown>({
+        url: '/reports',
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000,
+        params: { report_id: reportId }
+      }),
+    () =>
+      request<unknown>({
+        url: '/history/reports',
+        method: 'GET',
+        skipAuth: true,
+        timeout: 30000,
+        params: { report_id: reportId }
+      })
+  ]
+
+  let lastError: unknown = null
+  for (const run of attempts) {
+    try {
+      const response = await run()
+      const record = pickPayloadRecord(response)
+      return {
+        reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
+        content: extractContent(record),
+        status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+      }
+    } catch (error) {
+      const status = (error as { status?: number })?.status
+      if (status !== 404 && status !== 405) {
+        throw error
+      }
+      lastError = error
+    }
   }
+
+  throw lastError ?? new Error('报告不存在或后端报告查询接口不可用')
 }
 
 export const polishReport = async (

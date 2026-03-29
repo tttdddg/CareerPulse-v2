@@ -257,16 +257,60 @@ export interface SaveReportPayload {
 }
 
 export const saveAnalysisReport = async (payload: SaveReportPayload): Promise<{ reportId: number }> => {
-  const response = await request<unknown>({
-    url: '/history/reports',
-    method: 'POST',
-    data: payload
-  })
-
-  const reportId = extractReportId(response)
-  if (reportId > 0) {
-    return { reportId }
+  const normalizedPayload = {
+    ...payload,
+    user_id: payload.userId,
+    match_score: payload.matchScore,
+    radar_indicators: payload.radarIndicators,
+    radar_series: payload.radarSeries,
+    student_id: payload.studentId ?? undefined,
+    job_id: payload.jobId ?? undefined
   }
 
+  const attempts = [
+    () =>
+      request<unknown>({
+        url: '/history/reports',
+        method: 'POST',
+        data: normalizedPayload
+      }),
+    () =>
+      request<unknown>({
+        url: '/reports',
+        method: 'POST',
+        data: normalizedPayload
+      }),
+    () =>
+      request<unknown>({
+        url: '/reports/generate',
+        method: 'POST',
+        data: {
+          student_id: payload.studentId ?? 0,
+          job_id: payload.jobId ?? 0,
+          user_id: payload.userId
+        }
+      })
+  ]
+
+  let lastError: unknown = null
+  for (const run of attempts) {
+    try {
+      const response = await run()
+      const reportId = extractReportId(response)
+      if (reportId > 0) {
+        return { reportId }
+      }
+    } catch (error) {
+      const status = (error as { status?: number })?.status
+      if (status !== 404 && status !== 405) {
+        throw error
+      }
+      lastError = error
+    }
+  }
+
+  if (lastError) {
+    throw lastError
+  }
   throw new Error('保存成功但未返回 reportId，请检查后端返回结构')
 }

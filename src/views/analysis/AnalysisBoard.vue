@@ -18,9 +18,55 @@
       <div ref="gaugeEl" class="gauge"></div>
       <p class="target-role">
         <el-icon><SuitcaseLine /></el-icon>
-        <span>目标岗位:</span>
-        <strong>{{ topJob?.name || '高级产品经理' }}</strong>
+        <span>当前目标岗位:</span>
+        <strong>{{ currentJob?.name || '未选择岗位' }}</strong>
       </p>
+    </el-card>
+
+    <el-card class="panel jobs-panel" v-loading="jobsLoading">
+      <div class="panel-head">
+        <h3>岗位画像列表（Top 10）</h3>
+        <div class="head-actions">
+          <el-button type="primary" plain size="small" :loading="complianceLoading" @click="checkGraphCompliance">
+            校验图谱约束
+          </el-button>
+          <el-button type="primary" plain size="small" @click="fetchJobs">刷新岗位</el-button>
+        </div>
+      </div>
+      <p class="compliance" v-if="complianceResult">{{ complianceResult }}</p>
+      <el-empty v-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
+      <div v-else class="job-grid">
+        <article
+          v-for="job in jobProfiles"
+          :key="job.uid"
+          class="job-card"
+          :class="{ active: job.jobId === analysisStore.jobId }"
+        >
+          <div class="job-head">
+            <h4>{{ job.name }}</h4>
+            <el-tag type="success">{{ Math.round(job.match || 0) }}%</el-tag>
+          </div>
+          <p class="job-meta">{{ job.company || '企业信息待补充' }} · {{ job.industry || '行业未知' }}</p>
+          <p class="job-meta">薪资：{{ job.salaryRange || '待补充' }}</p>
+          <div class="tag-row">
+            <el-tag v-for="tag in (job.requiredSkills.length ? job.requiredSkills.slice(0, 3) : job.highlights.slice(0, 3))" :key="tag" effect="plain">
+              {{ tag }}
+            </el-tag>
+          </div>
+          <div class="job-actions">
+            <el-button size="small" type="primary" plain :disabled="!job.jobId" @click="selectTargetJob(job)">
+              设为目标
+            </el-button>
+            <el-button
+              size="small"
+              :disabled="analysisStore.jobId !== job.jobId"
+              @click="jumpToAnalysis(job)"
+            >
+              查看画像
+            </el-button>
+          </div>
+        </article>
+      </div>
     </el-card>
 
     <section class="detail-grid">
@@ -60,6 +106,7 @@
         </div>
       </el-card>
     </section>
+
   </div>
 </template>
 
@@ -70,17 +117,29 @@ import { ElMessage } from 'element-plus'
 import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
-import { useHistoryStore } from '../../stores/history'
 import RadarChart from '../../components/business/RadarChart.vue'
-import { fetchJobs as fetchJobsApi, matchingAnalyze, type JobItem } from '../../api/modules/career'
+import { fetchJobGraph, matchingAnalyze, type JobItem } from '../../api/modules/career'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
-const historyStore = useHistoryStore()
 const loading = ref(false)
 const jobsLoading = ref(false)
+const complianceLoading = ref(false)
 const errorMessage = ref('')
-const jobProfiles = ref<JobItem[]>([])
+const complianceResult = ref('')
+const graphJobProfiles = ref<
+  Array<{
+    uid: string
+    jobId: number | null
+    name: string
+    match: number
+    company: string
+    industry: string
+    salaryRange: string
+    requiredSkills: string[]
+    highlights: string[]
+  }>
+>([])
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
 let gaugeChart: echarts.ECharts | null = null
@@ -91,13 +150,33 @@ const priorityMap = [
   { label: '一般', type: 'success' as const }
 ]
 
-const topJob = computed(() => {
-  if (jobProfiles.value[0]) {
-    return jobProfiles.value[0]
-  }
+const normalizeName = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, '')
 
-  const latestTitle = historyStore.latestReport?.title ?? ''
-  return latestTitle ? { id: 'latest', name: latestTitle.replace('匹配报告', '').trim(), match: 0, highlights: [], description: '' } : null
+const tryExtractJobId = (rawId: string | number): number | null => {
+  if (typeof rawId === 'number' && Number.isFinite(rawId) && rawId > 0) {
+    return rawId
+  }
+  const text = `${rawId ?? ''}`.trim()
+  if (!text) {
+    return null
+  }
+  // 仅接受纯数字 id，避免将 n1、node-2 这类图谱节点误识别为岗位 ID。
+  if (/^\d+$/.test(text)) {
+    const direct = Number(text)
+    if (Number.isFinite(direct) && direct > 0) {
+      return direct
+    }
+  }
+  return null
+}
+
+const jobProfiles = computed(() => graphJobProfiles.value.slice(0, 10))
+
+const currentJob = computed(() => {
+  if (!jobProfiles.value.length) {
+    return null
+  }
+  return jobProfiles.value.find((item) => item.jobId === analysisStore.jobId) ?? jobProfiles.value[0]
 })
 
 const getGapDesc = (gap: string): string => {
@@ -193,20 +272,199 @@ const refreshRadar = async (): Promise<void> => {
   }
 }
 
-const fetchJobs = async (): Promise<void> => {
+const fetchJobs = async (force = true): Promise<void> => {
   try {
     jobsLoading.value = true
-    const keyword = (historyStore.latestReport?.title ?? '').replace('匹配报告', '').trim()
-    const jobs = await fetchJobsApi({
-      keyword: keyword || '产品经理',
-      page: 1,
-      size: 20
+
+    if (!force && graphJobProfiles.value.length >= 10) {
+      if (!analysisStore.jobId) {
+        const firstAvailable = graphJobProfiles.value.find((item) => item.jobId !== null)
+        if (firstAvailable?.jobId) {
+          analysisStore.setContext({ jobId: firstAvailable.jobId })
+        }
+      }
+      return
+    }
+
+    const targetJobId =
+      analysisStore.jobId ??
+      analysisStore.candidateJobs[0]?.id ??
+      null
+
+    if (!targetJobId) {
+      errorMessage.value = '缺少目标岗位上下文，请先回到数据输入中心完成分析'
+      return
+    }
+
+    const graph = await fetchJobGraph(targetJobId)
+    const seedById = new Map<number, JobItem>()
+    const seedByName = new Map<string, JobItem>()
+    analysisStore.candidateJobs.forEach((job) => {
+      seedById.set(job.id, job)
+      seedByName.set(normalizeName(job.name), job)
     })
-    jobProfiles.value = [...jobs].sort((a, b) => b.match - a.match)
+
+    const graphJobs: Array<{
+      uid: string
+      jobId: number | null
+      name: string
+      match: number
+      company: string
+      industry: string
+      salaryRange: string
+      requiredSkills: string[]
+      highlights: string[]
+    }> = []
+    const seenUid = new Set<string>()
+    graph.nodes.forEach((node, index) => {
+      const uid = (node.id || `${node.label}-${index}`).trim()
+      if (!uid || seenUid.has(uid)) {
+        return
+      }
+      seenUid.add(uid)
+      const jobId = tryExtractJobId(node.id)
+      const seed =
+        (jobId ? seedById.get(jobId) : undefined) ??
+        seedByName.get(normalizeName(node.label))
+
+      graphJobs.push({
+        uid,
+        jobId,
+        name: node.label || seed?.name || `岗位节点 ${index + 1}`,
+        match: seed?.match ?? (node.type === 'target' ? 100 : 0),
+        company: seed?.company ?? '',
+        industry: seed?.industry ?? '',
+        salaryRange: node.salaryRange || seed?.salaryRange || '',
+        requiredSkills: (node.coreSkills?.length ? node.coreSkills : seed?.requiredSkills) ?? [],
+        highlights: seed?.highlights ?? []
+      })
+    })
+
+    const orderedGraphJobs = [
+      ...graphJobs.filter((job) => job.jobId === targetJobId),
+      ...graphJobs.filter((job) => job.jobId !== targetJobId)
+    ].slice(0, 10)
+
+    graphJobProfiles.value = orderedGraphJobs
+
+    const candidateTopJobs: JobItem[] = orderedGraphJobs
+      .filter((item): item is typeof item & { jobId: number } => item.jobId !== null)
+      .map((item) => {
+        const seeded = seedById.get(item.jobId)
+        return (
+          seeded ?? {
+            id: item.jobId,
+            name: item.name,
+            match: item.match,
+            company: item.company,
+            industry: item.industry,
+            salaryRange: item.salaryRange,
+            requiredSkills: item.requiredSkills,
+            requiredCerts: [],
+            softSkills: [],
+            abilityDimensions: {
+              innovation: 0,
+              learning: 0,
+              stressTolerance: 0,
+              communication: 0,
+              internship: 0
+            },
+            highlights: item.highlights,
+            description: ''
+          }
+        )
+      })
+    analysisStore.setCandidateJobs(candidateTopJobs)
+
+    if (!analysisStore.jobId && candidateTopJobs[0]) {
+      analysisStore.setContext({ jobId: candidateTopJobs[0].id })
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '加载岗位画像失败'
   } finally {
     jobsLoading.value = false
+  }
+}
+
+const selectTargetJob = async (job: { jobId: number | null; name: string }): Promise<void> => {
+  if (!job.jobId) {
+    ElMessage.warning('该图谱节点缺少岗位 ID，暂不支持设为目标')
+    return
+  }
+
+  if (analysisStore.jobId === job.jobId) {
+    return
+  }
+
+  analysisStore.setContext({ jobId: job.jobId })
+
+  if (!analysisStore.studentId) {
+    ElMessage.warning('缺少学生画像上下文，已切换目标岗位，请先返回数据输入中心完成分析')
+    return
+  }
+
+  try {
+    loading.value = true
+    const result = await matchingAnalyze({
+      studentId: analysisStore.studentId,
+      jobId: job.jobId
+    })
+    analysisStore.setMatchScore(result.matchScore)
+    analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
+    analysisStore.setInsights(result.strengths, result.gaps)
+    if (result.reportId) {
+      analysisStore.setContext({ reportId: result.reportId })
+    }
+    await fetchJobs(true)
+    renderGauge()
+    ElMessage.success(`已切换目标岗位：${job.name}`)
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '切换岗位失败'
+  } finally {
+    loading.value = false
+  }
+}
+
+const jumpToAnalysis = async (job: { jobId: number | null }): Promise<void> => {
+  if (!job.jobId || analysisStore.jobId !== job.jobId) {
+    ElMessage.warning('仅支持从目标岗位卡片进入职业分析图谱，请先点击“设为目标”')
+    return
+  }
+
+  analysisStore.grantPathAccess(job.jobId)
+  await router.push({
+    path: '/app/path',
+    query: { jobId: String(job.jobId) }
+  })
+}
+
+const checkGraphCompliance = async (): Promise<void> => {
+  const backendReadyJobs = jobProfiles.value.filter((job) => !!job.jobId).map((job) => job.jobId as number)
+  if (backendReadyJobs.length < 5) {
+    complianceResult.value = `当前仅 ${backendReadyJobs.length} 个岗位具备可校验 job_id，不满足“至少5个可换岗岗位”校验条件。`
+    return
+  }
+
+  try {
+    complianceLoading.value = true
+    const graphs = await Promise.all(backendReadyJobs.map((jobId) => fetchJobGraph(jobId)))
+    const switchableCount = graphs.filter((graph) => graph.nodes.filter((node) => node.type === 'horizontal').length >= 2).length
+    const detailReady = graphs.every((graph) =>
+      graph.nodes.every((node) => Boolean(node.jobDescription && node.salaryRange && (node.coreSkills?.length ?? 0) > 0))
+    )
+
+    const switchablePass = switchableCount >= 5
+    complianceResult.value = `换岗路径达标岗位数：${switchableCount}/${backendReadyJobs.length}（要求至少5个岗位且每个不少于2条）；节点详情完整：${detailReady ? '是' : '否'}`
+
+    if (switchablePass && detailReady) {
+      ElMessage.success('图谱约束校验通过')
+    } else {
+      ElMessage.warning('图谱约束未完全通过，请补充后端图谱数据')
+    }
+  } catch (error) {
+    complianceResult.value = error instanceof Error ? error.message : '图谱约束校验失败'
+  } finally {
+    complianceLoading.value = false
   }
 }
 
@@ -215,12 +473,12 @@ const handleResize = (): void => {
 }
 
 onMounted(async () => {
-  if (!analysisStore.hasRadar) {
+  await fetchJobs(true)
+  if (!analysisStore.hasRadar && analysisStore.studentId && analysisStore.jobId) {
     await refreshRadar()
   }
   renderGauge()
   window.addEventListener('resize', handleResize)
-  await fetchJobs()
 })
 
 onBeforeUnmount(() => {
@@ -281,6 +539,75 @@ onBeforeUnmount(() => {
   color: #5f5ee7;
 }
 
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.head-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.compliance {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #475569;
+}
+
+.job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.job-card {
+  border: 1px solid #e2e6ef;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.job-card.active {
+  border-color: #5f5ee7;
+  box-shadow: 0 0 0 2px rgba(95, 94, 231, 0.1);
+}
+
+.job-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.job-head h4 {
+  margin: 0;
+  font-size: 16px;
+  color: #1f2a3f;
+}
+
+.job-meta {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 28px;
+}
+
+.job-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .detail-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -291,13 +618,6 @@ onBeforeUnmount(() => {
   margin: 0 0 16px;
   font-size: 22px;
   color: #1f2a3f;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
 }
 
 .gap-list {
@@ -352,6 +672,33 @@ onBeforeUnmount(() => {
   color: #5f5ee7;
   font-weight: 600;
   text-decoration: none;
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.dialog-desc,
+.dialog-meta {
+  color: #475569;
+  line-height: 1.6;
+}
+
+.dialog-block {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.dialog-block.dimensions span {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
 }
 
 .error-alert {
