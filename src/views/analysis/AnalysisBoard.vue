@@ -37,8 +37,9 @@
         </div>
       </div>
       <p class="compliance" v-if="complianceResult">{{ complianceResult }}</p>
-      <el-empty v-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
+      <el-empty v-if="isWordCloudView && !wordCloudData.length" description="暂无词云数据，请先回到数据输入中心完成分析" />
       <div v-else-if="isWordCloudView" ref="wordCloudEl" class="job-wordcloud"></div>
+      <el-empty v-else-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
       <div v-else class="job-grid">
         <article
           v-for="job in jobProfiles"
@@ -150,6 +151,7 @@ const gaugeEl = ref<HTMLDivElement | null>(null)
 const wordCloudEl = ref<HTMLDivElement | null>(null)
 let gaugeChart: echarts.ECharts | null = null
 let wordCloudChart: echarts.ECharts | null = null
+let wordCloudMaskImage: HTMLImageElement | null = null
 const jobViewMode = ref<'wordcloud' | 'list'>('wordcloud')
 
 const priorityMap = [
@@ -180,6 +182,119 @@ const tryExtractJobId = (rawId: string | number): number | null => {
 
 const jobProfiles = computed(() => graphJobProfiles.value.slice(0, 10))
 const isWordCloudView = computed(() => jobViewMode.value === 'wordcloud')
+
+const wordCloudData = computed<Array<{ name: string; value: number; source: string }>>(() => {
+  const addWord = (bucket: Map<string, { name: string; value: number; source: string }>, rawName: string, value: number, source: string): void => {
+    const name = rawName.trim()
+    if (!name || name.length < 2) {
+      return
+    }
+    const existing = bucket.get(name)
+    if (existing) {
+      existing.value += value
+      return
+    }
+    bucket.set(name, { name, value, source })
+  }
+
+  const tokenizeByPhrase = (text: string): string[] => {
+    const value = text.trim()
+    if (!value) {
+      return []
+    }
+    const parts = value
+      .split(/[、,，。；;|/\\\s]+/)
+      .map((item) => item.trim())
+      .filter((item) => item.length >= 2)
+    if (parts.length > 1) {
+      return parts
+    }
+
+    const onlyCn = value.replace(/[^\u4e00-\u9fa5]/g, '')
+    if (onlyCn.length >= 4) {
+      const chunks: string[] = []
+      for (let i = 0; i < onlyCn.length - 1; i += 1) {
+        chunks.push(onlyCn.slice(i, i + 2))
+      }
+      return chunks
+    }
+    return [value]
+  }
+
+  const bucket = new Map<string, { name: string; value: number; source: string }>()
+  const seededJobs = [
+    ...jobProfiles.value,
+    ...analysisStore.candidateJobs.map((job) => ({
+      uid: `seed-${job.id}`,
+      jobId: job.id,
+      name: job.name,
+      match: job.match,
+      company: job.company,
+      industry: job.industry,
+      salaryRange: job.salaryRange,
+      requiredSkills: job.requiredSkills,
+      highlights: job.highlights
+    }))
+  ]
+
+  seededJobs.forEach((job) => {
+    const matchBoost = Math.max(Math.round(job.match || 0), 30)
+    addWord(bucket, job.name, 72 + Math.round(matchBoost * 0.7), '岗位')
+    tokenizeByPhrase(job.name).forEach((token, index) => {
+      addWord(bucket, token, 20 - index, '岗位分词')
+    })
+
+    if (job.company && !/待补充|未知/.test(job.company)) {
+      addWord(bucket, job.company, 24 + Math.round(matchBoost * 0.1), '企业')
+      tokenizeByPhrase(job.company).forEach((token, index) => {
+        addWord(bucket, token, 14 - index, '企业分词')
+      })
+    }
+    if (job.industry && !/未知/.test(job.industry)) {
+      addWord(bucket, job.industry, 22 + Math.round(matchBoost * 0.08), '行业')
+      tokenizeByPhrase(job.industry).forEach((token, index) => {
+        addWord(bucket, token, 12 - index, '行业分词')
+      })
+    }
+
+    job.requiredSkills.slice(0, 8).forEach((skill, index) => {
+      addWord(bucket, skill, 26 - index * 2 + Math.round(matchBoost * 0.06), '技能')
+      tokenizeByPhrase(skill).forEach((token, tokenIdx) => {
+        addWord(bucket, token, 10 - tokenIdx, '技能分词')
+      })
+    })
+
+    job.highlights.slice(0, 6).forEach((highlight, index) => {
+      addWord(bucket, highlight, 18 - index + Math.round(matchBoost * 0.04), '亮点')
+      tokenizeByPhrase(highlight).forEach((token, tokenIdx) => {
+        addWord(bucket, token, 8 - tokenIdx, '亮点分词')
+      })
+    })
+  })
+
+  const baseWords = [...bucket.values()]
+    .map((item) => ({ ...item, value: Math.max(item.value, 3) }))
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 220)
+
+  // 低权重重复词补点：视觉上同词重复，内部用零宽字符区分，专门用于填满轮廓边缘与脖子区域。
+  const denseFillWords: Array<{ name: string; value: number; source: string }> = []
+  const topSeed = baseWords.slice(0, 60)
+  topSeed.forEach((item, idx) => {
+    const repeatCount = idx < 20 ? 6 : idx < 40 ? 4 : 2
+    for (let i = 0; i < repeatCount; i += 1) {
+      denseFillWords.push({
+        name: `${item.name}${'\u200b'.repeat(i + 1)}`,
+        value: Math.max(2, Math.round(item.value * 0.16) - i),
+        source: `${item.source}填充`
+      })
+    }
+  })
+
+  return [...baseWords, ...denseFillWords]
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 520)
+})
 
 const currentJob = computed(() => {
   if (!jobProfiles.value.length) {
@@ -255,7 +370,7 @@ const renderGauge = (): void => {
 }
 
 const renderWordCloud = (): void => {
-  if (!wordCloudEl.value || !jobProfiles.value.length) {
+  if (!wordCloudEl.value || !wordCloudData.value.length) {
     return
   }
 
@@ -263,41 +378,87 @@ const renderWordCloud = (): void => {
     wordCloudChart = echarts.init(wordCloudEl.value)
   }
 
-  const wordData = jobProfiles.value.map((job, index) => ({
-    name: job.name,
-    value: Math.max(Math.round(job.match || 0), 10 - index)
-  }))
+  const hashWord = (text: string): number => {
+    let hash = 0
+    for (let i = 0; i < text.length; i += 1) {
+      hash = (hash * 31 + text.charCodeAt(i)) % 2147483647
+    }
+    return Math.abs(hash)
+  }
 
-  wordCloudChart.setOption({
-    tooltip: {
-      formatter: (params: { name: string; value: number }) => `${params.name}<br/>匹配度：${params.value}%`
-    },
-    series: [
-      {
-        type: 'wordCloud',
-        shape: 'circle',
-        width: '100%',
-        height: '100%',
-        gridSize: 8,
-        sizeRange: [16, 56],
-        rotationRange: [-45, 45],
-        rotationStep: 15,
-        drawOutOfBound: false,
-        textStyle: {
-          color: () => {
-            const palette = ['#5f5ee7', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
-            return palette[Math.floor(Math.random() * palette.length)]
-          }
-        },
-        emphasis: {
-          textStyle: {
-            shadowBlur: 10,
-            shadowColor: 'rgba(0, 0, 0, 0.25)'
-          }
-        },
-        data: wordData
+  const ensureHeadMask = (): Promise<HTMLImageElement> => {
+    if (wordCloudMaskImage) {
+      return Promise.resolve(wordCloudMaskImage)
+    }
+
+    const headMaskSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000">
+        <rect width="100%" height="100%" fill="white"/>
+        <g fill="black">
+          <ellipse cx="500" cy="360" rx="360" ry="330"/>
+          <rect x="360" y="620" width="280" height="260" rx="100"/>
+          <ellipse cx="500" cy="890" rx="270" ry="105"/>
+        </g>
+      </svg>
+    `.trim()
+
+    const svgUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(headMaskSvg)}`
+    return new Promise((resolve) => {
+      const image = new Image()
+      image.onload = () => {
+        wordCloudMaskImage = image
+        resolve(image)
       }
-    ]
+      image.src = svgUrl
+    })
+  }
+
+  void ensureHeadMask().then((maskImage) => {
+    if (!wordCloudChart) {
+      return
+    }
+
+    wordCloudChart.setOption({
+      tooltip: {
+        formatter: (params: { name: string; value: number; data?: { source?: string } }) =>
+          `${params.name}<br/>来源：${params.data?.source ?? '岗位画像'}<br/>权重：${params.value}`
+      },
+      series: [
+        {
+          type: 'wordCloud',
+          shape: 'square',
+          maskImage,
+          keepAspect: true,
+          width: '100%',
+          height: '100%',
+          left: 'center',
+          top: 'center',
+          gridSize: 1,
+          sizeRange: [4, 52],
+          rotationRange: [-15, 15],
+          rotationStep: 15,
+          drawOutOfBound: false,
+          shrinkToFit: true,
+          textStyle: {
+            color: (_: unknown, params?: { name?: string }) => {
+              const palette = [
+                '#4338ca', '#2563eb', '#0284c7', '#0891b2', '#059669', '#65a30d',
+                '#ca8a04', '#ea580c', '#dc2626', '#be185d', '#7c3aed'
+              ]
+              const idx = hashWord(params?.name ?? '') % palette.length
+              return palette[idx]
+            }
+          },
+          emphasis: {
+            textStyle: {
+              shadowBlur: 12,
+              shadowColor: 'rgba(0, 0, 0, 0.3)'
+            }
+          },
+          data: wordCloudData.value
+        }
+      ]
+    } as echarts.EChartsOption)
   })
 }
 
@@ -561,7 +722,7 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => [jobProfiles.value, isWordCloudView.value],
+  () => [wordCloudData.value, isWordCloudView.value],
   async () => {
     if (!isWordCloudView.value) {
       return
@@ -644,7 +805,7 @@ watch(
 
 .job-wordcloud {
   width: 100%;
-  height: 420px;
+  height: 560px;
   border: 1px solid #e2e6ef;
   border-radius: 14px;
   background: linear-gradient(180deg, #fafbff 0%, #ffffff 60%);

@@ -34,7 +34,7 @@ export interface PathGraphProps {
 
 const props = withDefaults(defineProps<PathGraphProps>(), {
   height: 420,
-  variant: 'default'
+  variant: 'knowledge'
 })
 
 const emit = defineEmits<{

@@ -94,6 +94,7 @@
               :nodes="verticalGraphData.nodes"
               :edges="verticalGraphData.edges"
               :height="760"
+              variant="knowledge"
               @node-click="onPathNodeClick"
             />
           </section>
@@ -106,6 +107,7 @@
               :nodes="horizontalGraphData.nodes"
               :edges="horizontalGraphData.edges"
               :height="760"
+              variant="knowledge"
               @node-click="onPathNodeClick"
             />
           </section>
@@ -651,15 +653,15 @@ onMounted(async () => {
 }
 
 .dot-job {
-  background: linear-gradient(130deg, #3b82f6, #06b6d4);
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .dot-vertical {
-  background: linear-gradient(130deg, #295bd1, #67a3ff);
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .dot-horizontal {
-  background: linear-gradient(130deg, #00a9b3, #43d8dc);
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .graph-panel :deep(.path-graph) {
