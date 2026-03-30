@@ -27,14 +27,18 @@
       <div class="panel-head">
         <h3>岗位画像列表（Top 10）</h3>
         <div class="head-actions">
+          <el-button size="small" @click="toggleJobView">
+            {{ isWordCloudView ? '切换卡片视图' : '切换词云视图' }}
+          </el-button>
           <el-button type="primary" plain size="small" :loading="complianceLoading" @click="checkGraphCompliance">
             校验图谱约束
           </el-button>
-          <el-button type="primary" plain size="small" @click="fetchJobs">刷新岗位</el-button>
+          <el-button type="primary" plain size="small" @click="handleRefreshJobs">刷新岗位</el-button>
         </div>
       </div>
       <p class="compliance" v-if="complianceResult">{{ complianceResult }}</p>
       <el-empty v-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
+      <div v-else-if="isWordCloudView" ref="wordCloudEl" class="job-wordcloud"></div>
       <div v-else class="job-grid">
         <article
           v-for="job in jobProfiles"
@@ -111,8 +115,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
+import 'echarts-wordcloud'
 import { ElMessage } from 'element-plus'
 import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
@@ -142,7 +147,10 @@ const graphJobProfiles = ref<
 >([])
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
+const wordCloudEl = ref<HTMLDivElement | null>(null)
 let gaugeChart: echarts.ECharts | null = null
+let wordCloudChart: echarts.ECharts | null = null
+const jobViewMode = ref<'wordcloud' | 'list'>('wordcloud')
 
 const priorityMap = [
   { label: '紧急', type: 'danger' as const },
@@ -171,6 +179,7 @@ const tryExtractJobId = (rawId: string | number): number | null => {
 }
 
 const jobProfiles = computed(() => graphJobProfiles.value.slice(0, 10))
+const isWordCloudView = computed(() => jobViewMode.value === 'wordcloud')
 
 const currentJob = computed(() => {
   if (!jobProfiles.value.length) {
@@ -243,6 +252,61 @@ const renderGauge = (): void => {
       }
     ]
   })
+}
+
+const renderWordCloud = (): void => {
+  if (!wordCloudEl.value || !jobProfiles.value.length) {
+    return
+  }
+
+  if (!wordCloudChart) {
+    wordCloudChart = echarts.init(wordCloudEl.value)
+  }
+
+  const wordData = jobProfiles.value.map((job, index) => ({
+    name: job.name,
+    value: Math.max(Math.round(job.match || 0), 10 - index)
+  }))
+
+  wordCloudChart.setOption({
+    tooltip: {
+      formatter: (params: { name: string; value: number }) => `${params.name}<br/>匹配度：${params.value}%`
+    },
+    series: [
+      {
+        type: 'wordCloud',
+        shape: 'circle',
+        width: '100%',
+        height: '100%',
+        gridSize: 8,
+        sizeRange: [16, 56],
+        rotationRange: [-45, 45],
+        rotationStep: 15,
+        drawOutOfBound: false,
+        textStyle: {
+          color: () => {
+            const palette = ['#5f5ee7', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
+            return palette[Math.floor(Math.random() * palette.length)]
+          }
+        },
+        emphasis: {
+          textStyle: {
+            shadowBlur: 10,
+            shadowColor: 'rgba(0, 0, 0, 0.25)'
+          }
+        },
+        data: wordData
+      }
+    ]
+  })
+}
+
+const toggleJobView = async (): Promise<void> => {
+  jobViewMode.value = jobViewMode.value === 'wordcloud' ? 'list' : 'wordcloud'
+  if (isWordCloudView.value) {
+    await nextTick()
+    renderWordCloud()
+  }
 }
 
 const refreshRadar = async (): Promise<void> => {
@@ -386,6 +450,10 @@ const fetchJobs = async (force = true): Promise<void> => {
   }
 }
 
+const handleRefreshJobs = (): void => {
+  void fetchJobs(true)
+}
+
 const selectTargetJob = async (job: { jobId: number | null; name: string }): Promise<void> => {
   if (!job.jobId) {
     ElMessage.warning('该图谱节点缺少岗位 ID，暂不支持设为目标')
@@ -470,6 +538,7 @@ const checkGraphCompliance = async (): Promise<void> => {
 
 const handleResize = (): void => {
   gaugeChart?.resize()
+  wordCloudChart?.resize()
 }
 
 onMounted(async () => {
@@ -478,14 +547,30 @@ onMounted(async () => {
     await refreshRadar()
   }
   renderGauge()
+  await nextTick()
+  renderWordCloud()
   window.addEventListener('resize', handleResize)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize)
   gaugeChart?.dispose()
+  wordCloudChart?.dispose()
   gaugeChart = null
+  wordCloudChart = null
 })
+
+watch(
+  () => [jobProfiles.value, isWordCloudView.value],
+  async () => {
+    if (!isWordCloudView.value) {
+      return
+    }
+    await nextTick()
+    renderWordCloud()
+  },
+  { deep: true }
+)
 </script>
 
 <style scoped>
@@ -555,6 +640,14 @@ onBeforeUnmount(() => {
   margin: 0 0 12px;
   font-size: 13px;
   color: #475569;
+}
+
+.job-wordcloud {
+  width: 100%;
+  height: 420px;
+  border: 1px solid #e2e6ef;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fafbff 0%, #ffffff 60%);
 }
 
 .job-grid {
