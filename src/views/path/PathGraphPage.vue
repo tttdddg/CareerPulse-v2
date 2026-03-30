@@ -11,36 +11,63 @@
 
     <header class="page-head">
       <h2>职业发展路径图谱</h2>
-      <p>
-        探索从 <strong>{{ targetRole }}</strong> 出发的职业可能性。向上查看晋升路径，向两侧探索转岗机会。
-      </p>
+      <p>先浏览全岗位关系图谱，点击任意岗位节点后，在下方左右查看该岗位的晋升与换岗路径。</p>
       <div class="head-metrics">
         <div class="metric-card">
-          <span>节点总数</span>
-          <strong>{{ graphData.nodes.length }}</strong>
+          <span>总图节点</span>
+          <strong>{{ overviewGraphData.nodes.length }}</strong>
         </div>
         <div class="metric-card">
-          <span>连接关系</span>
-          <strong>{{ graphData.edges.length }}</strong>
+          <span>总图关系</span>
+          <strong>{{ overviewGraphData.edges.length }}</strong>
         </div>
         <div class="metric-card">
-          <span>晋升节点</span>
-          <strong>{{ verticalNodeCount }}</strong>
+          <span>候选岗位</span>
+          <strong>{{ candidateJobCount }}</strong>
         </div>
-        <div class="metric-card">
-          <span>转岗节点</span>
-          <strong>{{ horizontalNodeCount }}</strong>
+        <div class="metric-card metric-card-role">
+          <span>当前岗位</span>
+          <strong>{{ selectedJobLabel || '请先点击岗位节点' }}</strong>
         </div>
       </div>
     </header>
 
-    <section class="path-layout">
-      <el-card class="panel graph-panel" v-loading="loading">
+    <el-card class="panel graph-panel" v-loading="loading">
+      <div class="panel-head">
+        <h3>岗位关系总图谱</h3>
+        <div class="panel-actions">
+          <span class="hint">点击任意岗位节点，会自动展开下方的晋升/换岗路径</span>
+          <el-button type="primary" plain size="small" @click="reloadGraph">刷新总图</el-button>
+        </div>
+      </div>
+      <div class="legend-list">
+        <div class="legend-item">
+          <i class="dot dot-target"></i>
+          <span>图谱中心</span>
+        </div>
+        <div class="legend-item">
+          <i class="dot dot-job"></i>
+          <span>岗位节点</span>
+        </div>
+      </div>
+      <path-graph
+        :nodes="overviewGraphData.nodes"
+        :edges="overviewGraphData.edges"
+        :height="640"
+        variant="knowledge"
+        @node-click="onOverviewNodeClick"
+      />
+    </el-card>
+
+    <section v-if="selectedGraphLoaded" class="path-layout">
+      <el-card class="panel graph-panel" v-loading="selectedLoading">
         <div class="panel-head">
-          <h3>路径关系网络</h3>
+          <h3>{{ selectedJobLabel }} · 路径拆解</h3>
           <div class="panel-actions">
-            <span class="hint">滚轮 + Ctrl / Cmd 缩放</span>
-            <el-button type="primary" plain size="small" @click="reloadGraph">刷新路径</el-button>
+            <span class="hint">左右图均可点击节点，右侧详情会同步更新</span>
+            <el-button type="primary" plain size="small" :loading="selectedLoading" @click="reloadSelectedGraph">
+              刷新当前岗位
+            </el-button>
           </div>
         </div>
         <div class="legend-list">
@@ -54,10 +81,10 @@
           </div>
           <div class="legend-item">
             <i class="dot dot-horizontal"></i>
-            <span>转岗路径</span>
+            <span>换岗路径</span>
           </div>
         </div>
-        <div class="split-graphs">
+        <div class="split-graphs" v-if="selectedGraphData.nodes.length">
           <section class="split-graph-col split-graph-vertical">
             <div class="split-graph-head">
               <h4>晋升图谱</h4>
@@ -67,7 +94,8 @@
               :nodes="verticalGraphData.nodes"
               :edges="verticalGraphData.edges"
               :height="760"
-              @node-click="handleNodeClick"
+              variant="knowledge"
+              @node-click="onPathNodeClick"
             />
           </section>
           <section class="split-graph-col split-graph-horizontal">
@@ -79,10 +107,12 @@
               :nodes="horizontalGraphData.nodes"
               :edges="horizontalGraphData.edges"
               :height="760"
-              @node-click="handleNodeClick"
+              variant="knowledge"
+              @node-click="onPathNodeClick"
             />
           </section>
         </div>
+        <el-empty v-else description="该岗位暂无可用路径图谱" />
       </el-card>
 
       <el-card class="panel detail-panel">
@@ -128,8 +158,7 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
-import { useHistoryStore } from '../../stores/history'
-import PathGraph from '../../components/business/PathGraph.vue'
+import PathGraph, { type PathNode } from '../../components/business/PathGraph.vue'
 import { fetchJobGraph, fetchJobProfile } from '../../api/modules/career'
 
 interface GraphNode {
@@ -137,7 +166,7 @@ interface GraphNode {
   label: string
   x?: number
   y?: number
-  type?: 'vertical' | 'horizontal' | 'target'
+  type?: string
   relation?: string
   jobDescription?: string
   coreSkills?: string[]
@@ -152,15 +181,18 @@ interface GraphEdge {
 }
 
 const analysisStore = useAnalysisStore()
-const historyStore = useHistoryStore()
 const router = useRouter()
 const loading = ref(false)
+const selectedLoading = ref(false)
 const errorMessage = ref('')
-const graphData = ref<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] })
+const overviewGraphData = ref<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] })
+const selectedGraphData = ref<{ nodes: GraphNode[]; edges: GraphEdge[] }>({ nodes: [], edges: [] })
+const selectedJobId = ref<number | null>(null)
+const selectedJobLabel = ref('')
 const activeNode = ref<GraphNode | null>(null)
 
-const verticalNodeCount = computed(() => graphData.value.nodes.filter((node) => node.type === 'vertical').length)
-const horizontalNodeCount = computed(() => graphData.value.nodes.filter((node) => node.type === 'horizontal').length)
+const selectedGraphLoaded = computed(() => selectedJobId.value !== null)
+const candidateJobCount = computed(() => analysisStore.candidateJobs.length)
 
 const inferEdgeType = (edge: GraphEdge): 'vertical' | 'horizontal' | 'target' => {
   if (edge.type === 'horizontal' || edge.type === 'target') {
@@ -177,19 +209,19 @@ const inferEdgeType = (edge: GraphEdge): 'vertical' | 'horizontal' | 'target' =>
 }
 
 const splitGraphByType = (type: 'vertical' | 'horizontal'): { nodes: GraphNode[]; edges: GraphEdge[] } => {
-  const target = graphData.value.nodes.find((node) => node.type === 'target') ?? graphData.value.nodes[0]
+  const target = selectedGraphData.value.nodes.find((node) => node.type === 'target') ?? selectedGraphData.value.nodes[0]
   if (!target) {
     return { nodes: [], edges: [] }
   }
 
-  const selectedEdges = graphData.value.edges.filter((edge) => inferEdgeType(edge) === type)
+  const selectedEdges = selectedGraphData.value.edges.filter((edge) => inferEdgeType(edge) === type)
   const nodeIds = new Set<string>([target.id])
   selectedEdges.forEach((edge) => {
     nodeIds.add(edge.source)
     nodeIds.add(edge.target)
   })
 
-  const selectedNodes = graphData.value.nodes
+  const selectedNodes = selectedGraphData.value.nodes
     .filter((node) => nodeIds.has(node.id))
     .map((node) => {
       if (node.id === target.id) {
@@ -204,7 +236,7 @@ const splitGraphByType = (type: 'vertical' | 'horizontal'): { nodes: GraphNode[]
     })
 
   if (type === 'vertical') {
-    const orderSeed = graphData.value.nodes
+    const orderSeed = selectedGraphData.value.nodes
       .map((node, index) => ({ id: node.id, index, y: node.y }))
       .reduce<Record<string, { index: number; y?: number }>>((acc, item) => {
         acc[item.id] = { index: item.index, y: item.y }
@@ -246,14 +278,6 @@ const splitGraphByType = (type: 'vertical' | 'horizontal'): { nodes: GraphNode[]
 
 const verticalGraphData = computed(() => splitGraphByType('vertical'))
 const horizontalGraphData = computed(() => splitGraphByType('horizontal'))
-
-const targetRole = computed(() => {
-  const latestTitle = historyStore.latestReport?.title ?? ''
-  if (!latestTitle) {
-    return '目标岗位'
-  }
-  return latestTitle.replace('匹配报告', '').trim()
-})
 
 const nodeTags = computed(() => {
   if (!activeNode.value) {
@@ -326,40 +350,167 @@ const patchNodeDetailFromProfile = async (node: GraphNode): Promise<GraphNode> =
   }
 }
 
-const reloadGraph = async (): Promise<void> => {
-  if (!analysisStore.jobId) {
-    errorMessage.value = '未找到目标岗位，请先回到数据输入中心完成分析'
-    return
+const buildOverviewGraph = (graphs: Array<{ nodes: GraphNode[]; edges: GraphEdge[] }>): { nodes: GraphNode[]; edges: GraphEdge[] } => {
+  const centerId = 'all-jobs-center'
+  const centerNode: GraphNode = {
+    id: centerId,
+    label: '岗位图谱',
+    x: 520,
+    y: 320,
+    type: 'target'
   }
 
+  const jobsById = new Map<number, string>()
+  const jobsByName = new Set<string>()
+
+  graphs.forEach((graph) => {
+    graph.nodes.forEach((node) => {
+      const jobId = tryExtractJobId(node.id)
+      if (jobId) {
+        if (!jobsById.has(jobId)) {
+          jobsById.set(jobId, node.label || `岗位 ${jobId}`)
+        }
+      } else if (node.label.trim()) {
+        jobsByName.add(node.label.trim())
+      }
+    })
+  })
+
+  analysisStore.candidateJobs.forEach((job) => {
+    if (!jobsById.has(job.id)) {
+      jobsById.set(job.id, job.name)
+    }
+  })
+
+  const jobNodes: GraphNode[] = [
+    ...[...jobsById.entries()].map(([jobId, name]) => ({ id: `job-${jobId}`, label: name, type: 'horizontal' as const })),
+    ...[...jobsByName.values()].map((name) => ({ id: `job-name-${name}`, label: name, type: 'horizontal' as const }))
+  ].slice(0, 24)
+
+  const radiusX = 380
+  const radiusY = 250
+  const withPositions = jobNodes.map((node, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(jobNodes.length, 1)
+    return {
+      ...node,
+      x: 520 + Math.round(Math.cos(angle) * radiusX),
+      y: 320 + Math.round(Math.sin(angle) * radiusY)
+    }
+  })
+
+  return {
+    nodes: [centerNode, ...withPositions],
+    edges: withPositions.map((node) => ({
+      source: centerId,
+      target: node.id,
+      label: '关联',
+      type: 'target'
+    }))
+  }
+}
+
+const loadSelectedGraph = async (jobId: number): Promise<void> => {
   try {
-    loading.value = true
-    const data = await fetchJobGraph(analysisStore.jobId)
-    graphData.value = data
+    selectedLoading.value = true
+    const data = await fetchJobGraph(jobId)
+    selectedGraphData.value = data
 
     if (!data.nodes.length || !data.edges.length) {
-      errorMessage.value = '后端未返回完整图谱数据，请补齐岗位关联图谱后重试'
+      errorMessage.value = '后端未返回完整路径数据，请补齐岗位关联图谱后重试'
       activeNode.value = null
       return
-
-
-
-      
     }
 
     errorMessage.value = ''
     const targetNode = data.nodes.find((item) => item.type === 'target') ?? data.nodes[0]
     activeNode.value = await patchNodeDetailFromProfile(targetNode)
+    selectedJobId.value = jobId
+    selectedJobLabel.value = targetNode.label || `岗位 ${jobId}`
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '路径图谱加载失败'
+    errorMessage.value = error instanceof Error ? error.message : '岗位路径加载失败'
+  } finally {
+    selectedLoading.value = false
+  }
+}
+
+const reloadSelectedGraph = async (): Promise<void> => {
+  if (!selectedJobId.value) {
+    return
+  }
+  await loadSelectedGraph(selectedJobId.value)
+}
+
+const reloadGraph = async (): Promise<void> => {
+  const jobIds = [
+    ...new Set(
+      analysisStore.candidateJobs
+        .map((job) => job.id)
+        .filter((id): id is number => Number.isFinite(id) && id > 0)
+    )
+  ]
+
+  if (!jobIds.length && !analysisStore.jobId) {
+    errorMessage.value = '未找到岗位上下文，请先回到数据输入中心完成分析'
+    return
+  }
+
+  const idsToLoad = jobIds.length ? jobIds : [analysisStore.jobId as number]
+
+  try {
+    loading.value = true
+    const results = await Promise.allSettled(idsToLoad.map((jobId) => fetchJobGraph(jobId)))
+    const graphs = results.flatMap((item) => (item.status === 'fulfilled' ? [item.value] : []))
+
+    if (!graphs.length) {
+      errorMessage.value = '未拉取到岗位图谱数据，请稍后重试'
+      return
+    }
+
+    overviewGraphData.value = buildOverviewGraph(graphs)
+    errorMessage.value = ''
+
+    const defaultJobId = analysisStore.jobId && idsToLoad.includes(analysisStore.jobId) ? analysisStore.jobId : idsToLoad[0]
+    if (defaultJobId) {
+      await loadSelectedGraph(defaultJobId)
+    }
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '图谱加载失败'
   } finally {
     loading.value = false
   }
 }
 
-const handleNodeClick = async (node: GraphNode): Promise<void> => {
-  activeNode.value = await patchNodeDetailFromProfile(node)
-  ElMessage.info(`已选择 ${node.label}`)
+const handleOverviewNodeClick = async (node: PathNode): Promise<void> => {
+  const parsedNode = node as GraphNode
+  if (parsedNode.id === 'all-jobs-center') {
+    return
+  }
+
+  const fromNodeId = tryExtractJobId(parsedNode.id)
+  const fromName = analysisStore.candidateJobs.find((job) => job.name === parsedNode.label)?.id ?? null
+  const jobId = fromNodeId ?? fromName
+
+  if (!jobId) {
+    ElMessage.warning('该节点未绑定可用岗位 ID')
+    return
+  }
+
+  await loadSelectedGraph(jobId)
+  ElMessage.success(`已选择岗位：${parsedNode.label}`)
+}
+
+const handleNodeClick = async (node: PathNode): Promise<void> => {
+  const parsedNode = node as GraphNode
+  activeNode.value = await patchNodeDetailFromProfile(parsedNode)
+  ElMessage.info(`已选择 ${parsedNode.label}`)
+}
+
+const onOverviewNodeClick = (node: PathNode): void => {
+  void handleOverviewNodeClick(node)
+}
+
+const onPathNodeClick = (node: PathNode): void => {
+  void handleNodeClick(node)
 }
 
 onMounted(async () => {
@@ -384,22 +535,9 @@ onMounted(async () => {
 
 .page-head {
   text-align: center;
-  max-width: 1080px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 8px 16px 2px;
-}
-
-.head-badge {
-  width: fit-content;
-  margin: 0 auto 10px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  color: #1250b7;
-  border: 1px solid rgba(18, 80, 183, 0.22);
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(6px);
 }
 
 .page-head h2 {
@@ -414,10 +552,6 @@ onMounted(async () => {
   font-size: 15px;
   color: #4f5f82;
   line-height: 1.45;
-}
-
-.page-head strong {
-  color: #205fda;
 }
 
 .head-metrics {
@@ -446,6 +580,11 @@ onMounted(async () => {
   margin-top: 6px;
   font-size: 24px;
   color: #123467;
+}
+
+.metric-card-role strong {
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .path-layout {
@@ -510,23 +649,27 @@ onMounted(async () => {
 }
 
 .dot-target {
-  background: linear-gradient(130deg, #154ecc, #3f7bff);
+  background: linear-gradient(130deg, #f59e0b, #f97316);
+}
+
+.dot-job {
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .dot-vertical {
-  background: linear-gradient(130deg, #295bd1, #67a3ff);
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .dot-horizontal {
-  background: linear-gradient(130deg, #00a9b3, #43d8dc);
+  background: linear-gradient(130deg, #2563eb, #4f46e5);
 }
 
 .graph-panel :deep(.path-graph) {
   border: 0;
   border-radius: 16px;
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(239, 247, 255, 0.9)),
-    radial-gradient(circle at 0% 100%, rgba(114, 160, 255, 0.12), transparent 45%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(248, 251, 255, 0.9)),
+    radial-gradient(circle at 0% 100%, rgba(114, 160, 255, 0.08), transparent 45%);
 }
 
 .split-graphs {

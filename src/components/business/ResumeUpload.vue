@@ -104,7 +104,7 @@ const handleRequest: UploadRequestHandler = async (options: UploadRequestOptions
     }
 
     const rejectUpload = (error: Error): void => {
-      options.onError?.(error)
+      options.onError?.(error as UploadRequestOptions['onError'] extends ((arg: infer T) => unknown) ? T : never)
       reject(error)
     }
 

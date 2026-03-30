@@ -29,10 +29,12 @@ export interface PathGraphProps {
   nodes?: PathNode[]
   edges?: PathEdge[]
   height?: number | string
+  variant?: 'default' | 'knowledge'
 }
 
 const props = withDefaults(defineProps<PathGraphProps>(), {
-  height: 420
+  height: 420,
+  variant: 'knowledge'
 })
 
 const emit = defineEmits<{
@@ -75,7 +77,32 @@ const normalizeNodeType = (type: PathNodeType | string | undefined): PathNodeTyp
   return 'vertical'
 }
 
-const getNodeStyle = (type: PathNodeType | string | undefined): NodeStyle => {
+const knowledgeColors = ['#3B82F6', '#22C55E', '#14B8A6', '#A855F7', '#F43F5E', '#EAB308', '#0EA5E9', '#4F46E5']
+
+const getNodeStyle = (type: PathNodeType | string | undefined, seed = ''): NodeStyle => {
+  if (props.variant === 'knowledge') {
+    if (normalizeNodeType(type) === 'target') {
+      return {
+        stroke: '#D97706',
+        fill: '#F59E0B',
+        text: '#FFFFFF',
+        badge: '#FDE68A',
+        shadow: '0 10px 24px rgba(217, 119, 6, 0.35)'
+      }
+    }
+    const index = Math.abs(
+      [...seed].reduce((acc, char) => ((acc * 33 + char.charCodeAt(0)) % 1024), 0)
+    ) % knowledgeColors.length
+    const color = knowledgeColors[index]
+    return {
+      stroke: color,
+      fill: color,
+      text: '#FFFFFF',
+      badge: '#E2E8F0',
+      shadow: '0 10px 24px rgba(37, 99, 235, 0.2)'
+    }
+  }
+
   const normalized = normalizeNodeType(type)
   if (normalized === 'target') {
     return {
@@ -105,6 +132,9 @@ const getNodeStyle = (type: PathNodeType | string | undefined): NodeStyle => {
 }
 
 const getEdgeStyle = (type: PathNodeType | string | undefined): { color: string; dash?: string } => {
+  if (props.variant === 'knowledge') {
+    return { color: '#94A3B8' }
+  }
   const normalized = normalizeNodeType(type)
   if (normalized === 'horizontal') {
     return { color: '#0E9AA7', dash: '6 4' }
@@ -360,11 +390,11 @@ const renderGraph = (): void => {
     graph = new Graph({
       container: graphEl.value,
       background: {
-        color: '#F8FBFF'
+        color: props.variant === 'knowledge' ? '#FFFFFF' : '#F8FBFF'
       },
       grid: {
         size: 20,
-        visible: true,
+        visible: props.variant !== 'knowledge',
         type: 'dot',
         args: { color: '#DCE7FA', thickness: 1 }
       },
@@ -375,7 +405,7 @@ const renderGraph = (): void => {
 
     graph.on('node:mouseenter', ({ node }) => {
       const data = node.getData() as PathNode
-      const style = getNodeStyle(data.type)
+      const style = getNodeStyle(data.type, data.id)
       node.attr('body/stroke', '#0F172A')
       node.attr('body/strokeWidth', 2)
       node.attr('body/filter', {
@@ -387,7 +417,7 @@ const renderGraph = (): void => {
 
     graph.on('node:mouseleave', ({ node }) => {
       const data = node.getData() as PathNode
-      const style = getNodeStyle(data.type)
+      const style = getNodeStyle(data.type, data.id)
       node.attr('body/stroke', style.stroke)
       node.attr('body/strokeWidth', 1.2)
       node.attr('body/filter', null)
@@ -410,9 +440,10 @@ const renderGraph = (): void => {
   const nodeMap = new Map(resolvedNodes.map((node) => [node.id, node] as const))
 
   resolvedNodes.forEach((node) => {
-    const style = getNodeStyle(node.type)
-    const width = node.type === 'target' ? 168 : 150
-    const height = node.type === 'target' ? 52 : 46
+    const style = getNodeStyle(node.type, node.id)
+    const isKnowledge = props.variant === 'knowledge'
+    const width = isKnowledge ? (node.type === 'target' ? 108 : 86) : node.type === 'target' ? 168 : 150
+    const height = isKnowledge ? width : node.type === 'target' ? 52 : 46
 
     graph?.addNode({
       id: node.id,
@@ -420,20 +451,21 @@ const renderGraph = (): void => {
       y: node.y ?? 0,
       width,
       height,
+      shape: isKnowledge ? 'circle' : 'rect',
       zIndex: 20,
       attrs: {
         body: {
-          rx: 12,
-          ry: 12,
+          rx: isKnowledge ? undefined : 12,
+          ry: isKnowledge ? undefined : 12,
           stroke: style.stroke,
-          strokeWidth: 1.2,
+          strokeWidth: isKnowledge ? 0 : 1.2,
           fill: style.fill,
           shadowColor: style.shadow
         },
         label: {
           text: node.label,
           fill: style.text,
-          fontSize: node.type === 'target' ? 14 : 13,
+          fontSize: isKnowledge ? (node.type === 'target' ? 18 : 14) : node.type === 'target' ? 14 : 13,
           fontWeight: node.type === 'target' ? 700 : 600
         }
       },
@@ -477,17 +509,17 @@ const renderGraph = (): void => {
       sourceAnchor,
       targetAnchor,
       zIndex: 5,
-      router: { name: 'orth' },
-      connector: { name: 'rounded' },
+      router: props.variant === 'knowledge' ? undefined : { name: 'orth' },
+      connector: props.variant === 'knowledge' ? { name: 'smooth' } : { name: 'rounded' },
       vertices: edgeVertices,
       attrs: {
         line: {
           stroke: edgeStyle.color,
-          strokeWidth: edge.type === 'target' ? 2.8 : 2.2,
+          strokeWidth: props.variant === 'knowledge' ? 1.4 : edge.type === 'target' ? 2.8 : 2.2,
           strokeDasharray: edgeStyle.dash,
           targetMarker: {
             name: 'classic',
-            size: 9,
+            size: props.variant === 'knowledge' ? 7 : 9,
             fill: edgeStyle.color,
             stroke: edgeStyle.color
           }
@@ -503,15 +535,15 @@ const renderGraph = (): void => {
               attrs: {
                 label: {
                   text: displayLabel,
-                  fill: '#334155',
-                  fontSize: 12,
-                  fontWeight: 600
+                  fill: props.variant === 'knowledge' ? '#6B7280' : '#334155',
+                  fontSize: props.variant === 'knowledge' ? 11 : 12,
+                  fontWeight: props.variant === 'knowledge' ? 500 : 600
                 },
                 body: {
-                  fill: '#FFFFFF',
-                  stroke: '#C9D8F7',
-                  rx: 8,
-                  ry: 8
+                  fill: props.variant === 'knowledge' ? 'transparent' : '#FFFFFF',
+                  stroke: props.variant === 'knowledge' ? 'transparent' : '#C9D8F7',
+                  rx: props.variant === 'knowledge' ? 0 : 8,
+                  ry: props.variant === 'knowledge' ? 0 : 8
                 }
               }
             }
@@ -544,6 +576,15 @@ watch(
   () => [props.nodes, props.edges],
   () => renderGraph(),
   { deep: true }
+)
+
+watch(
+  () => props.variant,
+  () => {
+    graph?.dispose()
+    graph = null
+    renderGraph()
+  }
 )
 </script>
 
