@@ -12,6 +12,7 @@
     <div class="upload-text">
       <p>拖拽简历到此处，或点击上传</p>
       <span>支持 PDF / Word，单文件不超过 {{ maxSizeMB }}MB</span>
+      <span v-if="selectedFileName" class="selected-file">已选择文件：{{ selectedFileName }}</span>
     </div>
     <template #tip>
       <div class="el-upload__tip">上传后可自动解析简历信息</div>
@@ -20,6 +21,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import type { UploadRawFile, UploadRequestHandler, UploadRequestOptions } from 'element-plus'
@@ -52,6 +54,8 @@ const emit = defineEmits<{
   (event: 'upload', payload: ResumeUploadPayload): void
   (event: 'error', message: string): void
 }>()
+
+const selectedFileName = ref('')
 
 // 文件类型校验
 const isValidType = (file: UploadRawFile): boolean => {
@@ -89,11 +93,14 @@ const beforeUpload = (file: UploadRawFile): boolean => {
     return false
   }
 
+  selectedFileName.value = file.name
+
   return true
 }
 
 // 统一处理 FormData，并交给外部上传
 const handleRequest: UploadRequestHandler = async (options: UploadRequestOptions) => {
+  selectedFileName.value = options.file.name
   const formData = new FormData()
   formData.append(props.fieldName, options.file)
   return new Promise((resolve, reject) => {
@@ -144,5 +151,12 @@ const handleRequest: UploadRequestHandler = async (options: UploadRequestOptions
   margin: 0;
   font-weight: 600;
   color: var(--cp-text);
+}
+
+.selected-file {
+  margin-top: 2px;
+  color: var(--cp-primary);
+  font-weight: 600;
+  word-break: break-all;
 }
 </style>
