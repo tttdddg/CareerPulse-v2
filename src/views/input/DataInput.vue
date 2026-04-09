@@ -88,16 +88,19 @@
         >
           开始分析
         </el-button>
+        <el-button class="explore-button" @click="handleExploreJobs">
+          无方向？先浏览岗位库
+        </el-button>
       </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
@@ -107,6 +110,7 @@ import { saveAnalysisReport } from '../../api/modules/history'
 import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 
 const router = useRouter()
+const route = useRoute()
 const analysisStore = useAnalysisStore()
 const historyStore = useHistoryStore()
 const userStore = useUserStore()
@@ -293,6 +297,17 @@ const handleStartAnalysis = async (): Promise<void> => {
     analysisLoading.value = false
   }
 }
+
+const handleExploreJobs = async (): Promise<void> => {
+  await router.push('/app/jobs?mode=explore')
+}
+
+onMounted(() => {
+  const targetFromQuery = typeof route.query.target === 'string' ? route.query.target.trim() : ''
+  if (targetFromQuery) {
+    form.targetRole = targetFromQuery
+  }
+})
 </script>
 
 <style scoped>
@@ -402,7 +417,7 @@ const handleStartAnalysis = async (): Promise<void> => {
 
 .action-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 210px;
+  grid-template-columns: auto minmax(0, 1fr) 210px 190px;
   align-items: center;
   gap: 20px;
 }
@@ -429,6 +444,23 @@ const handleStartAnalysis = async (): Promise<void> => {
   font-weight: 700;
   background: linear-gradient(135deg, #5d68e8 0%, #7b52ef 100%);
   box-shadow: 0 14px 28px rgba(93, 104, 232, 0.25);
+}
+
+.explore-button {
+  height: 56px;
+  border-radius: 12px;
+  border: 1px solid #f59e0b;
+  color: #9a3412;
+  background: linear-gradient(135deg, #fff7ed 0%, #ffedd5 100%);
+  font-size: 17px;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(245, 158, 11, 0.18);
+}
+
+.explore-button:hover {
+  color: #7c2d12;
+  border-color: #ea580c;
+  background: linear-gradient(135deg, #ffedd5 0%, #fed7aa 100%);
 }
 
 .error-alert {

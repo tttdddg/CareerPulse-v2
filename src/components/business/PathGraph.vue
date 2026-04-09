@@ -14,6 +14,7 @@ export interface PathNode {
   x?: number
   y?: number
   type?: PathNodeType | string
+  relationStrength?: number
   meta?: Record<string, string>
 }
 
@@ -23,6 +24,7 @@ export interface PathEdge {
   target: string
   label?: string
   type?: PathNodeType | string
+  weight?: number
 }
 
 export interface PathGraphProps {
@@ -212,10 +214,51 @@ const uniqueEdges = (edges: PathEdge[]): PathEdge[] => {
       source: edge.source,
       target: edge.target,
       label,
-      type: resolvedType
+      type: resolvedType,
+      weight: typeof edge.weight === 'number' && Number.isFinite(edge.weight) ? edge.weight : undefined
     })
   })
   return [...mapped.values()]
+}
+
+const clamp = (value: number, min: number, max: number): number => Math.min(Math.max(value, min), max)
+
+const buildNodeRadiusMap = (nodes: PathNode[], edges: PathEdge[]): Map<string, number> => {
+  const relationStrength = new Map<string, number>()
+
+  nodes.forEach((node) => {
+    if (typeof node.relationStrength === 'number' && Number.isFinite(node.relationStrength)) {
+      relationStrength.set(node.id, Math.max(node.relationStrength, 0))
+      return
+    }
+    relationStrength.set(node.id, 0)
+  })
+
+  edges.forEach((edge) => {
+    const weight = typeof edge.weight === 'number' && Number.isFinite(edge.weight) ? Math.max(edge.weight, 0) : 1
+    relationStrength.set(edge.source, (relationStrength.get(edge.source) ?? 0) + weight)
+    relationStrength.set(edge.target, (relationStrength.get(edge.target) ?? 0) + weight)
+  })
+
+  const values = [...relationStrength.values()]
+  const minStrength = values.length ? Math.min(...values) : 0
+  const maxStrength = values.length ? Math.max(...values) : 1
+  const denominator = maxStrength - minStrength || 1
+
+  const radiusMap = new Map<string, number>()
+  nodes.forEach((node) => {
+    if (normalizeNodeType(node.type) === 'target') {
+      radiusMap.set(node.id, 112)
+      return
+    }
+
+    const strength = relationStrength.get(node.id) ?? 0
+    const normalized = (strength - minStrength) / denominator
+    const radius = Math.round(74 + normalized * 42)
+    radiusMap.set(node.id, clamp(radius, 70, 122))
+  })
+
+  return radiusMap
 }
 
 const hasDenseOverlap = (nodes: PathNode[]): boolean => {
@@ -438,11 +481,16 @@ const renderGraph = (): void => {
     .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
     .map((edge) => ({ ...edge, type: inferEdgeType(edge) }))
   const nodeMap = new Map(resolvedNodes.map((node) => [node.id, node] as const))
+  const nodeRadiusMap = buildNodeRadiusMap(resolvedNodes, resolvedEdges)
 
   resolvedNodes.forEach((node) => {
     const style = getNodeStyle(node.type, node.id)
     const isKnowledge = props.variant === 'knowledge'
-    const width = isKnowledge ? (node.type === 'target' ? 108 : 86) : node.type === 'target' ? 168 : 150
+    const width = isKnowledge
+      ? (nodeRadiusMap.get(node.id) ?? (node.type === 'target' ? 112 : 86))
+      : node.type === 'target'
+        ? 168
+        : 150
     const height = isKnowledge ? width : node.type === 'target' ? 52 : 46
 
     graph?.addNode({

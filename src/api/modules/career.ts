@@ -181,6 +181,7 @@ export interface PathGraphNode {
   y?: number
   type?: 'vertical' | 'horizontal' | 'target'
   relation?: string
+  relationStrength?: number
   jobDescription?: string
   coreSkills?: string[]
   salaryRange?: string
@@ -191,6 +192,7 @@ export interface PathGraphEdge {
   target: string
   label?: string
   type?: 'vertical' | 'horizontal' | 'target'
+  weight?: number
 }
 
 export interface PathGraphResult {
@@ -513,6 +515,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
       y: 280,
       type: 'target',
       relation: toStringSafe(getByKeys(center, ['relation']), ''),
+      relationStrength: toNumber(getByKeys(center, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
       jobDescription: toStringSafe(getByKeys(center, ['job_description', 'description', 'desc']), ''),
       coreSkills: toStringArray(getByKeys(center, ['core_skills', 'required_skills', 'skills'])),
       salaryRange: toStringSafe(getByKeys(center, ['salary_range', 'salaryRange']), '')
@@ -527,6 +530,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
         y: 80 + index * 100,
         type: 'vertical' as const,
         relation: toStringSafe(getByKeys(item, ['relation']), ''),
+        relationStrength: toNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
         jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
         coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
         salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
@@ -541,6 +545,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
         y: 180 + index * 100,
         type: 'horizontal' as const,
         relation: toStringSafe(getByKeys(item, ['relation']), ''),
+        relationStrength: toNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
         jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
         coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
         salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
@@ -550,7 +555,8 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
       source: toStringSafe(getByKeys(edge, ['source', 'from', 'start']), ''),
       target: toStringSafe(getByKeys(edge, ['target', 'to', 'end']), ''),
       label: toStringSafe(getByKeys(edge, ['label', 'name', 'relation']), '') || undefined,
-      type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type']
+      type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type'],
+      weight: toNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']), 1)
     }))
 
     const allNodes = [centerNode, ...verticalNodes, ...lateralNodes]
@@ -559,13 +565,15 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
         source: node.id,
         target: centerNode.id,
         label: node.relation || '晋升',
-        type: 'vertical' as const
+        type: 'vertical' as const,
+        weight: Math.max(node.relationStrength ?? 0, 1)
       })),
       ...lateralNodes.map((node) => ({
         source: centerNode.id,
         target: node.id,
         label: node.relation || '换岗',
-        type: 'horizontal' as const
+        type: 'horizontal' as const,
+        weight: Math.max(node.relationStrength ?? 0, 1)
       }))
     ]
     const edges =
@@ -589,6 +597,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     y: toOptionalNumber(getByKeys(node, ['y', 'posY'])),
     type: toStringSafe(getByKeys(node, ['type']), '') as PathGraphNode['type'],
     relation: toStringSafe(getByKeys(node, ['relation']), ''),
+    relationStrength: toNumber(getByKeys(node, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
     jobDescription: toStringSafe(getByKeys(node, ['job_description', 'description', 'desc']), ''),
     coreSkills: toStringArray(getByKeys(node, ['core_skills', 'required_skills', 'skills'])),
     salaryRange: toStringSafe(getByKeys(node, ['salary_range', 'salaryRange']), '')
@@ -598,7 +607,8 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     source: toStringSafe(getByKeys(edge, ['source', 'from', 'start', 'from_id', 'source_id']), ''),
     target: toStringSafe(getByKeys(edge, ['target', 'to', 'end', 'to_id', 'target_id']), ''),
     label: toStringSafe(getByKeys(edge, ['label', 'name']), '') || undefined,
-    type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type']
+    type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type'],
+    weight: toNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']), 1)
   }))
 
   if (nodes.length === 0 && edges.length > 0) {

@@ -168,6 +168,7 @@ interface GraphNode {
   y?: number
   type?: string
   relation?: string
+  relationStrength?: number
   jobDescription?: string
   coreSkills?: string[]
   salaryRange?: string
@@ -178,6 +179,7 @@ interface GraphEdge {
   target: string
   label?: string
   type?: 'vertical' | 'horizontal' | 'target'
+  weight?: number
 }
 
 const analysisStore = useAnalysisStore()

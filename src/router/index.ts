@@ -7,6 +7,7 @@ import AnalysisBoardView from '../views/analysis/AnalysisBoard.vue'
 import PathGraphPageView from '../views/path/PathGraphPage.vue'
 import GrowthPlanView from '../views/plan/GrowthPlan.vue'
 import ProfileView from '../views/profile/Profile.vue'
+import JobLibraryPageView from '../views/jobs/JobLibraryPage.vue'
 import { useAnalysisStore } from '../stores/analysis'
 
 const AUTH_STORAGE_KEY = 'career-pulse:auth'
@@ -64,6 +65,16 @@ const routes: RouteRecordRaw[] = [
         name: 'analysis',
         component: AnalysisBoardView,
         meta: { title: '人岗匹配分析看板' }
+      },
+      {
+        path: 'recommend',
+        redirect: { name: 'analysis' }
+      },
+      {
+        path: 'jobs',
+        name: 'jobs',
+        component: JobLibraryPageView,
+        meta: { title: '岗位库查询' }
       },
       {
         path: 'path',
