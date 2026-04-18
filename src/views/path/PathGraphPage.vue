@@ -46,6 +46,10 @@
           <span>图谱中心</span>
         </div>
         <div class="legend-item">
+          <i class="dot dot-category"></i>
+          <span>岗位分类</span>
+        </div>
+        <div class="legend-item">
           <i class="dot dot-job"></i>
           <span>岗位节点</span>
         </div>
@@ -166,6 +170,8 @@ interface GraphNode {
   label: string
   x?: number
   y?: number
+  width?: number
+  height?: number
   type?: string
   relation?: string
   relationStrength?: number
@@ -178,7 +184,7 @@ interface GraphEdge {
   source: string
   target: string
   label?: string
-  type?: 'vertical' | 'horizontal' | 'target'
+  type?: 'vertical' | 'horizontal' | 'target' | 'category'
   weight?: number
 }
 
@@ -329,6 +335,160 @@ const tryExtractJobId = (nodeId: string): number | null => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null
 }
 
+interface OverviewCategory {
+  key: string
+  label: string
+  keywords: string[]
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+const overviewCategories: OverviewCategory[] = [
+  {
+    key: 'development',
+    label: '开发岗位',
+    keywords: ['开发', '前端', '后端', '架构', '全栈', '工程师', '研发', '微服务'],
+    x: 96,
+    y: 84,
+    width: 520,
+    height: 408
+  },
+  {
+    key: 'data',
+    label: '数据岗位',
+    keywords: ['数据', '算法', '分析', '挖掘', 'dba', '数据库', 'data', 'ai', '模型'],
+    x: 668,
+    y: 380,
+    width: 420,
+    height: 300
+  },
+  {
+    key: 'management',
+    label: '管理岗位',
+    keywords: ['经理', '总监', 'leader', '管理', '专家', '负责人', '主管', '架构师'],
+    x: 1180,
+    y: 106,
+    width: 360,
+    height: 220
+  },
+  {
+    key: 'quality',
+    label: '测试与运维岗位',
+    keywords: ['测试', 'qa', '运维', 'devops', '质量', 'sre', '可靠性'],
+    x: 1110,
+    y: 390,
+    width: 420,
+    height: 286
+  },
+  {
+    key: 'other',
+    label: '综合岗位',
+    keywords: [],
+    x: 544,
+    y: 114,
+    width: 340,
+    height: 240
+  }
+]
+
+const resolveOverviewCategory = (jobName: string): OverviewCategory => {
+  const normalized = jobName.trim().toLowerCase()
+  const matched = overviewCategories.find(
+    (category) =>
+      category.key !== 'other' &&
+      category.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))
+  )
+  return matched ?? overviewCategories[overviewCategories.length - 1]
+}
+
+const layoutJobsInCategory = (jobs: Array<{ id: string; label: string }>, category: OverviewCategory): GraphNode[] => {
+  const nodeDiameter = 76
+  const edgePadding = 20
+  const minX = category.x + edgePadding
+  const maxX = category.x + category.width - nodeDiameter - edgePadding
+  const minY = category.y + 88
+  const maxY = category.y + category.height - nodeDiameter - edgePadding
+  const centerX = Math.round((minX + maxX) / 2)
+  const centerY = Math.round((minY + maxY) / 2 + 14)
+  const safeCount = Math.max(1, jobs.length)
+  const innerRingCapacity = 4
+  const innerCount = Math.min(safeCount, innerRingCapacity)
+  const outerCount = Math.max(0, safeCount - innerRingCapacity)
+  const maxRadiusX = Math.max(24, Math.floor((maxX - minX) / 2))
+  const maxRadiusY = Math.max(24, Math.floor((maxY - minY) / 2))
+  const maxRadius = Math.max(24, Math.min(maxRadiusX, maxRadiusY))
+  const innerRadius = Math.max(56, Math.min(maxRadius - 32, Math.round(maxRadius * 0.68)))
+  const outerRadius = Math.max(innerRadius + 20, Math.min(maxRadius, innerRadius + 58))
+  const clamp = (value: number, lower: number, upper: number): number => Math.min(Math.max(value, lower), upper)
+  const resolveStartAngle = (ringSize: number): number => {
+    if (ringSize === 2) {
+      return -Math.PI / 4
+    }
+    if (ringSize === 4) {
+      return -Math.PI / 4
+    }
+    return -Math.PI / 2
+  }
+
+  const placed = jobs.map((job, index) => {
+    const isOuterRing = index >= innerRingCapacity
+    const ringIndex = isOuterRing ? index - innerRingCapacity : index
+    const ringSize = isOuterRing ? Math.max(outerCount, 1) : Math.max(innerCount, 1)
+    const startAngle = resolveStartAngle(ringSize)
+    const angle = startAngle + (Math.PI * 2 * ringIndex) / ringSize
+    const radius = isOuterRing ? outerRadius : innerRadius
+    const x = clamp(Math.round(centerX + Math.cos(angle) * radius), minX, maxX)
+    const y = clamp(Math.round(centerY + Math.sin(angle) * radius), minY, maxY)
+    const depthWeight = isOuterRing ? 0.72 : 0.95
+
+    return {
+      id: job.id,
+      label: job.label,
+      x,
+      y,
+      width: nodeDiameter,
+      height: nodeDiameter,
+      type: 'horizontal',
+      relationStrength: Number((0.55 + depthWeight).toFixed(2))
+    }
+  })
+
+  const minHorizontalGap = 84
+  const minVerticalGap = 96
+  const iterations = 18
+
+  for (let step = 0; step < iterations; step += 1) {
+    for (let i = 0; i < placed.length; i += 1) {
+      for (let j = i + 1; j < placed.length; j += 1) {
+        const first = placed[i]
+        const second = placed[j]
+        const dx = (first.x ?? 0) - (second.x ?? 0)
+        const dy = (first.y ?? 0) - (second.y ?? 0)
+        const absDx = Math.abs(dx)
+        const absDy = Math.abs(dy)
+
+        if (absDx >= minHorizontalGap || absDy >= minVerticalGap) {
+          continue
+        }
+
+        const pushX = (minHorizontalGap - absDx) * 0.18
+        const pushY = (minVerticalGap - absDy) * 0.24
+        const xDirection = dx === 0 ? (i % 2 === 0 ? 1 : -1) : Math.sign(dx)
+        const yDirection = dy === 0 ? (i % 2 === 0 ? 1 : -1) : Math.sign(dy)
+
+        first.x = clamp(Math.round((first.x ?? 0) + pushX * xDirection), minX, maxX)
+        second.x = clamp(Math.round((second.x ?? 0) - pushX * xDirection), minX, maxX)
+        first.y = clamp(Math.round((first.y ?? 0) + pushY * yDirection), minY, maxY)
+        second.y = clamp(Math.round((second.y ?? 0) - pushY * yDirection), minY, maxY)
+      }
+    }
+  }
+
+  return placed
+}
+
 const patchNodeDetailFromProfile = async (node: GraphNode): Promise<GraphNode> => {
   if (node.jobDescription && node.salaryRange && (node.coreSkills?.length ?? 0) > 0) {
     return node
@@ -357,8 +517,8 @@ const buildOverviewGraph = (graphs: Array<{ nodes: GraphNode[]; edges: GraphEdge
   const centerNode: GraphNode = {
     id: centerId,
     label: '岗位图谱',
-    x: 520,
-    y: 320,
+    x: 880,
+    y: 332,
     type: 'target'
   }
 
@@ -384,30 +544,69 @@ const buildOverviewGraph = (graphs: Array<{ nodes: GraphNode[]; edges: GraphEdge
     }
   })
 
-  const jobNodes: GraphNode[] = [
+  const jobItems: Array<{ id: string; label: string }> = [
     ...[...jobsById.entries()].map(([jobId, name]) => ({ id: `job-${jobId}`, label: name, type: 'horizontal' as const })),
     ...[...jobsByName.values()].map((name) => ({ id: `job-name-${name}`, label: name, type: 'horizontal' as const }))
-  ].slice(0, 24)
+  ]
+    .map((item) => ({ id: item.id, label: item.label }))
+    .slice(0, 36)
 
-  const radiusX = 380
-  const radiusY = 250
-  const withPositions = jobNodes.map((node, index) => {
-    const angle = (Math.PI * 2 * index) / Math.max(jobNodes.length, 1)
-    return {
-      ...node,
-      x: 520 + Math.round(Math.cos(angle) * radiusX),
-      y: 320 + Math.round(Math.sin(angle) * radiusY)
-    }
+  const jobsByCategory = new Map<string, Array<{ id: string; label: string }>>()
+  jobItems.forEach((job) => {
+    const category = resolveOverviewCategory(job.label)
+    const list = jobsByCategory.get(category.key) ?? []
+    list.push(job)
+    jobsByCategory.set(category.key, list)
   })
 
-  return {
-    nodes: [centerNode, ...withPositions],
-    edges: withPositions.map((node) => ({
-      source: centerId,
-      target: node.id,
-      label: '关联',
-      type: 'target'
+  const activeCategories = overviewCategories.filter((category) => (jobsByCategory.get(category.key)?.length ?? 0) > 0)
+
+  const groupNodes: GraphNode[] = activeCategories.map((category) => ({
+    id: `group-${category.key}`,
+    label: category.label,
+    x: category.x,
+    y: category.y,
+    width: category.width,
+    height: category.height,
+    type: 'group'
+  }))
+
+  const categoryNodes: GraphNode[] = activeCategories.map((category) => ({
+    id: `category-${category.key}`,
+    label: category.label.replace(/岗位$/u, '类'),
+    x: Math.round(category.x + category.width / 2 - 58),
+    y: category.y + 26,
+    width: 120,
+    height: 52,
+    type: 'category',
+    relationStrength: 1.2
+  }))
+
+  const jobNodes = activeCategories.flatMap((category) =>
+    layoutJobsInCategory(jobsByCategory.get(category.key) ?? [], category)
+  )
+
+  const categoryEdges: GraphEdge[] = activeCategories.map((category) => ({
+    source: centerId,
+    target: `category-${category.key}`,
+    label: '分类关联',
+    type: 'target',
+    weight: 1.4
+  }))
+
+  const jobEdges: GraphEdge[] = activeCategories.flatMap((category) =>
+    (jobsByCategory.get(category.key) ?? []).map((job) => ({
+      source: `category-${category.key}`,
+      target: job.id,
+      label: '同类岗位',
+      type: 'category' as const,
+      weight: 1
     }))
+  )
+
+  return {
+    nodes: [centerNode, ...groupNodes, ...categoryNodes, ...jobNodes],
+    edges: [...categoryEdges, ...jobEdges]
   }
 }
 
@@ -485,6 +684,9 @@ const reloadGraph = async (): Promise<void> => {
 const handleOverviewNodeClick = async (node: PathNode): Promise<void> => {
   const parsedNode = node as GraphNode
   if (parsedNode.id === 'all-jobs-center') {
+    return
+  }
+  if (parsedNode.id.startsWith('category-') || parsedNode.id.startsWith('group-')) {
     return
   }
 
@@ -656,6 +858,10 @@ onMounted(async () => {
 
 .dot-job {
   background: linear-gradient(130deg, #2563eb, #4f46e5);
+}
+
+.dot-category {
+  background: linear-gradient(130deg, #4f71dd, #6d9df5);
 }
 
 .dot-vertical {

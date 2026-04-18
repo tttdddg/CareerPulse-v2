@@ -15,12 +15,41 @@
     </section>
 
     <el-card class="panel summary" v-loading="loading">
-      <div ref="gaugeEl" class="gauge"></div>
-      <p class="target-role">
-        <el-icon><SuitcaseLine /></el-icon>
-        <span>当前目标岗位:</span>
-        <strong>{{ currentJob?.name || '未选择岗位' }}</strong>
-      </p>
+      <div class="summary-layout">
+        <div class="summary-main">
+          <div ref="gaugeEl" class="gauge"></div>
+          <p class="target-role">
+            <span>当前岗位</span>
+            <strong>{{ formatJobName(currentJob?.name || '未选择岗位') }}</strong>
+          </p>
+        </div>
+        <aside class="summary-rank">
+          <div class="summary-rank-head">
+            <h3>岗位排行榜</h3>
+            <span>Top 3</span>
+          </div>
+          <el-empty v-if="!topRankedJobs.length" description="暂无岗位排行" :image-size="72" />
+          <div v-else class="rank-list">
+            <article
+              v-for="(job, index) in topRankedJobs"
+              :key="`${job.uid}-rank`"
+              class="rank-item"
+              :class="{ active: job.jobId === analysisStore.jobId }"
+            >
+              <div class="rank-index">{{ index + 1 }}</div>
+              <div class="rank-body">
+                <div class="rank-title-row">
+                  <strong>{{ formatJobName(job.name) }}</strong>
+                  <span class="rank-score">{{ Math.round(job.match || 0) }}%</span>
+                </div>
+                <div class="rank-bar">
+                  <span class="rank-bar-fill" :style="{ width: `${Math.min(Math.max(job.match || 0, 0), 100)}%` }"></span>
+                </div>
+              </div>
+            </article>
+          </div>
+        </aside>
+      </div>
     </el-card>
 
     <el-card class="panel jobs-panel" v-loading="jobsLoading">
@@ -48,15 +77,60 @@
           :class="{ active: job.jobId === analysisStore.jobId }"
         >
           <div class="job-head">
-            <h4>{{ job.name }}</h4>
-            <el-tag type="success">{{ Math.round(job.match || 0) }}%</el-tag>
+            <div class="job-title-group">
+              <h4>{{ formatJobName(job.name) }}</h4>
+              <p class="job-meta">{{ job.company || '企业信息待补充' }} · {{ job.industry || '行业未知' }}</p>
+            </div>
+            <span class="job-match">{{ Math.round(job.match || 0) }}%</span>
           </div>
-          <p class="job-meta">{{ job.company || '企业信息待补充' }} · {{ job.industry || '行业未知' }}</p>
-          <p class="job-meta">薪资：{{ job.salaryRange || '待补充' }}</p>
-          <div class="tag-row">
-            <el-tag v-for="tag in (job.requiredSkills.length ? job.requiredSkills.slice(0, 3) : job.highlights.slice(0, 3))" :key="tag" effect="plain">
-              {{ tag }}
-            </el-tag>
+          <div class="job-progress">
+            <div class="job-progress-bar">
+              <span class="job-progress-fill" :style="{ width: `${Math.min(Math.max(job.match || 0, 0), 100)}%` }"></span>
+            </div>
+            <span class="job-progress-text">当前匹配度</span>
+          </div>
+          <p v-if="job.description" class="job-summary">{{ job.description }}</p>
+          <div class="job-portrait-grid">
+            <div class="portrait-section">
+              <span class="portrait-label">硬实力</span>
+              <div class="tag-row">
+                <el-tag
+                  v-for="tag in getHardSkillTags(job)"
+                  :key="`${job.uid}-hard-${tag}`"
+                  effect="plain"
+                >
+                  {{ tag }}
+                </el-tag>
+                <span v-if="!getHardSkillTags(job).length" class="empty-inline">待补充</span>
+              </div>
+            </div>
+            <div class="portrait-section">
+              <span class="portrait-label">软实力</span>
+              <div class="tag-row">
+                <el-tag
+                  v-for="tag in getSoftSkillTags(job)"
+                  :key="`${job.uid}-soft-${tag}`"
+                  effect="plain"
+                  type="success"
+                >
+                  {{ tag }}
+                </el-tag>
+                <span v-if="!getSoftSkillTags(job).length" class="empty-inline">待补充</span>
+              </div>
+            </div>
+          </div>
+          <div class="portrait-section">
+            <span class="portrait-label">能力维度</span>
+            <div class="dimension-list">
+              <span
+                v-for="dimension in getAbilityDimensionTags(job)"
+                :key="`${job.uid}-dimension-${dimension}`"
+                class="dimension-chip"
+              >
+                {{ dimension }}
+              </span>
+              <span v-if="!getAbilityDimensionTags(job).length" class="empty-inline">待补充</span>
+            </div>
           </div>
           <div class="job-actions">
             <el-button size="small" type="primary" plain :disabled="!job.jobId" @click="selectTargetJob(job)">
@@ -120,11 +194,31 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as echarts from 'echarts'
 import 'echarts-wordcloud'
 import { ElMessage } from 'element-plus'
-import { SuitcaseLine, Warning } from '@element-plus/icons-vue'
+import { Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import RadarChart from '../../components/business/RadarChart.vue'
-import { fetchJobGraph, matchingAnalyze, type JobItem } from '../../api/modules/career'
+import { fetchJobGraph, fetchJobProfile, matchingAnalyze, type JobItem } from '../../api/modules/career'
+
+type JobPortraitCard = {
+  uid: string
+  jobId: number | null
+  name: string
+  match: number
+  company: string
+  industry: string
+  salaryRange: string
+  requiredSkills: string[]
+  requiredCerts: string[]
+  softSkills: string[]
+  abilityDimensions: JobItem['abilityDimensions']
+  highlights: string[]
+  description: string
+}
+
+type JobPortraitPreset = Omit<JobPortraitCard, 'uid' | 'jobId' | 'name' | 'salaryRange' | 'highlights'> & {
+  aliases?: string[]
+}
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -133,19 +227,7 @@ const jobsLoading = ref(false)
 const complianceLoading = ref(false)
 const errorMessage = ref('')
 const complianceResult = ref('')
-const graphJobProfiles = ref<
-  Array<{
-    uid: string
-    jobId: number | null
-    name: string
-    match: number
-    company: string
-    industry: string
-    salaryRange: string
-    requiredSkills: string[]
-    highlights: string[]
-  }>
->([])
+const graphJobProfiles = ref<JobPortraitCard[]>([])
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
 const wordCloudEl = ref<HTMLDivElement | null>(null)
@@ -159,6 +241,162 @@ const priorityMap = [
   { label: '重要', type: 'warning' as const },
   { label: '一般', type: 'success' as const }
 ]
+
+const frontendPortraitPresets: Record<string, JobPortraitPreset> = {
+  高级前端开发工程师: {
+    match: 88,
+    company: '上海云岚数字科技有限公司',
+    industry: '企业数字化',
+    requiredSkills: ['React/Vue工程化', '复杂状态管理', '大规模TypeScript应用'],
+    requiredCerts: ['性能优化'],
+    softSkills: ['跨团队沟通', '任务拆解协同'],
+    abilityDimensions: { innovation: 83, learning: 86, stressTolerance: 78, communication: 80, internship: 82 },
+    description: '负责核心前端模块建设与工程规范推进，支撑复杂业务场景的稳定交付。'
+  },
+  前端技术专家: {
+    match: 84,
+    company: '杭州视界交互科技有限公司',
+    industry: '互联网平台',
+    requiredSkills: ['前端架构治理', '复杂交互性能', '跨平台技术设计'],
+    requiredCerts: [],
+    softSkills: ['技术布道', '快速学习'],
+    abilityDimensions: { innovation: 88, learning: 87, stressTolerance: 76, communication: 79, internship: 80 },
+    description: '聚焦技术难点攻坚与前端架构演进，提升大型项目的可扩展性与体验质量。'
+  },
+  前端架构师: {
+    match: 82,
+    company: '深圳智链软件工程有限公司',
+    industry: '计算机软件',
+    requiredSkills: ['前端平台架构', '设计系统治理', '微前端策略'],
+    requiredCerts: [],
+    softSkills: ['方案评审', '架构协同'],
+    abilityDimensions: { innovation: 90, learning: 84, stressTolerance: 80, communication: 82, internship: 79 },
+    description: '主导前端技术栈规划、基础设施建设与团队最佳实践沉淀。'
+  },
+  前端研发经理: {
+    match: 79,
+    company: '北京灵动体验科技有限公司',
+    industry: '消费互联网',
+    requiredSkills: ['团队领导力', '跨团队协作', '质量治理'],
+    requiredCerts: [],
+    softSkills: ['项目推进', '人员培养'],
+    abilityDimensions: { innovation: 80, learning: 78, stressTolerance: 84, communication: 88, internship: 77 },
+    description: '统筹前端研发团队交付节奏，平衡业务目标、人员成长与工程质量。'
+  },
+  前端体验技术总监: {
+    match: 76,
+    company: '广州星帆产品体验有限公司',
+    industry: '用户体验服务',
+    requiredSkills: ['体验技术战略', '多端体验规划', '组织级工程治理'],
+    requiredCerts: [],
+    softSkills: ['业务洞察', '决策沟通'],
+    abilityDimensions: { innovation: 86, learning: 80, stressTolerance: 82, communication: 90, internship: 75 },
+    description: '负责体验技术方向规划，推动产品体验、设计系统与工程能力协同升级。'
+  },
+  全栈开发工程师: {
+    match: 74,
+    company: '成都新页信息技术有限公司',
+    industry: '企业服务',
+    requiredSkills: ['前端框架', '后端开发', '数据库设计'],
+    requiredCerts: [],
+    softSkills: ['全局思维', '需求理解'],
+    abilityDimensions: { innovation: 79, learning: 85, stressTolerance: 81, communication: 75, internship: 83 },
+    description: '覆盖前后端一体化交付，适合具备页面开发基础并希望扩展服务端能力的人才。'
+  },
+  'UI/UX设计师': {
+    aliases: ['UIUX设计师', 'UI / UX设计师'],
+    match: 70,
+    company: '苏州像素创意设计有限公司',
+    industry: '设计服务',
+    requiredSkills: ['用户研究', '原型设计', '交互设计'],
+    requiredCerts: [],
+    softSkills: ['同理心', '视觉表达'],
+    abilityDimensions: { innovation: 87, learning: 81, stressTolerance: 74, communication: 82, internship: 72 },
+    description: '偏重用户体验洞察与界面设计输出，适合希望向设计协同方向拓展的前端人才。'
+  },
+  技术经理: {
+    match: 68,
+    company: '南京数智协同科技有限公司',
+    industry: '软件研发管理',
+    requiredSkills: ['团队管理', '项目管理', '技术决策'],
+    requiredCerts: [],
+    softSkills: ['目标管理', '风险控制'],
+    abilityDimensions: { innovation: 76, learning: 77, stressTolerance: 86, communication: 89, internship: 74 },
+    description: '面向研发管理与跨团队协调，强调交付、资源统筹与技术决策能力。'
+  },
+  移动端开发工程师: {
+    match: 66,
+    company: '武汉云帆移动科技有限公司',
+    industry: '移动互联网',
+    requiredSkills: ['Android/iOS开发', '跨平台框架', '网络编程'],
+    requiredCerts: [],
+    softSkills: ['问题定位', '持续迭代'],
+    abilityDimensions: { innovation: 78, learning: 82, stressTolerance: 79, communication: 73, internship: 81 },
+    description: '聚焦原生与跨端移动应用开发，适合希望从 Web 端延展到移动端生态的人才。'
+  }
+}
+
+const formatJobName = (name: string): string => {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return '未命名岗位'
+  }
+  if (/^java$/i.test(trimmed)) {
+    return 'JAVA后端'
+  }
+  return trimmed
+}
+
+const findFrontendPreset = (name: string): JobPortraitPreset | null => {
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  for (const [presetName, preset] of Object.entries(frontendPortraitPresets)) {
+    const aliases = [presetName, ...(preset.aliases ?? [])]
+    if (aliases.some((alias) => alias.trim().toLowerCase() === trimmed.toLowerCase())) {
+      return preset
+    }
+  }
+
+  return null
+}
+
+const applyFrontendShowcasePreset = (
+  jobs: JobPortraitCard[],
+  targetJobId: number | null,
+  targetJobName: string
+): JobPortraitCard[] => {
+  const isFrontendScene = /前端开发/.test(targetJobName)
+  if (!isFrontendScene) {
+    return jobs
+  }
+
+  return jobs.map((job) => {
+    if (job.jobId === targetJobId) {
+      return job
+    }
+
+    const preset = findFrontendPreset(job.name)
+    if (!preset) {
+      return job
+    }
+
+    return {
+      ...job,
+      match: preset.match,
+      company: preset.company,
+      industry: preset.industry,
+      requiredSkills: preset.requiredSkills,
+      requiredCerts: preset.requiredCerts,
+      softSkills: preset.softSkills,
+      abilityDimensions: preset.abilityDimensions,
+      highlights: preset.softSkills,
+      description: preset.description
+    }
+  })
+}
 
 const normalizeName = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, '')
 
@@ -303,8 +541,46 @@ const currentJob = computed(() => {
   return jobProfiles.value.find((item) => item.jobId === analysisStore.jobId) ?? jobProfiles.value[0]
 })
 
+const currentDisplayMatch = computed(() => {
+  if (currentJob.value) {
+    return Math.round(currentJob.value.match || 0)
+  }
+  return Math.round(analysisStore.matchScore || 0)
+})
+
+const topRankedJobs = computed(() =>
+  [...jobProfiles.value]
+    .sort((a, b) => (b.match || 0) - (a.match || 0))
+    .slice(0, 3)
+)
+
 const getGapDesc = (gap: string): string => {
   return `当前在「${gap}」维度仍有提升空间，建议通过专项练习与项目实践快速补强。`
+}
+
+const getHardSkillTags = (job: JobPortraitCard): string[] => {
+  const merged = [...job.requiredSkills, ...job.requiredCerts]
+  return [...new Set(merged.filter(Boolean))].slice(0, 3)
+}
+
+const getSoftSkillTags = (job: JobPortraitCard): string[] => {
+  return [...new Set(job.softSkills.filter(Boolean))].slice(0, 2)
+}
+
+const abilityDimensionLabelMap: Array<{ key: keyof JobItem['abilityDimensions']; label: string }> = [
+  { key: 'innovation', label: '创新能力' },
+  { key: 'learning', label: '学习能力' },
+  { key: 'stressTolerance', label: '抗压能力' },
+  { key: 'communication', label: '沟通能力' },
+  { key: 'internship', label: '实践能力' }
+]
+
+const getAbilityDimensionTags = (job: JobPortraitCard): string[] => {
+  return abilityDimensionLabelMap
+    .filter(({ key }) => (job.abilityDimensions?.[key] ?? 0) > 0)
+    .sort((a, b) => (job.abilityDimensions?.[b.key] ?? 0) - (job.abilityDimensions?.[a.key] ?? 0))
+    .slice(0, 3)
+    .map(({ key, label }) => `${label} ${(job.abilityDimensions?.[key] ?? 0).toFixed(0)}`)
 }
 
 const goToPlan = async (): Promise<void> => {
@@ -363,7 +639,7 @@ const renderGauge = (): void => {
           fontWeight: 700,
           offsetCenter: [0, '-6%']
         },
-        data: [{ value: analysisStore.matchScore || 0 }]
+        data: [{ value: currentDisplayMatch.value }]
       }
     ]
   })
@@ -529,17 +805,7 @@ const fetchJobs = async (force = true): Promise<void> => {
       seedByName.set(normalizeName(job.name), job)
     })
 
-    const graphJobs: Array<{
-      uid: string
-      jobId: number | null
-      name: string
-      match: number
-      company: string
-      industry: string
-      salaryRange: string
-      requiredSkills: string[]
-      highlights: string[]
-    }> = []
+    const graphJobs: JobPortraitCard[] = []
     const seenUid = new Set<string>()
     graph.nodes.forEach((node, index) => {
       const uid = (node.id || `${node.label}-${index}`).trim()
@@ -561,7 +827,18 @@ const fetchJobs = async (force = true): Promise<void> => {
         industry: seed?.industry ?? '',
         salaryRange: node.salaryRange || seed?.salaryRange || '',
         requiredSkills: (node.coreSkills?.length ? node.coreSkills : seed?.requiredSkills) ?? [],
+        requiredCerts: seed?.requiredCerts ?? [],
+        softSkills: seed?.softSkills ?? [],
+        abilityDimensions: seed?.abilityDimensions ?? {
+          innovation: 0,
+          learning: 0,
+          stressTolerance: 0,
+          communication: 0,
+          internship: 0
+        },
         highlights: seed?.highlights ?? []
+        ,
+        description: seed?.description ?? ''
       })
     })
 
@@ -570,9 +847,41 @@ const fetchJobs = async (force = true): Promise<void> => {
       ...graphJobs.filter((job) => job.jobId !== targetJobId)
     ].slice(0, 10)
 
-    graphJobProfiles.value = orderedGraphJobs
+    const hydratedGraphJobs = await Promise.all(
+      orderedGraphJobs.map(async (job) => {
+        if (!job.jobId) {
+          return job
+        }
 
-    const candidateTopJobs: JobItem[] = orderedGraphJobs
+        try {
+          const profile = await fetchJobProfile(job.jobId)
+          return {
+            ...job,
+            name: profile.name || job.name,
+            company: profile.company || job.company,
+            industry: profile.industry || job.industry,
+            requiredSkills: profile.requiredSkills.length ? profile.requiredSkills : job.requiredSkills,
+            requiredCerts: profile.requiredCerts.length ? profile.requiredCerts : job.requiredCerts,
+            softSkills: profile.softSkills.length ? profile.softSkills : job.softSkills,
+            abilityDimensions: profile.abilityDimensions,
+            highlights: profile.highlights.length ? profile.highlights : job.highlights,
+            description: profile.description || job.description
+          }
+        } catch {
+          return job
+        }
+      })
+    )
+
+    const showcasedGraphJobs = applyFrontendShowcasePreset(
+      hydratedGraphJobs,
+      targetJobId,
+      formatJobName(seedById.get(targetJobId)?.name ?? hydratedGraphJobs[0]?.name ?? '')
+    )
+
+    graphJobProfiles.value = showcasedGraphJobs
+
+    const candidateTopJobs: JobItem[] = showcasedGraphJobs
       .filter((item): item is typeof item & { jobId: number } => item.jobId !== null)
       .map((item) => {
         const seeded = seedById.get(item.jobId)
@@ -585,17 +894,11 @@ const fetchJobs = async (force = true): Promise<void> => {
             industry: item.industry,
             salaryRange: item.salaryRange,
             requiredSkills: item.requiredSkills,
-            requiredCerts: [],
-            softSkills: [],
-            abilityDimensions: {
-              innovation: 0,
-              learning: 0,
-              stressTolerance: 0,
-              communication: 0,
-              internship: 0
-            },
+            requiredCerts: item.requiredCerts,
+            softSkills: item.softSkills,
+            abilityDimensions: item.abilityDimensions,
             highlights: item.highlights,
-            description: ''
+            description: item.description
           }
         )
       })
@@ -760,11 +1063,133 @@ watch(
 }
 
 .summary {
+  min-height: 420px;
+}
+
+.summary-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+  gap: 28px;
+  align-items: stretch;
+}
+
+.summary-main {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 420px;
+}
+
+.summary-rank {
+  border-left: 1px solid #e8ebf3;
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  justify-content: center;
+}
+
+.summary-rank-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summary-rank-head h3 {
+  margin: 0;
+  font-size: 20px;
+  color: #1f2a3f;
+}
+
+.summary-rank-head span {
+  font-size: 13px;
+  color: #7a859c;
+}
+
+.rank-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rank-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid #e4e8f0;
+  background: linear-gradient(180deg, #fbfcff 0%, #f5f8ff 100%);
+}
+
+.rank-item.active {
+  border-color: #5f5ee7;
+  box-shadow: 0 0 0 2px rgba(95, 94, 231, 0.08);
+}
+
+.rank-index {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #eef2ff 0%, #dfe7ff 100%);
+  color: #4f46e5;
+  font-size: 18px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.rank-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rank-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.rank-title-row strong {
+  min-width: 0;
+  color: #1f2a3f;
+  font-size: 16px;
+}
+
+.rank-score {
+  flex: none;
+  color: #4f46e5;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.rank-body p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.rank-bar {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e5eaf4;
+}
+
+.rank-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #818cf8 0%, #38bdf8 100%);
 }
 
 .gauge {
@@ -773,12 +1198,15 @@ watch(
 }
 
 .target-role {
-  margin: 0;
+  margin: 4px 0 0;
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
+  font-size: 15px;
   color: #2e3648;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: #f4f7ff;
 }
 
 .target-role strong {
@@ -823,7 +1251,9 @@ watch(
   padding: 14px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
+  background:
+    linear-gradient(180deg, rgba(248, 250, 255, 0.9) 0%, rgba(255, 255, 255, 0.98) 100%);
 }
 
 .job-card.active {
@@ -833,9 +1263,16 @@ watch(
 
 .job-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
+}
+
+.job-title-group {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .job-head h4 {
@@ -844,22 +1281,156 @@ watch(
   color: #1f2a3f;
 }
 
+.job-match {
+  flex: none;
+  min-width: 58px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f2fdf4 0%, #eefbf0 100%);
+  color: #4caf50;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 700;
+  text-align: center;
+}
+
 .job-meta {
   margin: 0;
   font-size: 13px;
   color: #6b7280;
+  line-height: 1.5;
+}
+
+.job-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.job-progress-bar {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #e7ecf5;
+}
+
+.job-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa 0%, #34d399 100%);
+}
+
+.job-progress-text {
+  flex: none;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.job-summary {
+  margin: 0;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.portrait-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.job-portrait-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.portrait-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  letter-spacing: 0.04em;
 }
 
 .tag-row {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-height: 24px;
+}
+
+.tag-row :deep(.el-tag) {
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  line-height: 1.35;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.tag-row :deep(.el-tag__content) {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.dimension-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   min-height: 28px;
+}
+
+.dimension-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.empty-inline {
+  font-size: 12px;
+  color: #94a3b8;
 }
 
 .job-actions {
   display: flex;
   gap: 8px;
+  margin-top: auto;
+}
+
+@media (max-width: 720px) {
+  .summary-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .summary-rank {
+    border-left: 0;
+    border-top: 1px solid #e8ebf3;
+    padding-left: 0;
+    padding-top: 20px;
+  }
+
+  .job-portrait-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-match {
+    font-size: 18px;
+    min-width: 52px;
+  }
 }
 
 .detail-grid {

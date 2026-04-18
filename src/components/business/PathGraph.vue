@@ -6,13 +6,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Graph } from '@antv/x6'
 
-export type PathNodeType = 'vertical' | 'horizontal' | 'target'
+export type PathNodeType = 'vertical' | 'horizontal' | 'target' | 'category' | 'group'
 
 export interface PathNode {
   id: string
   label: string
   x?: number
   y?: number
+  width?: number
+  height?: number
   type?: PathNodeType | string
   relationStrength?: number
   meta?: Record<string, string>
@@ -61,6 +63,9 @@ interface NodeStyle {
 
 const normalizeNodeType = (type: PathNodeType | string | undefined): PathNodeType => {
   const normalized = `${type ?? ''}`.trim().toLowerCase()
+  if (normalized === 'category' || normalized === 'group') {
+    return normalized
+  }
   if (
     normalized === 'horizontal' ||
     normalized === 'lateral' ||
@@ -82,14 +87,33 @@ const normalizeNodeType = (type: PathNodeType | string | undefined): PathNodeTyp
 const knowledgeColors = ['#3B82F6', '#22C55E', '#14B8A6', '#A855F7', '#F43F5E', '#EAB308', '#0EA5E9', '#4F46E5']
 
 const getNodeStyle = (type: PathNodeType | string | undefined, seed = ''): NodeStyle => {
+  const normalized = normalizeNodeType(type)
   if (props.variant === 'knowledge') {
-    if (normalizeNodeType(type) === 'target') {
+    if (normalized === 'group') {
+      return {
+        stroke: 'rgba(99, 133, 220, 0.5)',
+        fill: 'rgba(232, 240, 255, 0.45)',
+        text: '#3B4E7A',
+        badge: '#D6E3FF',
+        shadow: 'none'
+      }
+    }
+    if (normalized === 'target') {
       return {
         stroke: '#D97706',
         fill: '#F59E0B',
         text: '#FFFFFF',
         badge: '#FDE68A',
         shadow: '0 10px 24px rgba(217, 119, 6, 0.35)'
+      }
+    }
+    if (normalized === 'category') {
+      return {
+        stroke: '#2563EB',
+        fill: '#DCE9FF',
+        text: '#123F91',
+        badge: '#D8E4FB',
+        shadow: '0 12px 24px rgba(37, 99, 235, 0.25)'
       }
     }
     const index = Math.abs(
@@ -105,7 +129,6 @@ const getNodeStyle = (type: PathNodeType | string | undefined, seed = ''): NodeS
     }
   }
 
-  const normalized = normalizeNodeType(type)
   if (normalized === 'target') {
     return {
       stroke: '#1D4ED8',
@@ -134,10 +157,13 @@ const getNodeStyle = (type: PathNodeType | string | undefined, seed = ''): NodeS
 }
 
 const getEdgeStyle = (type: PathNodeType | string | undefined): { color: string; dash?: string } => {
+  const normalized = normalizeNodeType(type)
   if (props.variant === 'knowledge') {
+    if (normalized === 'category') {
+      return { color: '#5B7FD9', dash: '4 3' }
+    }
     return { color: '#94A3B8' }
   }
-  const normalized = normalizeNodeType(type)
   if (normalized === 'horizontal') {
     return { color: '#0E9AA7', dash: '6 4' }
   }
@@ -152,10 +178,13 @@ const isFiniteNumber = (value: number | undefined): value is number =>
 
 const inferEdgeType = (edge: PathEdge): PathNodeType => {
   const normalizedType = normalizeNodeType(edge.type)
-  if (normalizedType === 'horizontal' || normalizedType === 'target') {
+  if (normalizedType === 'horizontal' || normalizedType === 'target' || normalizedType === 'category') {
     return normalizedType
   }
   const text = `${edge.label ?? ''}`.trim()
+  if (/分类|类别|分组|同类|category|group/i.test(text)) {
+    return 'category'
+  }
   if (/转岗|横向|平级|跨岗|换岗|lateral|transfer|cross/i.test(text)) {
     return 'horizontal'
   }
@@ -227,6 +256,9 @@ const buildNodeRadiusMap = (nodes: PathNode[], edges: PathEdge[]): Map<string, n
   const relationStrength = new Map<string, number>()
 
   nodes.forEach((node) => {
+    if (normalizeNodeType(node.type) === 'group') {
+      return
+    }
     if (typeof node.relationStrength === 'number' && Number.isFinite(node.relationStrength)) {
       relationStrength.set(node.id, Math.max(node.relationStrength, 0))
       return
@@ -247,8 +279,16 @@ const buildNodeRadiusMap = (nodes: PathNode[], edges: PathEdge[]): Map<string, n
 
   const radiusMap = new Map<string, number>()
   nodes.forEach((node) => {
-    if (normalizeNodeType(node.type) === 'target') {
+    const normalizedType = normalizeNodeType(node.type)
+    if (normalizedType === 'group') {
+      return
+    }
+    if (normalizedType === 'target') {
       radiusMap.set(node.id, 112)
+      return
+    }
+    if (normalizedType === 'category') {
+      radiusMap.set(node.id, 86)
       return
     }
 
@@ -407,6 +447,12 @@ const resolveEdgeLabel = (edge: PathEdge): string | undefined => {
     return undefined
   }
   const type = inferEdgeType(edge)
+  if (type === 'category' && /^(同类岗位|分类关联|分类|同类|category)$/i.test(label)) {
+    return undefined
+  }
+  if (type === 'target' && /^(关联|分类关联|链接|connect)$/i.test(label)) {
+    return undefined
+  }
   if (type === 'vertical' && /^(晋升|升职|晋级)$/i.test(label)) {
     return undefined
   }
@@ -414,6 +460,36 @@ const resolveEdgeLabel = (edge: PathEdge): string | undefined => {
     return undefined
   }
   return label
+}
+
+const toDisplayLabel = (label: string, type: PathNodeType, width: number, variant: 'default' | 'knowledge'): string => {
+  if (!label) {
+    return ''
+  }
+
+  if (type === 'group' || variant !== 'knowledge') {
+    return label
+  }
+
+  const compactWidth = Math.max(70, Math.round(width))
+  const charsPerLine = compactWidth >= 118 ? 6 : compactWidth >= 96 ? 5 : 4
+  const maxLines = type === 'target' ? 2 : 2
+  const maxChars = charsPerLine * maxLines
+  const trimmed = label.replace(/\s+/g, '')
+  const sliced = trimmed.slice(0, maxChars)
+  const chunks: string[] = []
+
+  for (let i = 0; i < sliced.length; i += charsPerLine) {
+    chunks.push(sliced.slice(i, i + charsPerLine))
+  }
+
+  if (trimmed.length > maxChars && chunks.length > 0) {
+    const lastIndex = chunks.length - 1
+    const lastLine = chunks[lastIndex]
+    chunks[lastIndex] = `${lastLine.slice(0, Math.max(0, charsPerLine - 1))}…`
+  }
+
+  return chunks.join('\n')
 }
 
 const stableOffset = (seed: string, amplitude: number): number => {
@@ -448,6 +524,9 @@ const renderGraph = (): void => {
 
     graph.on('node:mouseenter', ({ node }) => {
       const data = node.getData() as PathNode
+      if (normalizeNodeType(data.type) === 'group') {
+        return
+      }
       const style = getNodeStyle(data.type, data.id)
       node.attr('body/stroke', '#0F172A')
       node.attr('body/strokeWidth', 2)
@@ -460,6 +539,9 @@ const renderGraph = (): void => {
 
     graph.on('node:mouseleave', ({ node }) => {
       const data = node.getData() as PathNode
+      if (normalizeNodeType(data.type) === 'group') {
+        return
+      }
       const style = getNodeStyle(data.type, data.id)
       node.attr('body/stroke', style.stroke)
       node.attr('body/strokeWidth', 1.2)
@@ -484,14 +566,16 @@ const renderGraph = (): void => {
   const nodeRadiusMap = buildNodeRadiusMap(resolvedNodes, resolvedEdges)
 
   resolvedNodes.forEach((node) => {
+    const normalizedType = normalizeNodeType(node.type)
     const style = getNodeStyle(node.type, node.id)
     const isKnowledge = props.variant === 'knowledge'
-    const width = isKnowledge
-      ? (nodeRadiusMap.get(node.id) ?? (node.type === 'target' ? 112 : 86))
-      : node.type === 'target'
-        ? 168
-        : 150
-    const height = isKnowledge ? width : node.type === 'target' ? 52 : 46
+    const fallbackKnowledgeWidth =
+      normalizedType === 'group' ? 360 : normalizedType === 'target' ? 122 : normalizedType === 'category' ? 110 : 86
+    const width = node.width ?? (isKnowledge ? (nodeRadiusMap.get(node.id) ?? fallbackKnowledgeWidth) : normalizedType === 'target' ? 168 : 150)
+    const fallbackKnowledgeHeight = normalizedType === 'group' ? 180 : width
+    const height = node.height ?? (isKnowledge ? fallbackKnowledgeHeight : normalizedType === 'target' ? 52 : 46)
+    const isGroup = normalizedType === 'group'
+    const displayLabel = toDisplayLabel(node.label, normalizedType, width, props.variant)
 
     graph?.addNode({
       id: node.id,
@@ -499,22 +583,49 @@ const renderGraph = (): void => {
       y: node.y ?? 0,
       width,
       height,
-      shape: isKnowledge ? 'circle' : 'rect',
-      zIndex: 20,
+      shape: isKnowledge && !isGroup ? 'circle' : 'rect',
+      zIndex: isGroup ? 1 : 20,
       attrs: {
         body: {
-          rx: isKnowledge ? undefined : 12,
-          ry: isKnowledge ? undefined : 12,
+          rx: isKnowledge && !isGroup ? undefined : 12,
+          ry: isKnowledge && !isGroup ? undefined : 12,
           stroke: style.stroke,
-          strokeWidth: isKnowledge ? 0 : 1.2,
+          strokeWidth: isKnowledge && !isGroup ? 0 : isGroup ? 1.4 : 1.2,
+          strokeDasharray: isGroup ? '8 6' : undefined,
           fill: style.fill,
-          shadowColor: style.shadow
+          filter:
+            isKnowledge && !isGroup
+              ? {
+                  name: 'dropShadow',
+                  args: {
+                    dx: 0,
+                    dy: normalizedType === 'target' ? 14 : normalizedType === 'category' ? 10 : 7,
+                    blur: normalizedType === 'target' ? 16 : 11,
+                    color: normalizedType === 'target' ? '#D97706' : '#4B72D9',
+                    opacity: normalizedType === 'target' ? 0.3 : 0.2
+                  }
+                }
+              : undefined
         },
         label: {
-          text: node.label,
+          text: displayLabel,
           fill: style.text,
-          fontSize: isKnowledge ? (node.type === 'target' ? 18 : 14) : node.type === 'target' ? 14 : 13,
-          fontWeight: node.type === 'target' ? 700 : 600
+          fontSize: isKnowledge
+            ? normalizedType === 'target'
+              ? 18
+              : normalizedType === 'category'
+                ? 16
+                : normalizedType === 'group'
+                  ? 18
+                  : 12
+            : normalizedType === 'target'
+              ? 14
+              : 13,
+          fontWeight: normalizedType === 'target' || normalizedType === 'group' ? 700 : 600,
+          textVerticalAnchor: normalizedType === 'group' ? 'top' : 'middle',
+          refY: normalizedType === 'group' ? 16 : undefined,
+          refX: normalizedType === 'group' ? 14 : undefined,
+          textAnchor: normalizedType === 'group' ? 'left' : 'middle'
         }
       },
       data: node
@@ -549,6 +660,8 @@ const renderGraph = (): void => {
             }
           ]
         : undefined
+    const isCategoryGuideEdge = props.variant === 'knowledge' && edge.type === 'category'
+    const markerSize = props.variant === 'knowledge' ? 7 : 9
 
     graph?.addEdge({
       id: edge.id ?? `edge-${index}`,
@@ -563,14 +676,26 @@ const renderGraph = (): void => {
       attrs: {
         line: {
           stroke: edgeStyle.color,
-          strokeWidth: props.variant === 'knowledge' ? 1.4 : edge.type === 'target' ? 2.8 : 2.2,
+          strokeWidth:
+            props.variant === 'knowledge'
+              ? edge.type === 'target'
+                ? 2.2
+                : edge.type === 'category'
+                  ? 1.2
+                  : 1.4
+              : edge.type === 'target'
+                ? 2.8
+                : 2.2,
           strokeDasharray: edgeStyle.dash,
-          targetMarker: {
-            name: 'classic',
-            size: props.variant === 'knowledge' ? 7 : 9,
-            fill: edgeStyle.color,
-            stroke: edgeStyle.color
-          }
+          strokeOpacity: isCategoryGuideEdge ? 0.5 : 0.8,
+          targetMarker: isCategoryGuideEdge
+            ? null
+            : {
+                name: 'classic',
+                size: markerSize,
+                fill: edgeStyle.color,
+                stroke: edgeStyle.color
+              }
         }
       },
       labels: displayLabel
