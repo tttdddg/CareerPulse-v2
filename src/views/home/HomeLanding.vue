@@ -64,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import Airi from '@/assets/Airi.png'
+import Airi from '@/assets/airi.png'
 import CareerPulseLogo from '@/assets/logoo.png'
 </script>
 
