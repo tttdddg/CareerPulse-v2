@@ -1,0 +1,32 @@
+{
+  "nodes": [
+    {"node_key":"data-assistant","job_title":"数据分析助理","level_range":"entry","industry":"电子商务","description":"协助数据清洗、报表和基础分析。"},
+    {"node_key":"data-analyst","job_title":"数据分析师","level_range":"junior","industry":"电子商务","description":"独立完成业务分析和数据表达。"},
+    {"node_key":"senior-data-analyst","job_title":"高级数据分析师","level_range":"senior","industry":"电子商务","description":"负责复杂分析和方法建设。"},
+    {"node_key":"data-product-assistant","job_title":"数据产品助理","level_range":"entry","industry":"企业服务/SaaS","description":"协助数据产品需求和运营。"},
+    {"node_key":"ai-product-assistant","job_title":"AI产品助理","level_range":"entry","industry":"人工智能","description":"协助AI产品调研和需求整理。"},
+    {"node_key":"ai-product-manager","job_title":"AI产品经理","level_range":"mid","industry":"人工智能","description":"负责AI产品规划和交付。"},
+    {"node_key":"senior-ai-product-manager","job_title":"高级AI产品经理","level_range":"senior","industry":"人工智能","description":"负责AI产品策略和复杂项目。"},
+    {"node_key":"backend-trainee","job_title":"后端开发实习生","level_range":"entry","industry":"企业服务/SaaS","description":"完成基础接口和测试任务。"},
+    {"node_key":"backend-engineer","job_title":"后端开发工程师","level_range":"junior","industry":"企业服务/SaaS","description":"独立开发和维护后端服务。"},
+    {"node_key":"backend-architect","job_title":"后端架构师","level_range":"lead","industry":"企业服务/SaaS","description":"负责系统架构和技术治理。"}
+  ],
+  "edges": [
+    {"source_key":"data-assistant","target_key":"data-analyst","relation_type":"vertical","reason":"从辅助报表工作成长到独立业务分析。","transfer_cost":0.6,"growth_value":1.8,"source_industry":"电子商务","target_industry":"电子商务"},
+    {"source_key":"data-analyst","target_key":"senior-data-analyst","relation_type":"vertical","reason":"提升复杂分析、业务影响和方法建设能力。","transfer_cost":1.2,"growth_value":2.4,"source_industry":"电子商务","target_industry":"电子商务"},
+    {"source_key":"data-product-assistant","target_key":"ai-product-assistant","relation_type":"lateral","reason":"数据产品经验可迁移至AI产品场景。","transfer_cost":1.0,"growth_value":1.6,"source_industry":"企业服务/SaaS","target_industry":"人工智能"},
+    {"source_key":"ai-product-assistant","target_key":"ai-product-manager","relation_type":"vertical","reason":"从需求支持成长为独立产品负责人。","transfer_cost":1.0,"growth_value":2.2,"source_industry":"人工智能","target_industry":"人工智能"},
+    {"source_key":"ai-product-manager","target_key":"senior-ai-product-manager","relation_type":"vertical","reason":"提升战略规划和复杂项目管理能力。","transfer_cost":1.5,"growth_value":2.8,"source_industry":"人工智能","target_industry":"人工智能"},
+    {"source_key":"backend-trainee","target_key":"backend-engineer","relation_type":"vertical","reason":"从指导下编码成长为独立服务开发。","transfer_cost":0.8,"growth_value":2.0,"source_industry":"企业服务/SaaS","target_industry":"企业服务/SaaS"},
+    {"source_key":"backend-engineer","target_key":"backend-architect","relation_type":"vertical","reason":"扩展系统设计、稳定性和技术治理能力。","transfer_cost":2.2,"growth_value":3.0,"source_industry":"企业服务/SaaS","target_industry":"企业服务/SaaS"},
+    {"source_key":"data-assistant","target_key":"data-product-assistant","relation_type":"lateral","reason":"数据处理经验可支持数据产品需求。","transfer_cost":0.9,"growth_value":1.5,"source_industry":"电子商务","target_industry":"企业服务/SaaS"},
+    {"source_key":"data-analyst","target_key":"data-product-assistant","relation_type":"lateral","reason":"分析洞察可迁移到数据产品设计。","transfer_cost":0.8,"growth_value":1.7,"source_industry":"电子商务","target_industry":"企业服务/SaaS"},
+    {"source_key":"data-analyst","target_key":"ai-product-assistant","relation_type":"lateral","reason":"数据分析基础有助于理解AI产品指标。","transfer_cost":1.2,"growth_value":1.9,"source_industry":"电子商务","target_industry":"人工智能"},
+    {"source_key":"senior-data-analyst","target_key":"ai-product-manager","relation_type":"lateral","reason":"高级分析经验可支持AI产品的数据决策。","transfer_cost":1.6,"growth_value":2.1,"source_industry":"电子商务","target_industry":"人工智能"},
+    {"source_key":"backend-engineer","target_key":"data-analyst","relation_type":"lateral","reason":"数据库和编程能力可迁移到技术型数据分析。","transfer_cost":1.5,"growth_value":1.5,"source_industry":"企业服务/SaaS","target_industry":"电子商务"},
+    {"source_key":"backend-engineer","target_key":"ai-product-assistant","relation_type":"lateral","reason":"技术背景有利于AI产品可行性沟通。","transfer_cost":1.8,"growth_value":1.8,"source_industry":"企业服务/SaaS","target_industry":"人工智能"},
+    {"source_key":"data-product-assistant","target_key":"ai-product-manager","relation_type":"vertical","reason":"补齐AI知识后可负责AI数据产品。","transfer_cost":1.4,"growth_value":2.3,"source_industry":"企业服务/SaaS","target_industry":"人工智能"},
+    {"source_key":"ai-product-assistant","target_key":"data-analyst","relation_type":"lateral","reason":"产品指标经验可迁移到业务数据分析。","transfer_cost":1.3,"growth_value":1.4,"source_industry":"人工智能","target_industry":"电子商务"},
+    {"source_key":"backend-trainee","target_key":"data-assistant","relation_type":"lateral","reason":"基础编程和数据库能力支持数据处理岗位。","transfer_cost":0.9,"growth_value":1.3,"source_industry":"企业服务/SaaS","target_industry":"电子商务"}
+  ]
+}

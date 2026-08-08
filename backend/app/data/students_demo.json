@@ -1,0 +1,39 @@
+[
+  {
+    "student_id": 90001,
+    "name": "演示学生A",
+    "basic_info": {"education_level":"本科","major":"信息管理（演示）","graduation_year":2027,"target_job":"AI产品经理","target_industry":"人工智能","years_of_experience":0.0},
+    "abilities": [
+      {"tag":"Python","level":3,"confidence":0.8,"evidence":"完成匿名课程数据项目"},
+      {"tag":"数据分析","level":3,"confidence":0.8,"evidence":"完成演示数据分析任务"},
+      {"tag":"用户研究","level":2,"confidence":0.7,"evidence":"参与模拟用户访谈"},
+      {"tag":"沟通表达","level":3,"confidence":0.75,"evidence":"完成课程展示"}
+    ],
+    "competitiveness_score":52.0,"completeness":0.72,"missing_fields":["真实项目经历"]
+  },
+  {
+    "student_id": 90002,
+    "name": "演示学生B",
+    "basic_info": {"education_level":"专科","major":"软件技术（演示）","graduation_year":2026,"target_job":"后端开发工程师","target_industry":"企业服务/SaaS","years_of_experience":0.0},
+    "abilities": [
+      {"tag":"Java","level":3,"confidence":0.82,"evidence":"完成匿名课程管理系统"},
+      {"tag":"SQL/数据库","level":3,"confidence":0.78,"evidence":"完成数据库课程设计"},
+      {"tag":"后端开发","level":2,"confidence":0.7,"evidence":"完成模拟API项目"},
+      {"tag":"Git/版本控制","level":2,"confidence":0.72,"evidence":"使用版本控制完成小组作业"}
+    ],
+    "competitiveness_score":48.0,"completeness":0.68,"missing_fields":["实习经历"]
+  },
+  {
+    "student_id": 90003,
+    "name": "演示学生C",
+    "basic_info": {"education_level":"硕士","major":"统计学（演示）","graduation_year":2026,"target_job":"数据分析师","target_industry":"电子商务","years_of_experience":0.5},
+    "abilities": [
+      {"tag":"Python","level":4,"confidence":0.86,"evidence":"完成匿名统计建模项目"},
+      {"tag":"SQL/数据库","level":3,"confidence":0.82,"evidence":"完成模拟业务查询任务"},
+      {"tag":"数据分析","level":4,"confidence":0.88,"evidence":"完成公开演示数据研究"},
+      {"tag":"数据可视化","level":3,"confidence":0.8,"evidence":"制作课程分析看板"},
+      {"tag":"沟通表达","level":2,"confidence":0.65,"evidence":"参与匿名项目汇报"}
+    ],
+    "competitiveness_score":66.0,"completeness":0.8,"missing_fields":[]
+  }
+]
