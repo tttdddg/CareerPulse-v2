@@ -1,9 +1,0 @@
-2026/02/05 18:13:48 [emerg] 9044#9836: bind() to 0.0.0.0:80 failed (10013: An attempt was made to access a socket in a way forbidden by its access permissions)
-2026/02/05 18:18:08 [emerg] 18864#17092: bind() to 0.0.0.0:80 failed (10013: An attempt was made to access a socket in a way forbidden by its access permissions)
-2026/02/05 18:18:56 [notice] 13644#4840: signal process started
-2026/02/05 18:18:56 [error] 13644#4840: CreateFile() "D:\nginx-1.22.1/logs/nginx.pid" failed (2: The system cannot find the file specified)
-2026/02/05 18:20:07 [emerg] 10424#23504: bind() to 0.0.0.0:80 failed (10013: An attempt was made to access a socket in a way forbidden by its access permissions)
-2026/02/05 18:20:15 [notice] 5976#11860: signal process started
-2026/02/05 18:20:15 [error] 5976#11860: CreateFile() "D:\nginx-1.22.1/logs/nginx.pid" failed (2: The system cannot find the file specified)
-2026/02/05 18:20:36 [emerg] 20896#5796: bind() to 0.0.0.0:80 failed (10013: An attempt was made to access a socket in a way forbidden by its access permissions)
-2026/02/08 02:31:41 [emerg] 24908#15212: bind() to 0.0.0.0:80 failed (10013: An attempt was made to access a socket in a way forbidden by its access permissions)

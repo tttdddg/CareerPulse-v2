@@ -1,0 +1,14 @@
+[
+  {"resource_id":"res-001","title":"Python基础演示课程","type":"course","url":"https://example.com/a02/python","target_ability":"Python","description":"仅用于A02演示的课程占位资源。","demo_only":true},
+  {"resource_id":"res-002","title":"SQL练习演示集","type":"practice","url":"https://example.com/a02/sql","target_ability":"SQL/数据库","description":"仅用于A02演示的练习占位资源。","demo_only":true},
+  {"resource_id":"res-003","title":"数据分析演示项目","type":"practice","url":"https://example.com/a02/data-analysis","target_ability":"数据分析","description":"仅用于A02演示的项目占位资源。","demo_only":true},
+  {"resource_id":"res-004","title":"需求分析演示读本","type":"book","url":"https://example.com/a02/requirements","target_ability":"需求分析","description":"仅用于A02演示的读本占位资源。","demo_only":true},
+  {"resource_id":"res-005","title":"产品规划演示课程","type":"course","url":"https://example.com/a02/product-planning","target_ability":"产品规划","description":"仅用于A02演示的课程占位资源。","demo_only":true},
+  {"resource_id":"res-006","title":"大模型应用演示实验","type":"practice","url":"https://example.com/a02/llm","target_ability":"大模型应用","description":"仅用于A02演示的实验占位资源。","demo_only":true},
+  {"resource_id":"res-007","title":"后端API演示项目","type":"practice","url":"https://example.com/a02/backend","target_ability":"后端开发","description":"仅用于A02演示的项目占位资源。","demo_only":true},
+  {"resource_id":"res-008","title":"远程协作演示手册","type":"book","url":"https://example.com/a02/remote","target_ability":"远程协作","description":"仅用于A02演示的手册占位资源。","demo_only":true},
+  {"resource_id":"res-009","title":"沟通表达演示训练","type":"practice","url":"https://example.com/a02/communication","target_ability":"沟通表达","description":"仅用于A02演示的训练占位资源。","demo_only":true},
+  {"resource_id":"res-010","title":"项目管理认证说明","type":"certificate","url":"https://example.com/a02/project-certificate","target_ability":"PMP","description":"仅用于A02演示的认证信息占位资源。","demo_only":true},
+  {"resource_id":"res-011","title":"数据可视化演示课程","type":"course","url":"https://example.com/a02/visualization","target_ability":"数据可视化","description":"仅用于A02演示的课程占位资源。","demo_only":true},
+  {"resource_id":"res-012","title":"Git协作演示练习","type":"practice","url":"https://example.com/a02/git","target_ability":"Git/版本控制","description":"仅用于A02演示的练习占位资源。","demo_only":true}
+]

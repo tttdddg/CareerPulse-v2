@@ -1,4 +1,0 @@
-127.0.0.1 - - [08/Feb/2026:02:37:35 +0800] "GET / HTTP/1.1" 200 446 "-" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
-127.0.0.1 - - [08/Feb/2026:02:37:35 +0800] "GET /assets/main-DZ8IxhlR.js HTTP/1.1" 200 293882 "http://localhost:8888/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
-127.0.0.1 - - [08/Feb/2026:02:37:35 +0800] "GET /assets/main-zjeCe5mb.css HTTP/1.1" 200 50390 "http://localhost:8888/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
-127.0.0.1 - - [08/Feb/2026:02:37:35 +0800] "GET /vite.svg HTTP/1.1" 200 1497 "http://localhost:8888/" "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36"
