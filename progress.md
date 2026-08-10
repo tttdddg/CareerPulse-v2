@@ -41,3 +41,15 @@
 - 新增 ProfileAgent 专项回归测试文件，并修复 Prompt 输入中 ampersand 被错误实体化的问题；专项测试 7/7 通过。
 - ProfileAgent 与阶段1套件合跑 14 项：12 通过、2 个旧 Mock 断言冲突；`compileall` 通过。未修改旧 platform 测试或伪造降级状态。
 - 已在 `PROMPT_V1_CHECK.md` 固化测试命令、遗留基线、grounding/完整度/稳定性/Demo fallback 风险及 JobAgent 复用边界；四步封板完成。
+- 2026-08-10：开始 JobAgent 阶段2结构化输出 Schema；业务修改范围限定为 `backend/app/schemas/job_schema.py` 及已有统一导出文件。
+- 完成 JobAgent Schema：两个独立状态模型和一个组合响应模型；首次隔离校验确认合法岗位通过，required_level=6 与权重和不为1均被拒绝。
+- Job Schema 最终验证完成：现有岗位 3/3、趋势 1/1、非法探针 5/5 符合预期；ProfileAgent 回归 7/7、`py_compile` 通过；未修改 Agent、Service、Orchestrator、前端或数据库。
+- 2026-08-10：开始 JobAgent Prompt V1；修改范围限定为 `prompts/job_agent/**`，不调用真实模型、不修改 Agent 或公共 Schema。
+- 完成 JobAgent Prompt V1 三文件：严格区分 JD/趋势/模型归纳，约束标准标签、等级、归一化权重、evidence、保守趋势和 JSON-only；三岗位人工边界已记录。
+- JobAgent Prompt V1 最终静态验证通过：三样例输入组装 3/3、占位符 3/3、关键字段/禁令标记通过、三文件 UTF-8 有效；未修改 backend/frontend/数据库，未调用模型。
+- 2026-08-10：开始将阶段1 Mock JobAgent 升级为真实阶段2 Agent；业务修改严格限定为 `backend/app/agents/job_agent.py`，测试不落盘。
+- JobAgent 实现完成并通过隔离测试 7/7：正常 JD、稀疏 JD、空趋势、非法 JSON、Schema 修复、provider 异常规则 fallback、修复耗尽 Demo fallback；同时验证双状态写回、调用次数、duration、fallback 和 JD 隐私日志。
+- 回归完成：ProfileAgent 7/7、受控双 LLM 注入平台链路 7/7、compileall 与最终 fallback smoke 通过；旧平台无 Key 基线仍为已知 5/7，未越界修改旧测试或伪造成功状态。
+- 2026-08-10：开始阶段2 JobAgent 独立验证；暂不修改业务逻辑，先确认真实 provider 与趋势资料可用性，再执行至少七组结构/语义/异常测试。
+- 独立验证发现并修复 JobAgent 语义 grounding 小 Bug：修复前合法结构可承载虚构 evidence/技能/38% 趋势，修复后 evidence、趋势标签、数字及空趋势约束均由确定性门禁检查，失败直接 fallback。
+- JobAgent 独立验证完成：8 个主场景、3 个趋势对抗探针、平台注入 7/7、ProfileAgent 7/7、compileall 与日志隐私均通过；无真实 provider/真实趋势文件限制已明确记录。

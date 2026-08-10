@@ -86,6 +86,48 @@
 - Prompt 数据块只依赖尖括号形成控制标签边界；保留普通 `&` 不会恢复闭合标签注入。修复后 `A & B` 原样保留，伪造的 `</resume_text>` 会转成 `&lt;/resume_text&gt;`。
 - 专项测试命令 `python -m unittest app.agents.tests.test_profile_agent -v` 已通过 7/7。
 
+## JobAgent 阶段2 Schema（2026-08-10）
+
+- 冻结 `JobProfile` 字段为 `job_id/title/normalized_title/industry/required_abilities/soft_skills/salary_range/job_description`；冻结 `TrendResult` 字段为 `job_title/industry/trend_summary/hot_skills/rising_skills/declining_skills/ai_risk_assessment/ai_risk_detail/development_opportunities/development_risks/data_source`。
+- CareerState 将 `job_profile` 与 `trend_result` 分别存为两个 dict，因此 Schema 应分别提供 `JobProfile`、`TrendResult`，并可提供仅用于一次结构化响应校验的 `JobAgentOutput` 包装模型。
+- 用户本次要求的独立 `job_type`、能力 `evidence`、`job_summary` 与冻结契约存在差异。为避免未同步 API 文档的顶层字段漂移，使用 `normalized_title` 表达归一化岗位类型、`job_description` 承载自然语言岗位摘要；`evidence` 作为明确要求的最小嵌套扩展，并允许在无 JD 的 fallback 场景为 null。
+- `jobs_demo.json` 是现有三份岗位和权重样例，权重和均为 1.0；仓库不存在 `job_type_profiles.json`，数据字典只描述预期数据形态。
+- required abilities 和趋势技能应复用 `ability_tags.json` 的有效标准标签；required_level 限制 1–5、weight 限制 0–1，并在 JobProfile 层校验标签唯一和总权重为 1.0。
+- 最终 Schema 额外禁止未知字段，可直接分别 `model_dump()` 写入两个 CareerState 字段；组合模型还校验岗位名称和行业一致。
+- 三份 `jobs_demo.json` 均通过；合法组合输出通过；required_level=6、权重总和不为1、未知趋势标签、额外 match_score、非法 AI 风险枚举均被拒绝。
+
+## JobAgent Prompt V1（2026-08-10）
+
+- Prompt 输出必须是 `JobAgentOutput`：顶层严格分为 `job_profile` 与 `trend_result`，二者岗位名和行业必须一致；不得直接输出合并对象。
+- 三份岗位样例存在于 `backend/app/data/jobs_demo.json`，但这些是结构化 Demo 岗位画像，不是原始 JD；人工检查时只能据其 `job_description` 和能力项反向组成匿名模拟 JD，不能声称是真实招聘信息。
+- 仓库没有独立的岗位趋势资料样例文件；只有冻结 TrendResult 字段和 TBox 趋势知识库建设要求。Prompt 必须把空 `trend_context` 作为事实缺口，使用保守措辞、空技能趋势列表和明确的数据来源限制，不能编造招聘量、增长率或年份。
+- `required_abilities[].evidence` 在当前 Schema 可为 null，用于没有原始 JD 的 fallback；正常提供 JD 时 Prompt 应要求每项能力都有 JD 事实证据，且行业趋势不得进入该字段。
+- 权重不是市场统计值，而是当前岗位能力要求的归一化相对重要性；必须在 0–1 且总和为 1.0。等级同样只能依据 JD 的职责强度、独立程度和资历措辞保守判定。
+- 最终三份样例模板组装均无残留占位符；三个 Prompt 文件为严格 UTF-8；关键 Schema 字段、JSON-only、Markdown 禁止、匹配/Gap/路径禁令均通过静态检查。未调用真实模型，因此结论不代表真实 provider 的趋势准确率或幻觉率。
+
+## JobAgent 真实 LLM 升级（2026-08-10）
+
+- BaseAgent 已负责 duration、统一 AgentResult、tool call、fallback_used/error 和 CareerState.apply_agent_data；JobAgent 只需返回严格的 `job_profile`/`trend_result` 两键数据。
+- 结构失败策略与 ProfileAgent 一致：首次请求 + 最多 2 次 `LLMValidationError` repair；provider、配置和超时异常不做结构修复，直接进入 fallback。
+- 输入兼容 `job_title/job_name/title`、`job_description/jd_text/jd/description`、`trend_context/trend_data/trend_material/knowledge_context`；原始 JD 和趋势上下文只进入 Prompt，不进入普通日志。
+- 成功输出确定性回填输入 job_id/title/industry，防止 LLM 改写目标身份；正常提供 JD 时，任何 required ability 的 evidence 为 null 都会转为结构校验失败并进入 repair。
+- 规则 fallback 只扫描 JD 中明确出现的标准标签/谨慎别名，等权归一化并提取包含标签的 JD 句子作为脱敏 evidence；没有标签时使用最接近的 `jobs_demo.json` 向量，并明确标记 Demo 描述。
+- fallback 趋势永不根据行业常识填充 hot/rising/declining；有趋势上下文也只说明规则无法可靠判断方向，空上下文明确资料缺失，AI risk 使用 Schema 约束下的 medium 中性占位。
+- 最终隔离测试 7/7 通过：正常 JD、信息少、空趋势、非法 JSON 两次修复、Schema 修复、provider 异常规则 fallback、三次结构失败后的 Demo fallback；验证 CareerState 双字段、duration、fallback_used、调用次数和 JD 联系方式不进入日志。
+- 现有 ProfileAgent 专项 7/7、compileall 通过；无 Key 直接跑旧 platform suite 仍为已知 5/7（旧断言期待 success/code=0），同时注入受控 ProfileAgent+JobAgent LLM 后 platform suite 7/7 通过。
+- 当前 evidence 仅保证非空和 Schema 合法，无法确定性证明 LLM 摘要完全忠实于 JD；规则 fallback evidence 有句子级原文支撑并脱敏。真实 provider grounding 仍需独立质量验证。
+- 按用户白名单未持久化 JobAgent 测试文件；七类测试通过隔离脚本执行。后续若允许修改 `backend/app/agents/tests/**`，应把这些用例落盘为持续回归资产。
+
+## JobAgent 独立验证（2026-08-10）
+
+- 当前进程未配置 A02_LLM_API_KEY/BASE_URL，仓库也没有独立岗位趋势资料文件；正常场景采用受控 Fake LLM 和由三份 Demo 标签整理的匿名 JD/趋势上下文，仅验证 Agent/Schema/State/日志与事实边界，不代表真实 provider 或市场趋势准确率。
+- 独立验证将额外探测结构合法的语义幻觉：JD 未出现的证书/技能、无法回溯的 evidence、趋势上下文未出现的趋势技能、未提供的百分比。Schema 的 extra=forbid 已能拦截 match/gap 等额外字段，但未必能拦截合法字段内的虚构内容。
+- 对抗探针在修复前证实：7 项结构合法能力、伪造 evidence、未提供趋势技能和“增长38%”可被 success 接受。已仅修改 job_agent.py 增加 grounding：JD evidence/薪资可回溯、趋势技能来源、趋势数字来源和空趋势保守约束；grounding 失败不做结构 retry，直接 fallback。
+- 修复后独立执行 8 个主场景全部达到预期：正常三岗位能力数 7/5/6，稀疏 JD 1 项，空趋势、非法 JSON、模型异常、综合对抗均通过；另外三个独立趋势探针分别拦截未支持技能、未支持数字和空趋势确定性陈述。
+- 所有主场景 JobProfile/TrendResult 均通过 Pydantic，level/weight/总和合法，结果分别写入 CareerState；AgentResult、AgentLog 状态/fallback 一致，模型异常只调用一次，非法 JSON 调用三次。
+- 平台受控双 LLM 链路 7/7、ProfileAgent 回归 7/7、compileall 和 JD 日志/规则 evidence 隐私探针通过。
+- 剩余语义风险：非数字趋势摘要、机会/风险和 data_source 的机构名称仍无法完全做确定性语义验证；grounding 使用保守字符串/标签匹配，真实模型的忠实意译可能被误判而进入 fallback。需真实 provider 与真实趋势语料评估误拒率/漏检率。
+
 ## 逐页检查发现（2026-03-09）
 - 路由当前实际使用页面为：
   - `/` -> `views/home/HomeLanding.vue`

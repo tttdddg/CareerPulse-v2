@@ -1,0 +1,20 @@
+{
+  "status": "source_material_missing",
+  "items": [
+    {
+      "topic": "岗位和技能真实趋势",
+      "reason": "仓库中未发现带可验证来源和日期的招聘报告、行业白皮书或趋势数据集",
+      "handling": "未生成hot/rising/declining趋势事实"
+    },
+    {
+      "topic": "资料发布日期",
+      "reason": "jobs_demo.json未提供来源发布日期",
+      "handling": "source_date保留为null，不使用文件修改时间代替发布日期"
+    },
+    {
+      "topic": "演示岗位权重的市场代表性",
+      "reason": "岗位样例明确是匿名演示数据",
+      "handling": "标记为demo_only_not_market_fact"
+    }
+  ]
+}

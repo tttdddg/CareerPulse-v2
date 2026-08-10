@@ -55,6 +55,10 @@
 | 审查报告称无 Key 时旧 Mock 测试仍通过，但实测 2/7 失败 | 1 | 已确认报告此结论不准确；专项测试应注入 fake LLM，旧集成测试需明确测试 success 还是 fallback 语义 |
 | `unittest discover -s app` 将 namespace 子目录当顶级包，发生相对导入越界 | 1 | 改用完整模块名执行；记录 `app/__init__.py` 缺失的发现限制 |
 | `unittest discover -s app -t .` 因 `app` 不是常规包而拒绝 start directory | 2 | 不再重复 discovery，使用完整测试模块名合跑 |
+| 预期的 `backend/app/data/job_type_profiles.json` 不存在 | 1 | 使用实际存在的 `jobs_demo.json` 与数据字典岗位权重示例，不创建数据文件 |
+| PowerShell 管道将 Job Schema 回归脚本中的中文标签变成 `????` | 1 | 改为从 UTF-8 `jobs_demo.json` 动态读取标签，测试脚本仅保留 ASCII 字面量 |
+| Job Prompt 最终脚本中的中文权重断言被 PowerShell 管道破坏 | 1 | 最终检查改用 JSON 字段名与枚举值等 ASCII 标记，不重复中文管道断言 |
+| grounding 后平台注入脚本的中文空趋势说明被管道转成问号 | 1 | 直接调用 `JobAgent._fallback_trend()` 构造中性趋势对象后重跑 |
 
 ## 当前任务：逐页业务逻辑检查与补齐（2026-03-09）
 
@@ -126,3 +130,39 @@
 | H2 | 修复 Prompt 输入中 `&` 语义失真并补回归 | complete | 保留 `&` 语义、中和尖括号的最小修复 |
 | H3 | 运行专项测试与阶段1集成基线 | complete | 专项 7/7；合跑 12/14，2 项为已知旧断言冲突 |
 | H4 | 固化语义 grounding 风险和 JobAgent 前置边界 | complete | Prompt 检查文档新增封板基线与风险边界 |
+
+## 当前任务：JobAgent 阶段2结构化输出 Schema（2026-08-10）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| I1 | 核对冻结契约、数据字典、JobAgent、CareerState 与岗位样例 | complete | 两个独立状态模型及契约差异结论 |
+| I2 | 实现严格 Pydantic Schema | complete | JobProfile、TrendResult、JobAgentOutput |
+| I3 | 验证合法示例和两类非法输入 | complete | 合法通过；等级越界/权重和错误被拒绝 |
+| I4 | 运行回归、复核 diff 与修改边界 | complete | 三岗位+趋势校验通过，ProfileAgent 7/7，编译通过 |
+
+## 当前任务：CareerPulse JobAgent Prompt V1（2026-08-10）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| J1 | 核对 Agent 契约、数据字典、JobSchema、标签、岗位与趋势样例 | complete | 缺少真实趋势样例，采用保守空上下文策略 |
+| J2 | 编写 system prompt 与 user template | complete | system.txt + user_template.txt |
+| J3 | 用三个岗位样例检查输入结构和推断边界 | complete | PROMPT_V1_CHECK.md 三样例记录 |
+| J4 | 静态验证 Prompt、Schema 对齐和禁止项 | complete | 三样例组装、UTF-8、字段与禁令检查通过 |
+
+## 当前任务：JobAgent 真实 LLM 升级（2026-08-10）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| K1 | 复核冻结契约、Client、Schema、BaseAgent、State、Prompt 与 Mock | complete | Client/Schema/状态/日志/fallback 边界确认 |
+| K2 | 升级 `job_agent.py` | complete | 真实 LLM、身份回填、evidence、规则/Demo fallback |
+| K3 | 隔离测试七类场景 | complete | 7/7 通过，含重试/异常/隐私/双状态写回 |
+| K4 | 运行相关回归并复核 diff | complete | 隔离7/7、注入平台7/7、Profile7/7、编译通过 |
+
+## 当前任务：阶段2 JobAgent 独立验证（2026-08-10）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| L1 | 复核 Agent/Schema/Prompt/岗位及趋势样例和模型环境 | complete | 无 provider、无独立趋势文件，采用受控验证 |
+| L2 | 执行三岗位语义与结构验证 | complete | AI产品/数据分析/后端三组通过 |
+| L3 | 执行稀疏/空趋势/非法JSON/模型异常 | complete | 四组通过，retry/fallback 真实触发 |
+| L4 | 对抗检查幻觉、禁止字段、State 与日志 | complete | grounding Bug 修复后四类造假被拦截 |

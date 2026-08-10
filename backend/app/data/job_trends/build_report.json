@@ -1,0 +1,35 @@
+{
+  "schema_version": "job-knowledge-v1",
+  "input_records": 18,
+  "output_records": 18,
+  "duplicates_removed": 0,
+  "invalid_records_removed": 0,
+  "cleaning_issues": [],
+  "source_inventory": [
+    {
+      "source": "backend/app/data/jobs_demo.json",
+      "source_date": null,
+      "source_type": "internal_anonymous_demo",
+      "market_trend_evidence": false
+    },
+    {
+      "source": "backend/app/data/ability_tags.json",
+      "source_date": null,
+      "source_type": "controlled_ability_taxonomy",
+      "market_trend_evidence": false
+    }
+  ],
+  "random_check_seed": 20260810,
+  "random_check_record_ids": [
+    "jobkb-161d886a9b081f16",
+    "jobkb-566a939bd3508caa",
+    "jobkb-6916ea3cec36a0a4",
+    "jobkb-87c4695e4cd475ee",
+    "jobkb-886331b9db681294",
+    "jobkb-95182bc1cdff07ca",
+    "jobkb-a8f4fba5be9f7c7c",
+    "jobkb-c037d0dfa6f204ff",
+    "jobkb-c8faa2dc8fd05d50",
+    "jobkb-d21b3dee985ecdd7"
+  ]
+}
