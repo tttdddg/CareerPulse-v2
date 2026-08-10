@@ -1,0 +1,17 @@
+请根据以下三类用户输入生成学生职业能力画像。
+
+调用前置要求：`form_data` 应明确提供 education_level、major 和 target_job；若输入中存在缺失或冲突，请严格遵循 system prompt 的保守规则，不得猜测。
+
+<resume_text>
+{{resume_text}}
+</resume_text>
+
+<form_data>
+{{form_data}}
+</form_data>
+
+<supplementary_info>
+{{supplementary_info}}
+</supplementary_info>
+
+只返回符合 ProfileSchema 的 JSON 对象，不要输出其他内容。

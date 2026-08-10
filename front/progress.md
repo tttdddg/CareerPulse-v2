@@ -6,3 +6,50 @@
 - 完成页面/路由/store/API 全量盘点。
 - 已确定首批修复范围：登录页路由模式联动、首页登录态跳转、用户态恢复、图谱页前置校验、历史数据合并。
 - 完成多页面业务逻辑补齐并通过 `npm run build`。
+- 2026-08-09：开始阶段2统一 LLM Client；确认工作树已有与本任务无关的 README.md 修改及未跟踪开发日志，将保持不动。
+- planning-with-files 的 session-catchup.py 在当前技能目录缺失，已改为人工读取规划文件和 git 状态恢复上下文。
+- 已读取 A02 架构/API/Agent 契约并初步搜索现有模型调用；确认统一 core 目录及 Client 尚未落地。
+- 已实现环境配置、异步 generate/generate_json、Pydantic 校验、超时和统一异常，并补充 .env.example。
+- 最小调用测试通过 6/6：文本、结构化输出、缺 Key、HTTP 503、超时、非法 JSON。
+- 阶段1现有回归测试 `python -m unittest app.platform.tests.test_mock_career_flow` 通过 7/7。
+- 2026-08-09：开始 ProfileAgent 阶段2结构化输出 Schema；沿用现有规划上下文，并保持已有用户修改不动。
+- 已实现 ProfileAgent Schema；首次内联测试因 PowerShell 管道编码破坏中文字符串而失败，Schema 正确拒绝了非法 education_level，后续改用模块内 UTF-8 数据测试。
+- ProfileAgent Schema 测试通过：合法输入 1 项、非法输入 8 项；确认 `model_dump()` 可直接写入 CareerState.student_profile。
+- `python -m compileall -q app\\schemas` 通过；阶段1回归测试 7/7 通过。
+- 最终复核确认未修改 Agent、LLM Client、Service、Orchestrator、数据库或前端；schemas 当前无统一 `__init__.py`，因此未新增导出修改。
+- 2026-08-09：开始 ProfileAgent Prompt V1；业务修改范围限定为 `prompts/profile_agent/**`，不实际调用模型。
+- 2026-08-10：完成 system prompt 与 user template，包含严格 JSON、标准标签、等级/confidence/evidence/完整度规则及提示注入防护。
+- 首次三样例静态检查因 PowerShell 管道将中文断言转成问号而失败，已定位为测试传输编码问题，并切换为 ASCII 标记自动检查加人工语义检查。
+- 三份匿名样例 Prompt 输入静态检查 3/3 通过，预期输出均通过 ProfileSchema；未调用真实模型。
+- 已在 prompts/profile_agent/PROMPT_V1_CHECK.md 记录逐样例输入、可支持能力与禁止推断边界。
+- 最终复核通过：三个 Prompt 目录文件均为有效 UTF-8，关键约束与三个输入占位符齐全；本任务未调用模型、未修改 Agent 或公共 Schema，未提交 Git。
+- 2026-08-10：开始将 ProfileAgent 升级为真实 LLM Agent；业务改动限定为 profile_agent.py，测试采用不落盘隔离脚本以遵守修改范围。
+- 已完成 ProfileAgent LLM 升级：统一 Client、Prompt V1、StudentProfile 校验、两次结构修复、规则/Demo fallback、安全输入摘要。
+- 完成首轮编译检查，并收紧 fallback 关键词映射（避免 JavaScript 误判 Java、避免仅 API 字样推断 API设计）及日志摘要健壮性。
+- ProfileAgent 隔离测试 7/7 通过。直接运行旧 Mock 回归 7 项中 2 项失败：无 API Key 时新 Agent 正确标记 fallback/partial，与旧测试硬编码 success/code=0 冲突。
+- 首次为旧回归注入合法 LLM 响应后 6/7 通过；剩余 TBox 用例使用了导入时已构造的 orchestrator，将对该既有实例作测试期注入后复跑。
+- 合法 LLM 注入后的现有回归 7/7 通过；最终隐私加固增加 Prompt 块 XML 控制字符转义，边界测试通过。
+- 最终代码隔离测试 7/7 通过，覆盖正常、不完整、非法 JSON、Schema 错误、模型异常、规则 fallback、fallback 失败；编译通过。
+- 最终合法 LLM 注入回归 7/7 通过。旧 Mock 测试在不注入 LLM 且无 API Key 时仍有 2 项预期冲突，原因已记录；未通过伪造 success/fallback_used 规避真实降级语义。
+- 2026-08-10：开始阶段2 ProfileAgent 独立验证；确认当前进程未配置 A02_LLM_API_KEY/BASE_URL，不修改业务逻辑，使用受控模拟 LLM 验证代码链路并明确真实模型验证限制。
+- 独立验证完成：6 个必测场景最终 Schema/envelope/State/privacy 均通过；fallback 与两次 JSON repair 真实触发。
+- 对抗探针发现语义 grounding 缺口：Schema 合法的虚构证书、工作年限、完整度与重复运行核心漂移不会被 Agent 拦截。本轮按要求仅报告，未修改业务代码。
+- 开始核验 D2 架构与质量审查报告；已完成代码定位和探针，确认报告包含真实问题、严重度偏高项及已失效项，未修改业务代码。
+- 复跑旧 Mock 集成测试：5/7 通过、2/7 失败，确认审查报告对此描述不准确。已完成专项测试落盘方案与问题优先级复核。
+- 2026-08-10：开始 ProfileAgent 阶段2封板，按专项测试落盘、输入转义修复、基线测试、风险固化四步执行。
+- planning-with-files 的 `scripts/session-catchup.py` 在当前技能安装目录缺失；已改为读取现有计划文件与 Git 状态恢复上下文。
+- 新增 ProfileAgent 专项回归测试文件，并修复 Prompt 输入中 ampersand 被错误实体化的问题；专项测试 7/7 通过。
+- ProfileAgent 与阶段1套件合跑 14 项：12 通过、2 个旧 Mock 断言冲突；`compileall` 通过。未修改旧 platform 测试或伪造降级状态。
+- 已在 `PROMPT_V1_CHECK.md` 固化测试命令、遗留基线、grounding/完整度/稳定性/Demo fallback 风险及 JobAgent 复用边界；四步封板完成。
+- 2026-08-10：开始 JobAgent 阶段2结构化输出 Schema；业务修改范围限定为 `backend/app/schemas/job_schema.py` 及已有统一导出文件。
+- 完成 JobAgent Schema：两个独立状态模型和一个组合响应模型；首次隔离校验确认合法岗位通过，required_level=6 与权重和不为1均被拒绝。
+- Job Schema 最终验证完成：现有岗位 3/3、趋势 1/1、非法探针 5/5 符合预期；ProfileAgent 回归 7/7、`py_compile` 通过；未修改 Agent、Service、Orchestrator、前端或数据库。
+- 2026-08-10：开始 JobAgent Prompt V1；修改范围限定为 `prompts/job_agent/**`，不调用真实模型、不修改 Agent 或公共 Schema。
+- 完成 JobAgent Prompt V1 三文件：严格区分 JD/趋势/模型归纳，约束标准标签、等级、归一化权重、evidence、保守趋势和 JSON-only；三岗位人工边界已记录。
+- JobAgent Prompt V1 最终静态验证通过：三样例输入组装 3/3、占位符 3/3、关键字段/禁令标记通过、三文件 UTF-8 有效；未修改 backend/frontend/数据库，未调用模型。
+- 2026-08-10：开始将阶段1 Mock JobAgent 升级为真实阶段2 Agent；业务修改严格限定为 `backend/app/agents/job_agent.py`，测试不落盘。
+- JobAgent 实现完成并通过隔离测试 7/7：正常 JD、稀疏 JD、空趋势、非法 JSON、Schema 修复、provider 异常规则 fallback、修复耗尽 Demo fallback；同时验证双状态写回、调用次数、duration、fallback 和 JD 隐私日志。
+- 回归完成：ProfileAgent 7/7、受控双 LLM 注入平台链路 7/7、compileall 与最终 fallback smoke 通过；旧平台无 Key 基线仍为已知 5/7，未越界修改旧测试或伪造成功状态。
+- 2026-08-10：开始阶段2 JobAgent 独立验证；暂不修改业务逻辑，先确认真实 provider 与趋势资料可用性，再执行至少七组结构/语义/异常测试。
+- 独立验证发现并修复 JobAgent 语义 grounding 小 Bug：修复前合法结构可承载虚构 evidence/技能/38% 趋势，修复后 evidence、趋势标签、数字及空趋势约束均由确定性门禁检查，失败直接 fallback。
+- JobAgent 独立验证完成：8 个主场景、3 个趋势对抗探针、平台注入 7/7、ProfileAgent 7/7、compileall 与日志隐私均通过；无真实 provider/真实趋势文件限制已明确记录。

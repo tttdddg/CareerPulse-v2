@@ -1,4 +1,4 @@
-# CareerPulse-Pro开发规范
+# CareerPulse改造开发指南
 
 # 0\. 定位
 
@@ -46,38 +46,72 @@ Agent评测
 项目采用“指定平台智能体 \+ 自建业务能力 \+ Web可视化系统”的混合架构。
 
 ```Plain Text
-用户
-  ↓
-蚂蚁百宝箱企业版
-  ├─ 职业成长伙伴智能体
-  ├─ 自然语言交互
-  ├─ 用户信息追问
-  ├─ 职业知识库检索
-  ├─ MCP/API工具调用
-  ├─ 对话流程与结果解释
-  └─ Web及其他渠道发布
-              ↓
-CareerPulse业务能力层
-  ├─ ProfileAgent / 学生画像服务
-  ├─ JobAgent / 岗位与趋势分析服务
-  ├─ MatchAgent / 人岗匹配服务
-  ├─ PathAgent / 路径规划服务
-  ├─ TrainingAgent / 职场训练服务
-  ├─ FeedbackAgent / 成长反馈服务
-  └─ ResourceService / 学习与岗位资源服务
-              ↓
-PostgreSQL / Redis / 职业知识库
-              ↓
-CareerPulse Vue可视化系统
-  ├─ 能力雷达图
-  ├─ 职场匹配度
-  ├─ 能力缺口和提升优先级
-  ├─ 3年/5年职业路径
-  ├─ 学习进度和训练记录
-  └─ 成长轨迹与Agent执行日志
+CareerPulse
+                         │
+         ┌───────────────┴────────────────┐
+         │                                │
+         ▼                                ▼
+CareerPulse Vue Web               蚂蚁百宝箱原生发布渠道
+【主要Web产品端】                  【平台验证/支付宝等渠道】
+         │                                │
+         │                                │
+         ▼                                ▼
+CareerPulse FastAPI  ←────── MCP ─── 百宝箱Agent
+         │                         ↑
+         │                         │
+         └──── TBox Agent API ─────┘
+                  ↑
+                  │
+              Vue AI对话
+
+FastAPI内部：
+CareerOrchestrator
+→ Agent
+→ Service
+→ PostgreSQL / Redis
 ```
 
-## 0\.4 三部分职责
+## 0\.4 参考资料（可预览/下载）
+
+国服2026原A13赛题：
+
+\[T2600073\-第五象限队\-【A13】\-项目概要介绍\.pdf\]
+
+\[T2600073\-第五象限队\-【A13】\-项目简介PPT\.pdf\]
+
+\[T2600073\-第五象限队\-【A13】\-项目详细方案\.pdf\]
+
+\[T2600073\-第五象限队\-【A13】\-项目演示视频\.mp4\]
+
+\[区域二等证书\.pdf\]（打码放进文档里\-\-\>仿国创的成果图重做一个）
+
+国创2026立项：
+
+\[丽水学院 基于智能算法优化的大学生职业规划辅助系统研究与实现\.pdf\]
+
+计设2026软开web赛道：
+
+\[答辩演示文档\.pdf\]
+
+\[AI工具使用说明\.pdf\]
+
+\[设计和开发文档\.pdf\]
+
+\[浙江省省二证书\.png\]（打码放进文档里\-\-\>仿国创的成果图重做一个）
+
+软件杯2026原A3赛题：
+
+\[介绍PPT\.pdf\]
+
+\[开发说明书文档\.pdf\]
+
+\[演示视频\.mp4\]
+
+已有软著证书：（打码放进文档里）
+
+\[软著26\.6\.11\.pdf\]
+
+## 0\.5 三部分职责
 
 原则上：
 
@@ -749,7 +783,7 @@ README.md
 
 # 阶段0：原项目与百宝箱双审计
 
-## 时间
+## 时间  8\.8\-17:10over
 
 ```Plain Text
 D1
@@ -764,8 +798,9 @@ D1
 
 ```Plain Text
 启动现有前后端 √
-跑一遍现有主流程
-用hermes/codex：
+跑一遍现有主流程 √
+
+用hermes/codex： √
 列出现有页面
 列出现有接口
 列出现有数据库表
@@ -777,8 +812,9 @@ D1
 
 登录比赛报名平台 √
 查看A02报名详情 √
-获取百宝箱试用权限 √和Token说明
+获取百宝箱试用权限 √和Token说明 √（API Key 仅通过服务端环境变量配置，不写入仓库）
 登录百宝箱企业版 √
+以下和coze差不多（用的时候再慢慢琢磨）：√
 查看可选模型
 查看知识库入口
 查看智能体或工作流配置
@@ -787,7 +823,7 @@ D1
 查看小程序权限
 ```
 
-## 9\.2 你负责
+## 9\.2 你负责  x
 
 ```Plain Text
 确定原系统可保留模块
@@ -798,7 +834,7 @@ D1
 确定平台发布路线
 ```
 
-## 9\.3 成员2负责
+## 9\.3 成员2负责   x
 
 ```Plain Text
 整理数据库和数据现状
@@ -841,6 +877,12 @@ D1
 - 明确哪些结论来自现有代码，哪些来自平台实际能力
 ```
 
+hermes回应： √ dyy\-8\.4 22:01
+
+\[D1 Hermes\-阶段0 技术总顾问审计报告\.md\]
+
+
+
 ## 9\.5 Codex仓库审计提示词
 
 ```Plain Text
@@ -861,36 +903,40 @@ D1
 请给出精确文件路径。
 ```
 
-## 9\.6 保留的记录和证据
+codex回应： √ dyy\-8\.8 17:00
+
+\[D1 Codex仓库审计报告\.md\]
+
+## 9\.6 保留的记录和证据（只需要有颜色标注的）
 
 ```Plain Text
-原系统启动截图
-旧系统完整流程录屏
-原页面截图
-原Swagger截图
-原数据库表清单
-Hermes审计输出
-Codex审计输出
-A02差距矩阵
-百宝箱登录截图
-平台项目页截图
-可用模型截图
-知识库入口截图
-工具配置入口截图
-发布入口截图
-平台限制说明
+原系统启动截图 √
+旧系统完整流程录屏 √
+原页面截图 √
+原Swagger截图 √
+原数据库表清单 √
+Hermes审计输出  √ dyy-8.4 22:01
+Codex审计输出  √ dyy-8.8 17:00
+A02差距矩阵 √
+百宝箱登录截图 √
+平台项目页截图 x
+可用模型截图 x
+知识库入口截图 x
+工具配置入口截图 x
+发布入口截图 x
+平台限制说明 √
 ```
 
 ## 9\.7 完成标准
 
 ```Plain Text
-两人都能说明原系统主流程
-已确认百宝箱账号和权限
-已确认平台工具接入方式
-已确定平台和后端边界
-已确定首批工具和知识库
-已确定10天分工
-暂时没有大规模代码修改
+两人都能说明原系统主流程 √
+已确认百宝箱账号和权限 √
+已确认平台工具接入方式 √
+已确定平台和后端边界 √
+已确定首批工具和知识库 √
+已确定10天分工 √
+暂时没有大规模代码修改 √
 ```
 
 ---
@@ -927,6 +973,28 @@ Service输入输出
 Demo数据格式
 百宝箱对话主流程
 ```
+
+这部分公共契约对应仓库里的几个文档是：（主要确认字段以后不要随便变） √ dyy\-8\.8 18:48\(未git commit\)
+
+> docs/a02/
+>
+> ├── 03\_ARCHITECTURE\.md
+>
+> ├── 04\_API\_CONTRACTS\.md
+>
+> ├── 05\_AGENT\_CONTRACTS\.md
+>
+> ├── 06\_DATA\_DICTIONARY\.md
+>
+> ├── 10\_TBOX\_REQUIREMENTS\.md
+>
+> ├── 11\_TBOX\_AGENT\_CONFIG\.md
+>
+> ├── 12\_TBOX\_SYSTEM\_PROMPT\.md
+>
+> └── 13\_MCP\_TOOL\_CATALOG\.md
+>
+> 
 
 ## 10\.2 CareerState
 
@@ -1026,7 +1094,7 @@ GET  /api/agent/logs/{session_id}
 10条学习资源
 ```
 
-## 10\.7 你给Codex的任务
+## 10\.7 你给Codex的任务  
 
 ```Plain Text
 任务：建立A02多智能体Mock骨架及平台适配接口。
@@ -1064,6 +1132,20 @@ backend/app/services/**
 完成后运行测试并输出diff摘要。
 ```
 
+**Diff 摘要：**  √ dyy\-8\.8 19:19
+
+\[D1 建立A02多智能体Mock骨架及平台适配接口\.md\]
+
+- 新增文件：17
+
+- 新增代码：约 827 行
+
+- 禁止目录变更：无
+
+- `pycache`：已清理
+
+- Git 提交：未执行
+
 ## 10\.8 成员2给Codex的任务
 
 ```Plain Text
@@ -1095,6 +1177,16 @@ backend/app/tools/mock_tools.py
 10. 运行初始化检查
 ```
 
+**Diff 摘要： **√ dyy\-8\.9 0:59
+
+\[D1 数据库迁移、初始化脚本和 Mock 平台工具\.md\]
+
+- 新增 11 个文件，约 919 行
+
+- 白名单外变更为 0，无缓存文件
+
+- 实际 PostgreSQL `--apply` 未执行，因为没有提供 `A02_DATABASE_URL`
+
 ## 10\.9 百宝箱操作步骤
 
 ```Plain Text
@@ -1107,7 +1199,30 @@ backend/app/tools/mock_tools.py
 7. 根据平台实际方式配置Mock工具
 8. 发起一次工具调用测试
 9. 保存配置与调用截图
+
+百宝箱自动生成的应用页面仅作为平台原生运行、
+工具调试和多端发布验证入口。
+
+CareerPulse正式Web产品继续使用原Vue3前端，
+后续通过服务端接入百宝箱智能体能力。
+不在阶段1重写或迁移原Vue前端。
 ```
+
+## ！！！路线修正：
+
+dyy\-8\.9 16:40
+
+\[D1 本地 Vue 具体怎么接百宝箱\.md\]
+
+对外话术：
+
+> CareerPulse 采用前后端解耦与 Agent 平台解耦设计。Web 端采用自研 Vue3 可视化界面，通过服务端接入蚂蚁百宝箱智能体服务；百宝箱负责大模型交互、智能体编排和 MCP 工具调用，CareerPulse 自研后端负责职业画像、匹配、路径规划和训练等确定性业务能力。
+>
+> 
+
+![Image](https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=NTVjYjM2Y2ZiZTMzMWU1MTRlNDlkN2VhMzVlZTdkNGZfOWI4YmRmOWI2ZDAxZDRhMjljODZlYzYwMDM0MjkwY2ZfSUQ6NzY3MTk1Mjk5MTIyNTkwODQ3MV8xNzg2MjY3OTk2OjE3ODYzNTQzOTZfVjM)
+
+![Image](https://internal-api-drive-stream.feishu.cn/space/api/box/stream/download/authcode/?code=ZjM4NGE5NDliMWI1YzRkZjZhNDYzNWFlMTkyZTk5N2VfMTBkNjA1MTJmMjU2YTU4ODY1NWMxNTNjNGQ2YTY3ZWVfSUQ6NzY3MTk1Mjk4OTk1NTA1MDcyNl8xNzg2MjY3OTk2OjE3ODYzNTQzOTZfVjM)
 
 ## 10\.10 保留的证据
 
@@ -1610,22 +1725,48 @@ backend/app/orchestrator/**
 
 ---
 
-# 阶段5：MCP/API正式接入百宝箱
+# 阶段5：百宝箱Agent与CareerPulse双向正式集成
 
 ## 时间
 
 ```Plain Text
 D7
-两人共同完成
-你主导平台配置
-成员2主导后端部署
+主要并行
+晚上完成第一次正式双向链路联调
 ```
+
+
 
 ## 目标
 
-完成真实的百宝箱工具调用，不再依赖Mock工具。
+完成百宝箱与 CareerPulse 的正式集成，不再依赖阶段1 Mock工具。
 
-## 14\.1 必须接入的工具
+```Plain Text
+本阶段必须同时跑通两条链路：
+链路A：百宝箱 → CareerPulse
+百宝箱职业成长伙伴
+→ Tool Calling / MCP
+→ CareerPulse FastAPI
+→ Agent / Service
+→ 返回结构化业务结果
+→ 百宝箱解释结果
+
+链路B：CareerPulse Vue → 百宝箱
+CareerPulse Vue
+→ CareerPulse FastAPI
+→ 百宝箱智能体服务
+→ 百宝箱根据用户问题进行对话、知识库检索和工具选择
+→ 必要时通过 MCP 调用 CareerPulse FastAPI
+→ 返回智能体回答
+→ CareerPulse Vue 展示
+
+注意：
+百宝箱负责自然语言交互、知识库、工具选择和结果解释；
+CareerPulse 后端负责画像、匹配、路径、训练、反馈等真实业务能力；
+CareerPulse Vue 不直接保存百宝箱 Token，也不直接调用需要服务端密钥的接口。
+```
+
+## 14\.1 正式工具清单
 
 至少完成：
 
@@ -1644,158 +1785,532 @@ analyze_job_and_trend
 recommend_learning_and_job_resources
 ```
 
-## 14\.2 你负责
+
+
+所有正式工具统一要求：
 
 ```Plain Text
-百宝箱正式工具配置
-工具字段映射
-系统Prompt V2
-工具选择规则
-工具结果解释规则
-平台异常提示
-完整对话测试
+固定输入输出 Schema
+参数校验
+统一错误结构
+request_id
+session_id
+工具调用日志
+超时控制
+fallback
+不得由大模型伪造确定性业务结果
 ```
 
-## 14\.3 成员2负责
+## 14\.2 百宝箱 → CareerPulse接入
+
+百宝箱正式工具通过MCP或平台实际支持的API方式调用CareerPulse。
+
+核心链路：
 
 ```Plain Text
-MCP Server或平台支持的API适配层
-公网HTTPS部署
+百宝箱
+↓
+MCP / Tool Calling
+↓
+CareerPulse MCP/API Adapter
+↓
+CareerOrchestrator / Agent / Service
+↓
+CareerState
+↓
+结构化结果
+↓
+百宝箱自然语言解释
+```
+
+正式接入后，不再使用阶段1的 Mock Tool 作为主要能力来源。
+
+## 14\.3 CareerPulse → 百宝箱接入
+
+在CareerPulse后端增加百宝箱适配层。
+
+建议结构：
+
+```Plain Text
+backend/app/platform/tbox/
+├── client.py
+├── chat_service.py
+├── schemas.py
+└── session_mapper.py
+```
+
+新增统一入口：
+
+```Plain Text
+POST /api/tbox/chat
+```
+
+职责：
+
+```Plain Text
+接收 Vue 的用户消息
+维护 CareerPulse session 与百宝箱会话映射
+调用百宝箱正式智能体
+接收普通或流式回复
+统一转换为 CareerPulse 前端可用格式
+处理平台超时和异常
+不得向浏览器暴露 API Key / Token
+```
+
+百宝箱具体 API、SDK、鉴权和流式协议，以当前企业版实际文档和比赛平台说明为准
+
+## 14\.4 你负责
+
+```Plain Text
+百宝箱正式智能体配置
+正式工具配置
+MCP Tool Schema 对齐
+CareerPulse 与百宝箱字段映射
+System Prompt V2
+工具选择规则
+工具结果解释规则
+知识库调用规则
+平台异常提示
+TBox Client / Gateway 设计
+POST /api/tbox/chat 接口设计
+CareerPulse session 与百宝箱会话映射
+Vue端聊天协议定义
+完整对话测试
+Agent调用日志和平台调用链检查
+```
+
+## 14\.5 成员2负责
+
+```Plain Text
+MCP Server 或平台支持的 API 适配层
+正式 CareerPulse 后端部署
+公网 HTTPS
 鉴权
 参数校验
 超时控制
+重试与 fallback
 工具日志
-Service异常处理
-后端工具测试
+数据库连接
+Service接口稳定性
+MCP接口测试
+Swagger / Postman 调用样例
+Docker与环境配置
 ```
 
-平台实际不支持直接MCP时，按照平台提供的HTTP、插件或其他接入方式完成，并在MCP说明文档中如实记录。
+## 14\.6 双向接口必须分开
 
-## 14\.4 成员2给Codex的任务
+禁止把两个方向混成一个接口。
+
+建议：
 
 ```Plain Text
-任务：将CareerPulse核心Service封装为百宝箱可调用工具。
+CareerPulse → 百宝箱：POST /api/tbox/chat
+用于：Vue用户向 CareerPulse AI职业伙伴发送消息。
 
-读取：
-AGENTS.md
-docs/a02/04_API_CONTRACTS.md
-docs/a02/13_MCP_TOOL_CATALOG.md
+百宝箱 → CareerPulse：/mcp/*  或平台要求的正式 Tool API
+用于：百宝箱调用画像、匹配、路径、训练、反馈等业务能力。
 
-允许修改：
-backend/app/mcp/**
-backend/app/tools/**
-backend/app/platform/**
-backend/tests/test_platform_tools.py
-
-要求：
-1. 暴露analyze_student_profile
-2. 暴露calculate_job_match
-3. 暴露recommend_career_path
-4. 暴露generate_and_score_training
-5. 暴露save_growth_feedback
-6. 每个工具具有输入输出Schema
-7. 增加参数校验
-8. 增加超时和错误结构
-9. 日志不得记录完整简历
-10. 编写成功、参数错误、超时和Service异常测试
-11. 输出供百宝箱配置使用的工具说明
+两类接口共享 CareerState 和 session_id，
+但职责、鉴权方式和日志必须分开。
 ```
 
-## 14\.5 百宝箱操作步骤
+## 14\.7 安全要求
+
+百宝箱 Token / API Key 只放服务端环境变量。
+
+例如：
 
 ```Plain Text
-1. 在平台中删除或停用Mock工具
-2. 根据实际支持方式添加正式MCP/API工具
-3. 填写工具名称和功能说明
-4. 填写输入字段
-5. 填写返回字段
-6. 配置鉴权信息
-7. 测试单个工具
-8. 测试多个工具连续调用
-9. 测试参数缺失
-10. 测试工具超时
-11. 测试工具失败后的对话反馈
-12. 保存配置、调用日志和失败截图
+TBOX_API_KEY=
+TBOX_APP_ID=
 ```
 
-## 14\.6 保留的证据
+不得：
 
 ```Plain Text
-MCP Server代码
-平台工具目录
-工具Schema
-平台配置截图
-正常调用日志
-参数错误日志
-超时日志
-后端异常日志
-fallback日志
-平台工具连续调用录像
-鉴权和隐私设计说明
+写入 Vue
+提交 Git
+写进开发文档
+出现在 Swagger 示例
+打印在普通日志
+进入截图或演示视频
+
+简历、手机号、邮箱等敏感信息进入日志前必须脱敏。
 ```
 
-## 14\.7 完成标准
+## 14\.8 正式联调场景
+
+至少测试：
 
 ```Plain Text
-至少5个核心工具真实可调用
-平台调用的是正式后端
-所有工具具有固定Schema
-调用具有日志和异常处理
-百宝箱完整职业成长对话可以运行
+场景1：
+用户在百宝箱直接要求分析职业画像
+→ 调用 analyze_student_profile
+→ 返回真实结果
+
+场景2：
+用户在百宝箱询问与目标岗位的匹配情况
+→ 调用 calculate_job_match
+→ 返回真实 MatchService 结果
+
+场景3：
+用户要求生成未来职业路径
+→ 调用 recommend_career_path
+→ 返回真实3年/5年路径
+
+场景4：
+用户在 CareerPulse Vue 的 AI职业伙伴页面发送消息
+→ FastAPI
+→ 百宝箱
+→ 百宝箱调用 CareerPulse MCP Tool
+→ 返回最终回答到 Vue
+
+场景5：
+工具超时、参数错误或服务失败
+→ 百宝箱不能编造业务结果
+→ 返回明确异常提示
+→ fallback生效
+```
+
+## 14\.9 完成标准
+
+```Plain Text
+百宝箱至少5个正式工具可正常调用
+所有正式工具已脱离Mock主链路
+百宝箱调用 CareerPulse MCP/API 成功
+CareerPulse 后端可以正式调用百宝箱智能体
+Vue → FastAPI → 百宝箱链路跑通
+百宝箱 → MCP → CareerPulse链路跑通
+同一用户session能够正确关联
+确定性结果来自Service而不是LLM编造
+公网HTTPS正常
+API Key未暴露
+参数错误、超时、fallback均已测试
+Agent日志和tool_calls可以查询
+```
+
+## 14\.10 本阶段保留证据
+
+```Plain Text
+百宝箱正式智能体配置截图
+System Prompt V2
+正式工具列表
+工具 Schema
+MCP配置截图
+百宝箱调用 CareerPulse 成功截图
+CareerPulse调用百宝箱成功截图
+Tool Calling日志
+request_id / session_id链路日志
+参数错误截图
+超时截图
+fallback截图
+HTTPS接口截图
+MCP Server核心代码
 ```
 
 ---
 
-# 阶段6：Web系统与多端发布
+# 15\. 阶段6：CareerPulse主Web产品与百宝箱多端发布
 
-## 时间
+## **时间**
 
 ```Plain Text
 D8
-你负责前端和发布
-成员2负责后端稳定
+你：CareerPulse Vue 前端、AI 交互、百宝箱接入与平台发布
+成员2：正式后端部署与稳定性
 ```
 
 ## 目标
 
-完成CareerPulse Web展示和百宝箱Web发布验证。
+完成 CareerPulse 自研 Vue Web 的最终产品体验，将百宝箱职业成长伙伴正式接入 CareerPulse，并完成百宝箱平台原生运行和多端发布验证。
 
-## 15\.1 你负责
-
-```Plain Text
-修改原有Vue页面
-接入真实后端
-Agent执行链路页
-职场训练页
-学习进度和成长档案
-百宝箱Web发布
-移动端适配
-根据权限进行小程序预览或发布
-```
-
-优先改造：
-
-新增：
+本阶段统一三部分定位：
 
 ```Plain Text
-职场训练页
-Agent执行链路页
-学习进度页
+CareerPulse Vue
+= 主要 Web 产品端 + 完整可视化交互界面
+
+蚂蚁百宝箱
+= AI Agent 中枢 + 模型 + Prompt + 知识库 + Tool Calling + 多端发布
+
+CareerPulse FastAPI
+= 共享业务能力层 + Agent + Service + 数据库
 ```
 
-## 15\.2 成员2负责
+最终对外展示的是一个 CareerPulse 系统，不做成两个彼此独立的产品。
+
+## 15\.1 最终系统链路
+
+**普通业务功能：**
 
 ```Plain Text
-部署正式后端
-配置HTTPS
-配置跨域
-数据库初始化
-Docker启动
-接口回归测试
-百宝箱调用稳定性
+用户
+↓
+CareerPulse Vue
+↓
+CareerPulse FastAPI
+↓
+Service / Database
+↓
+Vue 可视化展示
 ```
 
-## 15\.3 Demo Mode
+适用于：
+
+- 用户信息
+
+- 简历上传
+
+- 历史记录
+
+- 职业画像结果
+
+- 匹配结果
+
+- 职业路径
+
+- 学习进度
+
+- 成长档案等结构化功能
+
+**AI 职业伙伴：**
+
+```Plain Text
+用户
+↓
+CareerPulse Vue
+↓
+POST /api/tbox/chat
+↓
+CareerPulse FastAPI
+↓
+百宝箱 CareerPulse职业成长伙伴
+↓
+Prompt / 知识库 / Tool Calling
+↓
+MCP
+↓
+CareerPulse FastAPI
+↓
+Agent / Service
+↓
+结构化业务结果
+↓
+百宝箱组织自然语言回复
+↓
+CareerPulse Vue
+```
+
+**百宝箱原生渠道：**
+
+```Plain Text
+用户
+↓
+百宝箱 Web / 支付宝等发布渠道
+↓
+CareerPulse职业成长伙伴
+↓
+MCP
+↓
+CareerPulse FastAPI
+↓
+同一套 Agent / Service / Database
+```
+
+CareerPulse Vue 和百宝箱原生端共享同一套核心业务能力。
+
+## 15\.2 你负责
+
+```Plain Text
+重点完成：
+保留并升级原 CareerPulse Vue
+接入正式 FastAPI 后端
+新增或改造 AI 职业伙伴页面
+接入百宝箱智能体对话
+支持流式回复
+CareerState 页面同步
+能力雷达图
+职场匹配度
+能力缺口
+能力提升优先级
+3 年 / 5 年职业路径
+学习计划
+学习进度
+职场模拟训练
+训练评分与建议
+成长档案
+Agent 执行链路
+历史记录
+加载状态
+空状态
+错误状态
+桌面端适配
+移动端基础适配
+百宝箱 Web 发布
+根据实际权限完成支付宝 / 小程序发布或预览验证
+```
+
+原则：不重新制作一套普通模板式 Web，而是在原 CareerPulse 产品基础上完成 A02 智能体升级。
+
+**页面优先级：**
+
+```Plain Text
+第一优先级
+AI 职业伙伴
+职业画像
+人岗匹配
+职业路径
+
+这四个页面直接构成 CareerPulse 最核心的职业导航链路。
+
+第二优先级
+
+学习计划
+职场训练
+成长档案
+
+用于形成 A02 要求的“生成—执行—反馈”闭环。
+
+第三优先级
+
+Agent 执行链路
+历史记录
+系统说明
+
+主要用于工程展示、可解释性和比赛材料。
+```
+
+**AI职业伙伴页面：**
+
+AI 职业伙伴不能只做普通聊天框。
+
+推荐采用“AI 对话 \+ 职业状态可视化”的组合设计。
+
+例如：
+
+```Plain Text
+┌──────────────────────────────────────────────┐
+│ CareerPulse AI职业伙伴                       │
+├──────────────────┬───────────────────────────┤
+│                  │                           │
+│ AI 对话区域       │ 当前职业状态              │
+│                  │                           │
+│ 用户消息          │ 能力雷达图                │
+│ AI回复            │ 当前匹配度                │
+│ 信息追问          │ Top能力缺口               │
+│ 训练互动          │ 提升优先级                │
+│                  │ 当前职业阶段              │
+│                  │ 下一阶段目标              │
+│                  │ 当前学习任务              │
+│                  │ 最近训练结果              │
+└──────────────────┴───────────────────────────┘
+```
+
+职责分离：
+
+```Plain Text
+百宝箱
+→ 自然语言理解
+→ 多轮对话
+→ 用户追问
+→ 知识库
+→ Tool Calling
+→ 结果解释
+
+CareerPulse Vue
+→ 雷达图
+→ 匹配度
+→ Gap
+→ 路径
+→ 学习进度
+→ 训练结果
+→ 成长轨迹
+```
+
+这样既体现百宝箱能力，也保留 CareerPulse 自研前端的差异化。
+
+**CareerState 页面同步：**
+
+百宝箱对话或工具执行后可能更新：
+
+```Plain Text
+student_profile
+job_profile
+trend_result
+match_result
+path_plan
+learning_plan
+training_plan
+resource_result
+feedback_result
+final_report
+```
+
+Vue 应根据当前 `session_id` 获取最新 CareerState，并同步页面。
+
+例如：
+
+```Plain Text
+用户在 AI职业伙伴中完成个人画像
+↓
+student_profile 更新
+↓
+职业画像页面刷新
+↓
+能力雷达图更新
+```
+
+```Plain Text
+用户更换目标岗位
+↓
+job_profile 更新
+↓
+重新调用 MatchService / PathService
+↓
+match_result、path_plan 更新
+↓
+匹配页和职业路径页同步刷新
+```
+
+```Plain Text
+用户完成模拟训练
+↓
+training_plan / feedback_result 更新
+↓
+学习优先级或能力记录调整
+↓
+成长档案更新
+```
+
+## 15\.3 成员2负责
+
+```Plain Text
+重点完成：
+CareerPulse FastAPI 正式部署
+公网 HTTPS
+PostgreSQL 初始化
+Redis 配置
+Docker 启动
+MCP Server 稳定运行
+CORS 配置
+API 鉴权
+数据初始化
+后端接口回归测试
+Vue 接口稳定性测试
+百宝箱 MCP 调用稳定性
+流式接口稳定性
+服务异常恢复
+部署配置文档
+
+要求：
+Vue 和百宝箱必须调用同一套正式后端
+不维护两套独立业务数据
+不允许演示环境和正式环境业务逻辑完全不同
+```
+
+## 15\.4 Demo Mode
+
+保留 Demo Mode 作为比赛现场兜底能力。
 
 前端：
 
@@ -1809,238 +2324,916 @@ VITE_DEMO_MODE=true
 A02_DEMO_MODE=true
 ```
 
-演示模式要求：
+Demo Mode 要求：
+
+- 使用固定、可重复的匿名模拟数据
+
+- 不依赖不稳定的第三方岗位数据
+
+- 外部模型短暂不可用时核心页面仍能展示
+
+- Agent 执行日志仍然生成
+
+- 页面明确说明当前为 Demo 数据
+
+- 不伪造百宝箱真实调用记录
+
+正式比赛材料中仍必须保留真实：
+
+- 百宝箱运行记录
+
+- Tool Calling 日志
+
+- MCP 调用日志
+
+- 正式接口截图
+
+- 平台发布截图
+
+Demo Mode 只是异常兜底，不代替正式系统。
+
+## 15\.5 百宝箱原生页面定位
+
+百宝箱自动生成的前端页面不作为 CareerPulse 的主要视觉开发对象。
+
+主要作用：
+
+1. 验证 CareerPulse职业成长伙伴在百宝箱中可以独立运行
+
+2. 验证模型配置
+
+3. 验证 System Prompt
+
+4. 验证知识库
+
+5. 验证 Tool Calling / MCP
+
+6. 验证百宝箱 Web 发布
+
+7. 验证支付宝 / 小程序等多渠道能力
+
+不要投入大量开发时间重新制作一套与 CareerPulse Vue 重复的完整产品。
+
+## 15\.6 百宝箱发布步骤
 
 ```Plain Text
-不依赖外部大模型
-固定返回可重复数据
-Agent日志仍然生成
-页面明确显示演示数据
-不能冒充真实平台测试
+检查 CareerPulse职业成长伙伴配置
+检查模型
+检查 System Prompt V2
+检查知识库
+检查 MCP / Tool
+测试用户信息追问
+测试职业画像
+测试岗位分析
+测试匹配和能力缺口
+测试职业路径
+测试职场训练
+测试成长反馈
+完整运行一次 Agent 主链路
+发布百宝箱 Web
+根据权限完成支付宝 / 小程序发布或预览
+保存发布页面、二维码和平台截图
 ```
 
-## 15\.4 百宝箱发布步骤
+## 15\.7 A02 功能检查
 
 ```Plain Text
-1. 检查正式智能体配置
-2. 检查正式工具状态
-3. 检查知识库状态
-4. 配置Web发布
-5. 生成访问地址
-6. 使用未登录或普通用户环境测试
-7. 使用移动端浏览器测试
-8. 根据权限测试支付宝或微信小程序
-9. 保存发布设置和访问截图
+CareerPulse 主 Web 至少应清晰展示：
+
+动态职业画像
+能力雷达图
+岗位画像
+职业趋势
+职场匹配度
+能力缺口
+能力提升优先级
+3 年职业路径
+5 年职业路径
+学习计划
+学习进度
+学习资源
+至少 3 类典型职场训练
+训练评分
+成长记录
+用户反馈后的动态调整
+
+
+同时确认：
+
+百宝箱智能体正常运行
+百宝箱真实调用 CareerPulse MCP
+CareerPulse Vue 的 AI 对话真实经过百宝箱
+Web 发布完成
+多端发布能力有实际验证证据
 ```
 
-Web服务必须完成；支付宝和微信小程序根据平台权限完成发布或预览验证。
-
-## 15\.5 保留的证据
+## 15\.12 完成标准
 
 ```Plain Text
-改造前后页面对比
-真实接口截图
-Agent执行链路页
-训练页
-学习进度页
-成长档案页
-百宝箱Web发布配置
-Web访问截图
-移动端截图
-支付宝或微信小程序预览截图
-兼容性测试
-Demo Mode截图
+满足以下条件即可进入阶段7：
+
+CareerPulse Vue 完整运行
+Vue 使用正式 CareerPulse FastAPI
+AI职业伙伴真实接入百宝箱
+Vue 不绕过百宝箱直接调用第三方 LLM 完成主 Agent 功能
+百宝箱能够真实调用 CareerPulse MCP
+职业画像接入真实数据
+匹配接入真实 MatchService
+路径接入真实 PathService
+训练接入真实 TrainingService
+成长反馈能够更新用户状态
+CareerState 能同步到 Vue
+桌面端主要页面显示正常
+关键页面具备移动端基本适配
+百宝箱 Web 发布成功
+根据实际权限完成额外渠道发布或预览验证
+Demo Mode 和正式模式可以清晰区分
 ```
 
-## 15\.6 完成标准
+## 15\.13 本阶段保留证据
 
 ```Plain Text
-Web完整流程可操作
-百宝箱Web发布正常
-CareerPulse Web能够展示复杂结果
-移动端可访问
-平台和Web数据一致
-正式模式和Demo Mode都可用
+CareerPulse 原页面截图
+CareerPulse 改造后页面
+AI职业伙伴页面
+能力雷达图
+人岗匹配页面
+能力缺口页面
+3 年 / 5 年职业路径
+学习计划页面
+职场训练页面
+成长档案页面
+Agent执行链路页面
+Vue 调用百宝箱日志
+百宝箱 Tool Calling 日志
+MCP 调用日志
+Vue → 百宝箱 → MCP → CareerPulse 完整链路截图
+百宝箱原生运行页面
+百宝箱 Web 发布截图
+支付宝 / 小程序发布或预览截图
+移动端页面截图
 ```
 
 ---
 
-# 阶段7：Agent、知识库、平台和算法评测
+# 16\. 阶段7：Agent、知识库、算法、平台与端到端评测
 
-## 时间
+## **时间**
 
 ```Plain Text
 D9
 共同完成
-你负责评测设计
-成员2负责执行测试
 ```
 
-## 16\.1 Agent评测集
-
-建议准备20—30组：
+## 目标
 
 ```Plain Text
-5组学生画像
-5组岗位和趋势分析
-5组匹配与能力缺口
-3组职业路径
-3组职场训练
-3组异常和fallback
+在最终演示冻结前，对CareerPulse的：
+    Agent
+    CareerOrchestrator
+    知识库
+    确定性算法
+    MCP / Tool Calling
+    百宝箱平台
+    CareerPulse Vue
+    FastAPI
+    完整端到端链路
+    AI伦理与隐私
+进行系统评测。
+
+本阶段原则：不再以增加功能为主，而是发现问题、修复问题、形成测试证据
+
+重点检查：
+Agent 回答错误
+Agent 职责混乱
+Tool 调用错误
+Schema 不一致
+LLM 编造确定性结果
+知识库无依据回答
+Match / Path 算法异常
+百宝箱调用失败
+Vue 与 CareerState 不同步
+session 丢失
+MCP 超时
+fallback 失效
+隐私泄露
+API Key 泄露
 ```
 
-## 16\.2 评测指标
+## 16\.1 Agent 评测
+
+重点评测：
 
 ```Plain Text
-结构化输出合法率
-关键字段完整率
-能力证据覆盖率
-匹配人工一致性
-路径推荐合理性
-工具调用成功率
-工具参数合法率
-主链路完成率
-fallback触发率
-平均执行耗时
+ProfileAgent
+JobAgent
+MatchAgent
+PathAgent
+TrainingAgent
+FeedbackAgent
+CareerOrchestrator
+```
+
+```Plain Text
+测试输入至少覆盖：
+正常输入
+信息完整输入
+信息不完整输入
+模糊输入
+错误输入
+极短输入
+超长输入
+多轮补充信息
+Tool 调用成功
+Tool 调用失败
+Service 异常
+LLM 异常
+单 Agent 失败
+fallback
+CareerState 连续更新
+
+重点检查：
+Agent 是否越权承担 Service 的确定性计算
+LLM 是否自行编造匹配分
+是否调用正确 Tool
+是否读取正确 CareerState
+是否正确更新 CareerState
+某个 Agent 失败后是否导致全链路崩溃
+summary 是否与 data 一致
+tool_calls 是否是真实调用
+duration_ms 是否正确记录
+fallback_used 是否真实
+```
+
+## 16\.2 百宝箱对话与 Tool 选择评测
+
+准备真实用户问题，例如：
+
+```Plain Text
+我适合做AI应用开发吗？
+
+我是计算机专业学生，但不知道以后做什么。
+
+我的Python能力够找后端岗位吗？
+
+AI应用开发这个岗位未来还有发展吗？
+
+我和这个岗位匹配度多少？
+
+我最大的能力短板是什么？
+
+未来3年应该怎么走？
+
+给我安排一个职场训练。
+
+刚才训练完了，我哪里需要改进？
+
+我不想做这个岗位了，可以换一个方向吗？
+```
+
+检查百宝箱是否：
+
+```Plain Text
+正确理解用户意图
+信息不足时主动追问
+不重复询问已经知道的信息
+正确选择 Tool
+不需要 Tool 时不乱调用
+正确选择知识库
+不自行编造匹配分
+不编造用户经历
+不自行改变 Service 返回的确定性结果
+Tool 失败时明确说明
+Tool 返回后能够正确解释
+多轮对话能够保持上下文
 ```
 
 ## 16\.3 知识库评测
 
+```Plain Text
+测试问题覆盖：
+职业趋势
+岗位技能
+行业变化
+学习资源
+职场训练
+职业发展
+无答案问题
+模糊问题
+跨文档问题
+错误诱导问题
+
+检查：
+检索结果是否相关
+是否命中正确资料
+是否出现无关文档
+回答是否有资料依据
+无资料时是否拒绝编造
+知识库是否承担了本应由Service完成的计算
+知识库旧资料是否与新资料冲突
+元数据是否能够辅助筛选
+```
+
+记录：
+
+```Plain Text
+测试ID
+用户问题
+预期知识来源
+实际检索结果
+是否命中
+最终回答
+是否正确
+问题原因
+优化方式
+优化后结果
+```
+
+形成：
+
+- 测试集
+
+- 首轮结果
+
+- 问题分析
+
+- 优化记录
+
+- 最终效果
+
+## 16\.4 MatchService 算法评测
+
+```Plain Text
+重点检查：
+学生能力向量
+岗位能力向量
+岗位权重
+MatchScore
+Gap
+Priority
+```
+
+```Plain Text
 至少准备：
-
-```Plain Text
-20个正常检索问题
-5个无答案问题
-5个容易混淆的问题
-```
-
-指标：
-
-```Plain Text
-Top-K相关性
-检索命中率
-回答引用准确率
-无答案拒答率
-知识覆盖率
-平均响应时间
-```
-
-## 16\.4 百宝箱平台评测
-
-指标：
-
-```Plain Text
-完整对话完成率
-正确工具选择率
-工具连续调用成功率
-平台工具调用耗时
-异常恢复率
-知识库调用成功率
-Web发布可用率
-移动端可用率
-```
-
-## 16\.5 AI伦理与隐私测试
+高匹配用户
+中匹配用户
+低匹配用户
+缺失关键技能用户
+多能力相同用户
+岗位能力为空
+用户能力为空
+非法能力等级
+权重异常
 
 检查：
 
-```Plain Text
-简历上传是否获得授权
-是否支持删除数据
-日志是否保存完整简历
-手机号和邮箱是否脱敏
-推荐是否带解释
-是否存在性别、年龄或院校偏见
-是否有职业建议免责声明
-是否提示AI结果仅供参考
-是否防止用户过度依赖
+相同输入结果是否完全一致
+匹配分是否由代码计算
+能力 Gap 方向是否正确
+缺失能力是否按规则处理
+Priority 是否符合公式
+是否存在除零问题
+分数范围是否正常
+LLM 是否只解释结果而没有修改分数
 ```
 
-## 16\.6 Codex审查提示词
+算法结果必须可重复。
+
+## 16\.5 PathService 算法评测
 
 ```Plain Text
-请对当前A02改造分支进行代码审查。
+准备至少：
+已接近目标岗位的用户
+能力缺口较大的用户
+需要横向转岗的用户
+需要长期成长的用户
+存在多条候选路径的用户
+无可用路径用户
+
+检查：
+3 年路径是否合理
+5 年路径是否合理
+职业节点顺序是否合理
+是否考虑当前能力
+是否考虑目标岗位
+是否考虑能力 Gap
+GrowthValue 是否进入评分
+TransferCost 是否进入评分
+AbilityGapCost 是否进入评分
+候选路径是否按分数排序
+无路径时是否正常 fallback
+相同输入是否产生稳定结果
+```
+
+## 16\.6 Training 与 Feedback 评测
+
+至少覆盖 3 类典型职场训练：
+
+```Plain Text
+remote_collaboration
+AI辅助办公
+cross_role_communication
+```
+
+项目实际命名可以不同，但必须至少覆盖 3 类典型职场场景。
+
+至少一类训练完成：
+
+```Plain Text
+生成任务
+↓
+用户回答
+↓
+系统评分
+↓
+维度得分
+↓
+问题分析
+↓
+改进建议
+↓
+能力更新
+↓
+成长档案更新
+```
+
+检查：
+
+- 训练内容是否与目标岗位相关
+
+- 是否优先针对用户能力缺口
+
+- 评分维度是否固定
+
+- 评分规则是否明确
+
+- 极差回答是否能拉开分数
+
+- 优秀回答是否得到合理分数
+
+- 空回答是否正常处理
+
+- 相同回答评分是否基本稳定
+
+- 建议是否具体可执行
+
+- 训练结果是否保存
+
+- Feedback 是否真正影响成长记录
+
+- 能力等级变化是否有依据
+
+- 学习优先级变化是否可解释
+
+## 16\.7 MCP / Tool Calling评测
+
+逐个测试正式工具：
+
+```Plain Text
+analyze_student_profile
+analyze_job_and_trend
+calculate_job_match
+recommend_career_path
+generate_and_score_training
+recommend_learning_and_job_resources
+save_growth_feedback
+```
+
+每个 Tool 至少测试：
+
+```Plain Text
+正常情况：
+参数完整
+参数合法
+Service 正常
+返回正确 Schema
+
+参数异常：
+缺少必填参数
+参数类型错误
+参数值非法
+session 不存在
+
+服务异常：
+Service 报错
+数据库异常
+LLM 超时
+工具超时
+网络异常
+
+检查：
+输入Schema
+输出Schema
+鉴权
+参数校验
+错误结构
+超时
+重试
+fallback
+request_id
+session_id
+Tool日志
+隐私脱敏
+```
+
+## 16\.8 双向端到端评测
+
+必须测试两条完整链路。
+
+**链路 A：百宝箱原生端**
+
+```Plain Text
+百宝箱用户
+↓
+CareerPulse职业成长伙伴
+↓
+Tool Calling
+↓
+MCP
+↓
+CareerPulse FastAPI
+↓
+Agent / Service
+↓
+结构化结果
+↓
+百宝箱
+↓
+自然语言回答
+```
+
+必须真实跑通。
+
+**链路 B：CareerPulse 主 Web**
+
+```Plain Text
+CareerPulse Vue
+↓
+POST /api/tbox/chat
+↓
+CareerPulse FastAPI
+↓
+百宝箱 CareerPulse职业成长伙伴
+↓
+Tool Calling
+↓
+MCP
+↓
+CareerPulse FastAPI
+↓
+Agent / Service
+↓
+CareerState
+↓
+百宝箱生成最终回复
+↓
+CareerPulse FastAPI
+↓
+CareerPulse Vue
+```
+
+必须真实跑通。
 
 重点检查：
-1. Agent与Service职责是否混乱
-2. 是否由LLM凭空生成匹配分
-3. Schema是否完整
-4. 工具是否有参数校验
-5. 是否有未处理异常
-6. 日志是否泄露简历隐私
-7. MCP/API是否有鉴权
-8. Demo Mode是否影响正式模式
-9. 测试是否覆盖核心链路
-10. 是否硬编码API Key
-11. 是否与百宝箱工具Schema不一致
-12. 是否存在材料中写了但代码未实现的能力
 
-只输出问题、严重程度、文件位置和修改建议。
-暂时不要修改代码。
-```
+- `user_id` 是否一致
 
-## 16\.7 Hermes最终评审提示词
+- `session_id` 是否一致
+
+- `request_id` 是否能够追踪
+
+- 百宝箱是否真实参与
+
+- MCP 是否真实调用
+
+- Tool 是否调用正确
+
+- CareerState 是否被正确更新
+
+- Vue 页面是否展示最新结果
+
+- 多轮对话上下文是否连续
+
+- 用户刷新页面后状态是否可以恢复
+
+- Tool 异常后是否有合理提示
+
+- 是否发生循环 Tool Calling
+
+- 是否出现重复调用同一 Tool
+
+## 16\.9 Web 产品评测
 
 ```Plain Text
-请对照A02赛题要求评审当前CareerPulse实现。
+检查主要页面：
+首页
+AI职业伙伴
+职业画像
+人岗匹配
+职业路径
+学习计划
+职场训练
+成长档案
+Agent执行链路
+历史记录
+
+每个核心页面至少测试：
+正常数据
+空数据
+数据加载
+接口失败
+接口超时
+长文本
+页面刷新
+重复点击
+历史记录恢复
+移动端显示
+
+不得出现：
+页面白屏
+原始 JSON 直接展示给普通用户
+Python / JavaScript 错误堆栈暴露
+Token 暴露
+页面数据与 CareerState 不一致
+图表数据与后端结果不一致
+加载状态永久卡死
+```
+
+## 16\.10 AI 伦理与隐私检查
 
 检查：
-1. 感知：用户信息和状态采集
+
+
+
+```Plain Text
+用户信息：
+简历是否按必要范围使用
+手机号是否脱敏
+邮箱是否脱敏
+姓名是否尽量避免写入普通日志
+完整简历是否避免进入 Agent 普通日志
+
+模型输出：
+不无依据评价用户能力
+不把职业推荐说成唯一正确选择
+不把匹配度包装成录用概率
+不把职业路径说成确定未来
+用户始终保留最终决策权
+模型失败时不伪造结果
+
+密钥：
+百宝箱 Token、API Key、第三方模型 Key 必须：只存在服务端
+↓
+通过环境变量读取
+↓
+不进入 Git
+↓
+不进入前端
+↓
+不进入截图
+↓
+不进入演示视频
+
+AI伦理材料至少说明：
+数据最小化使用
+用户隐私保护
+算法偏见风险
+推荐结果可解释
+人保持最终决策权
+AI 不替代用户本人进行职业选择
+```
+
+## 16\.11 内部验收建议
+
+以下属于项目内部质量指标，不是 A02 官方强制指标。
+
+建议达到：
+
+```Plain Text
+核心 Service 单元测试：全部通过
+
+核心 Tool 正常调用通过率：≥95%
+
+固定输入算法结果：
+100% 可重复
+
+正式 Demo 主链路：
+连续运行至少5次无阻断错误
+
+API Key 明文泄露：
+0
+
+高风险隐私泄露：
+0
+
+P0级问题：
+0
+```
+
+如果核心链路仍然存在明显问题，本阶段不要继续增加新功能，应优先修复。
+
+## 16\.12 问题分级
+
+```Plain Text
+P0：必须立即修复
+包括：
+系统无法启动
+核心 Agent 链路断裂
+百宝箱无法运行
+MCP 无法调用
+CareerPulse Vue 无法完成 AI 对话
+核心 Service 不可用
+API Key 泄露
+主要页面白屏
+
+P1：演示冻结前必须修复
+包括：
+Tool 选择错误
+Schema 不一致
+匹配算法明显异常
+职业路径明显异常
+CareerState 不同步
+知识库严重误答
+训练结果无法保存
+用户反馈无法更新状态
+主要页面功能异常
+
+P2：可延后
+包括：
+非核心样式问题
+非核心页面体验问题
+次要文案问题
+轻微响应式布局问题
+```
+
+## 16\.13 Codex 代码审查
+
+给 Codex：
+
+```Plain Text
+任务：对当前 CareerPulse A02 改造分支进行最终代码审查。
+
+暂时不要修改代码。
+
+重点检查：
+
+1. Agent 与 Service 职责是否混乱
+2. 是否由 LLM 凭空生成匹配分
+3. 是否由 LLM 凭空生成能力 Gap
+4. Schema 是否统一
+5. Tool 是否具有参数校验
+6. 是否存在未处理异常
+7. Agent 日志是否泄露简历隐私
+8. MCP/API 是否有鉴权
+9. Demo Mode 是否污染正式模式
+10. 测试是否覆盖核心业务
+11. 是否存在硬编码 API Key / Token
+12. 百宝箱 Tool Schema 与后端 Schema 是否一致
+13. 百宝箱 Token 是否暴露给 Vue
+14. Vue 与 CareerState 是否存在状态不同步
+15. 是否存在循环 Tool Calling
+16. 是否存在重复 Tool Calling
+17. 是否存在材料中声明实现但代码实际没有实现的能力
+18. 是否存在已经废弃但仍在主链路中的旧 CareerPulse 逻辑
+19. 是否存在两个不同版本的匹配或路径计算逻辑
+20. 公共接口修改是否同步更新契约文档
+
+输出：
+
+【问题】
+【严重程度：P0 / P1 / P2】
+【文件位置】
+【问题原因】
+【修改建议】
+
+不要自动修改代码。
+不要自动提交 Git。
+```
+
+## 16\.14 Hermes 最终赛题评审
+
+给 Hermes：
+
+```Plain Text
+请作为 CareerPulse A02 项目的最终技术评审顾问。
+
+请严格对照 A02 赛题要求检查当前系统。
+
+重点检查：
+
+1. 感知：用户状态和信息采集
 2. 认知：岗位与职业趋势分析
-3. 决策：匹配和路径规划
-4. 生成：学习内容和训练
-5. 执行：任务和资源对接
-6. 反馈：训练评估和动态更新
-7. 百宝箱智能体配置
-8. 百宝箱知识库
-9. MCP/API工具调用
-10. Web和多端发布
-11. AI伦理和隐私
-12. Agent日志和评测
+3. 决策：人岗匹配和职业路径
+4. 生成：学习内容和训练任务
+5. 执行：阶段任务和资源对接
+6. 反馈：训练评估与动态更新
+
+同时检查：
+
+7. 百宝箱企业版是否真实使用
+8. 百宝箱智能体是否真实配置
+9. 百宝箱知识库是否真实使用
+10. MCP / Tool Calling 是否真实调用
+11. CareerPulse Vue 是否真实接入百宝箱 Agent
+12. 自研 FastAPI 是否承担真实业务计算
+13. Web发布是否完成
+14. 多端发布是否有验证
+15. AI伦理与隐私是否落实
+16. Agent日志是否完整
+17. Agent评测是否完成
+18. 算法评测是否完成
+19. 双向端到端链路是否跑通
+20. 项目材料描述是否与实际代码一致
 
 我会提供：
+
+- 当前代码
 - 架构文档
 - API契约
-- 百宝箱截图
+- Agent契约
+- MCP工具目录
+- 百宝箱配置截图
+- CareerPulse Web截图
 - 测试报告
 - Git提交摘要
 - 演示视频
 
 请输出：
-1. 已真实实现
-2. 部分实现
-3. 材料中需要限定表述的内容
-4. 不能写进材料的内容
-5. 提交前必须修复的问题
+
+1. 已满足项
+2. 部分满足项
+3. 未满足项
+4. 高风险问题
+5. 演示前必须修改项
+6. 可以放进材料的亮点
+7. 材料中必须补充的证据
+8. 可能被评委质疑的架构点
+9. A02平台适配度评价
+10. 当前是否具备演示冻结条件
+
+不要修改代码。
 ```
 
-## 16\.8 保留的证据
+## 16\.15 完成标准
+
+必须做到：
 
 ```Plain Text
-pytest报告
-接口测试报告
-Agent评测集
-评测结果
+六个 Agent 核心测试通过
+CareerOrchestrator 测试通过
+MatchService 算法测试通过
+PathService 算法测试通过
+至少 3 类职场训练完成测试
+Feedback 动态更新测试通过
+知识库测试完成
+正式 MCP Tool 测试完成
+百宝箱原生端完整链路通过
+CareerPulse Vue 完整 AI 链路通过
+Vue 与 CareerState 状态同步正常
+Web 主要页面回归测试完成
+移动端关键页面可正常使用
+AI伦理和隐私检查完成
+API Key / Token 明文泄露问题为 0
+P0 问题全部清零
+P1 问题基本清零
+形成完整测试报告
+形成迭代记录
+具备进入阶段8演示冻结的条件
+```
+
+## 16\.16 本阶段保留证据
+
+保留：
+
+```Plain Text
+Agent 离线评测集
+Agent 测试结果
+CareerOrchestrator 测试
 知识库测试集
-知识库评测结果
-平台测试记录
-人工评价表
-Codex review结果
-Hermes最终审计
-隐私检查表
-偏见检查表
-完整session日志
-```
-
-## 16\.9 完成标准
-
-```Plain Text
-核心Service测试通过
-至少一条端到端测试通过
-Agent具有离线评测结果
-知识库具有评测结果
-平台工具具有测试结果
-伦理和隐私检查完成
+知识库优化前后对比
+MatchService 测试案例
+PathService 测试案例
+3 类职场训练案例
+不同回答评分对比
+Feedback 更新前后结果
+MCP Tool 测试记录
+Tool Calling 日志
+百宝箱原生端完整链路
+CareerPulse Vue 完整链路
+request_id 追踪记录
+session_id 追踪记录
+正常调用截图
+参数异常截图
+Tool 超时截图
+fallback 截图
+Web 回归测试
+移动端测试
+隐私与安全检查记录
+用户测试反馈
+Bug 修复记录
+Codex 最终审查报告
+Hermes 最终赛题评审报告
+最终测试报告
 ```
 
 ---
@@ -2506,6 +3699,8 @@ Codex review结果
 
 # 最小可交付标准
 
+比赛提交前技术侧至少满足：
+
 ```Plain Text
 1. 百宝箱中真实创建CareerPulse智能体
 2. 完成模型和系统Prompt配置
@@ -2533,3 +3728,6 @@ Codex review结果
 24. 材料中出现的功能全部真实存在
 ```
 
+---
+
+# 与提交材料的对应关系xxxxxxxxxx src/  api/          # 接口封装与业务 API 模块  components/   # 业务组件（图表、图谱、上传、富文本等）  layouts/      # 页面布局  router/       # 路由与鉴权守卫  services/     # Mock 服务  stores/       # Pinia 状态管理  styles/       # 全局样式与主题  views/        # 页面视图（输入、分析、路径、计划、个人中心）text

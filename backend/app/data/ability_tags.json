@@ -41,5 +41,10 @@
   {"tag":"软考认证","category":"certification","difficulty":1.5,"description":"计算机技术与软件专业技术资格","deprecated":false},
   {"tag":"PMP","category":"certification","difficulty":2.0,"description":"项目管理专业认证","deprecated":false},
   {"tag":"计算机等级考试","category":"certification","difficulty":1.0,"description":"全国计算机等级考试","deprecated":false},
-  {"tag":"行业认证","category":"certification","difficulty":1.5,"description":"云、网络等行业认证","deprecated":false}
+  {"tag":"行业认证","category":"certification","difficulty":1.5,"description":"云、网络等行业认证","deprecated":false},
+  {"tag":"Python Web开发","category":"hard_skill","difficulty":1.8,"description":"使用Python Web框架进行应用开发；与通用Python能力相关但不等同","deprecated":false},
+  {"tag":"RAG","category":"hard_skill","difficulty":2.5,"description":"检索增强生成系统设计与实现；不等同于通用LLM应用开发","deprecated":false},
+  {"tag":"LLM应用开发","category":"hard_skill","difficulty":2.5,"description":"大语言模型应用工程；不无条件包含RAG能力","deprecated":false},
+  {"tag":"Tool Calling","category":"hard_skill","difficulty":2.0,"description":"模型工具调用设计与实现；不等同于MCP协议能力","deprecated":false},
+  {"tag":"MCP","category":"hard_skill","difficulty":2.2,"description":"Model Context Protocol协议集成；不等同于通用Tool Calling","deprecated":false}
 ]
