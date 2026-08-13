@@ -21,3 +21,11 @@
 - 测试主要使用 `unittest.IsolatedAsyncioTestCase`、注入队列 Client/`AsyncMock`，适合为统一 Client 增加 `httpx.MockTransport` 测试且不会访问真实网络。
 - 统一 Client 采用 `messages` 主接口，保留 `system_prompt/user_prompt` 与 `generate_json` 兼容入口；结构化重试仅针对 JSON/Pydantic 失败，网络/超时/限流直接抛出分类异常或进入调用方显式 fallback。
 - 传统 `matching_service.py` 原先让 LLM 直接产出匹配分数，违反 A02 架构规则；已保留同形状接口并统一改用确定性规则计算，而不是把该逻辑迁入新 Client。
+
+## 第3步检查发现
+
+- 数据库 `student_profile.parsed_data` 保存已有解析结果，常见字段为 `skills`、`certificates`、`education`、`internships`、`projects`；本步骤直接消费这些字段，不重写文件解析/OCR/简历解析器。
+- ProfileAgent 原实现及 Prompt 面向阶段2冻结结构，能力重试与fallback也依赖旧 `abilities`；需切换到统一 `StudentProfile`，并将LLM限制为候选证据抽取。
+- CareerState 的 `student_profile` 可同时作为历史画像输入和本轮输出；当前明确资料覆盖基础字段，经历类字段去重合并，历史 `created_at` 和有证据能力需保留。
+- 现有48个有效能力标签均已映射到七个统一能力维度，无未映射标签。
+- 旧平台全链路7项仍有2项冻结断言失败；统一画像不再提供旧 `abilities` 后，下游旧Match链路进入fallback，属于后续兼容迁移范围，本步骤不修改TBox或匹配模块。

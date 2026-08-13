@@ -23,3 +23,13 @@
 - ProfileAgent/JobAgent 已迁移到 `generate_structured`，结构重试职责由 Client 统一承担。
 - 学生路由已移除 `AsyncOpenAI` 直调；匹配 Service 已移除同步 `OpenAI` 直调并恢复确定性评分。
 - Client 单测 12/12、ProfileAgent 回归 7/7、阶段3 Schema 5/5 通过；编译、配置工厂、SDK 直调扫描及 diff 检查通过。
+
+## 阶段3第3步
+
+- 已恢复前两步未提交改动并确认继续增量开发。
+- 正在盘点 ProfileAgent 相关数据与调用链。
+- 已新增确定性 ProfileService，复用现有标签字典/别名，完成资料合并、证据映射、等级/置信度、完整度、竞争力和追问计算。
+- 已将 ProfileAgent 与独立 Prompt 切换为统一画像流程；LLM仅输出候选证据，Service过滤无依据候选并重算所有分值。
+- 已覆盖用户指定七类场景，并增加Prompt安全、评分确定性与日志隐私测试。
+- 48个有效标准标签已全部覆盖七个维度；明确项目/比赛/实习/工作证据会同步形成项目实践维度，但不会新增无证据标签。
+- Profile 10项、LLM Client 12项、Schema 5项、标签归一化5项、确定性匹配14项测试均通过。

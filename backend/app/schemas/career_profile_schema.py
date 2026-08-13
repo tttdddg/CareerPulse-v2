@@ -31,6 +31,7 @@ class EvidenceSource(str, Enum):
     JOB_DESCRIPTION = "job_description"
     KNOWLEDGE_BASE = "knowledge_base"
     USER_SUPPLEMENT = "user_supplement"
+    HISTORY = "history"
     DEMO = "demo"
 
 

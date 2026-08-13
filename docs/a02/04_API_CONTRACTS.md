@@ -10,6 +10,9 @@
   问题解决、学习成长、行业认知。
 - `AbilityDimensionProfile` 同时供统一学生画像与岗位画像使用，包含 `dimension`、`tags`、
   `level`（1-5）、`confidence`（0-1）、`evidence[]`、`evidence_source`。
+- `evidence_source` 可标记 `resume`、`form`、`project`、`assessment`、
+  `job_description`、`knowledge_base`、`user_supplement`、`history` 或 `demo`；
+  ProfileAgent 更新画像时用 `history` 保留已有画像中的可验证证据。
 - 请求层：`StudentProfileRequest`、`JobProfileRequest`、`CareerTrendRequest`。
 - 领域层：`StudentProfile`、`JobProfile`、`CareerTrend`。
 - 响应层：泛型 `AgentResponse[T]`，统一承载状态、数据、摘要、fallback 与错误信息。

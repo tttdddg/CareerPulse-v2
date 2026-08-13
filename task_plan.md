@@ -19,6 +19,14 @@
 - [x] 5. 运行相关回归并检查敏感信息与变更范围
 - [x] 6. 汇总配置、示例、重试逻辑、测试结果和后续内容
 
+## 第3步：ProfileAgent
+- [x] 1. 检查简历结果、用户资料、CareerState、数据库 Service、Prompt 和现有 Agent
+- [x] 2. 设计资料合并、证据模型、确定性评分和历史画像更新规则
+- [x] 3. 实现 ProfilePrompt、画像 Service、ProfileAgent 与规则/Mock 兜底
+- [x] 4. 覆盖七类指定单元测试与兼容回归
+- [x] 5. 运行测试、生成完整示例并审查隐私/范围
+- [x] 6. 汇总修改文件、测试结果和后续边界
+
 ## 边界
 - 不开发或修改百宝箱、MCP、Tool Calling、`/api/tbox/chat`。
 - 不删除既有字段；公共字段变化需同步 `API_CONTRACTS.md`。
@@ -35,3 +43,4 @@
 | 从仓库根目录启动后端 unittest，`app` 不在模块路径 | 1 | 改在 `backend/` 下用 discover 指定测试目录 |
 | Agent 迁移补丁因历史字符编码内容无法匹配 `_repair_prompt` 段落 | 1 | 改用小范围 ASCII 上下文，只替换 `_execute`，不触碰历史提示文本 |
 | 在 `backend/` 工作目录进行死代码扫描时误用 `backend/app` 前缀 | 1 | 改用正确的 `app/` 路径；同批测试与 diff 检查结果有效 |
+| Profile测试导入 `services.profile_service` 时包入口预加载数据库模块并缺少 `psycopg2` | 1 | 将 Service 包公共导出改为兼容的懒加载，纯业务测试不再依赖数据库驱动 |

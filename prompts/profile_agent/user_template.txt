@@ -1,17 +1,7 @@
-请根据以下三类用户输入生成学生职业能力画像。
+请从下面的合并画像资料中抽取有证据支持的候选能力。
 
-调用前置要求：`form_data` 应明确提供 education_level、major 和 target_job；若输入中存在缺失或冲突，请严格遵循 system prompt 的保守规则，不得猜测。
+<profile_material>
+{{profile_material}}
+</profile_material>
 
-<resume_text>
-{{resume_text}}
-</resume_text>
-
-<form_data>
-{{form_data}}
-</form_data>
-
-<supplementary_info>
-{{supplementary_info}}
-</supplementary_info>
-
-只返回符合 ProfileSchema 的 JSON 对象，不要输出其他内容。
+只输出包含 ability_dimensions、explicit_facts、inferred_items 的 JSON对象。不得把 inferred_items 放入 ability_dimensions。
