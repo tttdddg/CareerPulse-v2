@@ -1,5 +1,22 @@
 # 04_API_CONTRACTS — 公共数据契约
 
+## 阶段3统一领域 Schema（增量，不替换冻结字段）
+
+阶段3新增请求、领域、响应三层 Pydantic Schema。现有 `CareerState.student_profile`、
+`job_profile`、`trend_result` 字段及阶段2 Agent 输出保持兼容；后续 Service 负责从旧结构
+映射到统一领域结构，Schema 层不执行评分、趋势推断或 LLM 调用。
+
+- 固定能力维度仅由 `AbilityDimension` 定义：专业知识、技术与工具、项目实践、沟通协作、
+  问题解决、学习成长、行业认知。
+- `AbilityDimensionProfile` 同时供统一学生画像与岗位画像使用，包含 `dimension`、`tags`、
+  `level`（1-5）、`confidence`（0-1）、`evidence[]`、`evidence_source`。
+- 请求层：`StudentProfileRequest`、`JobProfileRequest`、`CareerTrendRequest`。
+- 领域层：`StudentProfile`、`JobProfile`、`CareerTrend`。
+- 响应层：泛型 `AgentResponse[T]`，统一承载状态、数据、摘要、fallback 与错误信息。
+- `profile_completeness` 范围为 0-1；`career_competitiveness_score` 范围为 0-100，分数必须
+  由确定性 Service 提供，不能由 Schema 或 LLM 自行计算。
+
+
 > **锁定状态：FROZEN（D2 冻结）**
 > 本文件定义的字段名、类型、枚举值不得随意修改。
 > 修改本文件须同时更新：`05_AGENT_CONTRACTS.md`、`13_MCP_TOOL_CATALOG.md`、后端 Schema 和百宝箱工具配置。

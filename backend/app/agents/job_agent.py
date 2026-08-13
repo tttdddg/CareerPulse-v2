@@ -19,7 +19,6 @@ from ..schemas.profile_schema import active_ability_tags
 
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompts" / "job_agent"
 _JOBS_DEMO_FILE = Path(__file__).resolve().parents[1] / "data" / "jobs_demo.json"
-_MAX_SCHEMA_RETRIES = 2
 _SOFT_SKILL_TAGS = {
     "沟通表达",
     "团队协作",
@@ -77,27 +76,16 @@ class JobAgent(BaseAgent):
 
     async def _execute(self, state: CareerState) -> dict[str, Any]:
         system_prompt, user_prompt = self._build_prompts(state)
-        last_validation_error: LLMValidationError | None = None
-
-        for attempt in range(_MAX_SCHEMA_RETRIES + 1):
-            prompt = user_prompt if attempt == 0 else self._repair_prompt(
-                user_prompt, attempt
-            )
-            try:
-                raw_output = await self._llm_client.generate_json(
-                    system_prompt=system_prompt,
-                    user_prompt=prompt,
-                    response_model=JobAgentOutput,
-                    temperature=0.1,
-                )
-                output = self._ensure_output(raw_output, state)
-                return output.model_dump()
-            except LLMValidationError as exc:
-                last_validation_error = exc
-
-        raise LLMValidationError(
-            "JobAgent output failed JSON/schema validation after 2 repairs"
-        ) from last_validation_error
+        raw_output = await self._llm_client.generate_structured(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            JobAgentOutput,
+            temperature=0.1,
+        )
+        output = self._ensure_output(raw_output, state)
+        return output.model_dump()
 
     async def _fallback(self, state: CareerState, error: Exception) -> dict[str, Any]:
         try:
@@ -180,20 +168,6 @@ class JobAgent(BaseAgent):
         if any(placeholder not in user_template for placeholder in required):
             raise RuntimeError("JobAgent user template is missing placeholders")
         return system_prompt, user_template
-
-    @staticmethod
-    def _repair_prompt(user_prompt: str, attempt: int) -> str:
-        return (
-            f"{user_prompt}\n\n"
-            "<schema_repair>"
-            f"上一响应未通过 JSON 解析或 JobAgentOutput Schema 校验。现在执行第 {attempt} "
-            "次结构修复：不要重新解释岗位，不要添加新的能力、JD事实、趋势、数字或来源；"
-            "仅修复 JSON 语法、必填字段、字段类型、标准标签、合法枚举、重复标签、"
-            "required_level 范围、weight 范围及总和、两个岗位名称/行业一致性。"
-            "正常提供 JD 时保留原有 evidence，不得用趋势资料补写 evidence。"
-            "重新输出完整 JSON 对象，禁止 Markdown 和任何前后文。"
-            "</schema_repair>"
-        )
 
     def _ensure_output(self, value: Any, state: CareerState) -> JobAgentOutput:
         try:

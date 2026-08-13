@@ -6,11 +6,8 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
-
-from openai import OpenAI
 
 from ..db import ensure_business_tables, get_db_conn
 from .job_service import get_job_profile
@@ -64,22 +61,6 @@ def _cert_assist_hits(required_skills: set[str], certs: list[str]) -> float:
                 assisted += overlap * 0.2
 
     return min(assisted, max(1.0, len(required_skills) * 0.35))
-
-
-def _parse_llm_json(result_text: str) -> dict[str, Any]:
-    start = result_text.find("{")
-    end = result_text.rfind("}") + 1
-    if start == -1 or end <= start:
-        raise ValueError("模型返回不包含有效 JSON")
-    return json.loads(result_text[start:end])
-
-
-def _clamp_score(value: Any, default: float) -> float:
-    try:
-        v = float(value)
-    except Exception:
-        v = default
-    return max(0.0, min(100.0, round(v, 2)))
 
 
 def _rule_fallback_analysis(student_data: dict[str, Any], job_data: dict[str, Any]) -> dict[str, Any]:
@@ -139,92 +120,14 @@ def _rule_fallback_analysis(student_data: dict[str, Any], job_data: dict[str, An
 
 
 def build_matching_analysis(student_data: dict[str, Any], job_data: dict[str, Any]) -> dict[str, Any]:
-    """Build matching result using LLM semantic scoring."""
-    api_key = os.getenv("DEEPSEEK_API_KEY") or os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        return _rule_fallback_analysis(student_data, job_data)
+    """Build a deterministic matching result.
 
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    model = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-    client = OpenAI(api_key=api_key, base_url=base_url)
+    Match scores are business calculations and must not be invented by an LLM.
+    A future semantic-normalization step may use the unified client, but its
+    output must be validated and passed into deterministic score calculation.
+    """
 
-    system_prompt = (
-        "你是资深人岗匹配评估专家。"
-        "请基于学生画像与岗位画像做语义级评分，允许同义词、上下位词、项目经历和迁移能力匹配。"
-        "只返回 JSON。"
-        "字段必须为 overall_score、dimensions、gap_analysis。"
-        "overall_score 为 0-100 数值。"
-        "dimensions 必须包含四项：专业技能、学习能力、实践能力、通用素养；"
-        "每项包含 name、student_score、job_required、gap。"
-        "gap_analysis 为数组，每项包含 item、status、suggestion。"
-        "重要：在评估学生技能与岗位要求的匹配度时，应采用语义相似度而非严格匹配。对于语义相关的技能，即使不完全匹配，也应给予部分分数，并确保分数不会过低。请注意，岗位技能需求通常较为广泛，旨在覆盖多个同类岗位，但实际工作中未必全部用到；且入门级岗位对技能水平要求不高，除非是高级岗位。"
-    )
-
-    user_payload = {
-        "student_profile": student_data,
-        "job_profile": {
-            "title": job_data.get("title"),
-            "required_skills": job_data.get("required_skills") or [],
-            "soft_skills": job_data.get("soft_skills") or [],
-            "job_description": job_data.get("job_description") or "",
-            "industry": job_data.get("industry"),
-        },
-    }
-
-    try:
-        resp = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
-            ],
-            temperature=0.2,
-            max_tokens=1200,
-        )
-        content = resp.choices[0].message.content or ""
-        parsed = _parse_llm_json(content)
-
-        overall = _clamp_score(parsed.get("overall_score"), default=0.0)
-
-        dimensions: list[dict[str, Any]] = []
-        for item in parsed.get("dimensions") or []:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "")
-            student_score = _clamp_score(item.get("student_score"), default=0.0)
-            job_required = _clamp_score(item.get("job_required"), default=75.0)
-            dimensions.append(
-                {
-                    "name": name,
-                    "student_score": student_score,
-                    "job_required": job_required,
-                    "gap": round(student_score - job_required, 2),
-                }
-            )
-
-        if not dimensions:
-            raise ValueError("模型返回 dimensions 为空")
-
-        gap_analysis_raw = parsed.get("gap_analysis") or []
-        gap_analysis: list[dict[str, str]] = []
-        for item in gap_analysis_raw:
-            if not isinstance(item, dict):
-                continue
-            gap_analysis.append(
-                {
-                    "item": str(item.get("item") or "未命名项"),
-                    "status": str(item.get("status") or "missing"),
-                    "suggestion": str(item.get("suggestion") or "建议补充相关能力证据。"),
-                }
-            )
-
-        return {
-            "overall_score": overall,
-            "dimensions": dimensions,
-            "gap_analysis": gap_analysis,
-        }
-    except Exception:
-        return _rule_fallback_analysis(student_data, job_data)
+    return _rule_fallback_analysis(student_data, job_data)
 
 
 def analyze_matching(student_id: int, job_id: int, user_id: str = "default") -> dict[str, Any]:

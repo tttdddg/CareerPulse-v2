@@ -2,28 +2,15 @@
 
 from __future__ import annotations
 
-import json
-import os
-
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from openai import AsyncOpenAI
 
+from ..core.llm_client import llm_client
 from ..schemas import ProfileUploadRequest, StudentUploadResponse
-from ..services.resume_service import extract_all_content, parse_llm_json
+from ..services.resume_service import extract_all_content
 from ..services.student_service import get_student_profile, save_resume_profile
 
 router = APIRouter()
-
-
-def _get_llm_client() -> AsyncOpenAI:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="未配置 DEEPSEEK_API_KEY 环境变量")
-    return AsyncOpenAI(
-        api_key=api_key,
-        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
-    )
 
 
 def _build_resume_messages(text: str):
@@ -84,15 +71,12 @@ async def upload_resume(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"文件处理失败: {str(e)}")
 
     try:
-        client = _get_llm_client()
-        response = await client.chat.completions.create(
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-            messages=_build_resume_messages(text),
+        data = await llm_client.generate_structured(
+            _build_resume_messages(text),
+            dict,
             temperature=0.3,
             max_tokens=1500,
-            stream=False,
         )
-        data = parse_llm_json(response.choices[0].message.content)
         student_name = data.get("name") or "未知"
         student_id = save_resume_profile(student_name=student_name, parsed_data=data)
         return JSONResponse(
@@ -102,8 +86,6 @@ async def upload_resume(file: UploadFile = File(...)):
                 "data": {"student_id": student_id, "student_name": student_name, "profile": data},
             }
         )
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析请求失败: {str(e)}")
 
@@ -127,15 +109,12 @@ async def upload_profile(profile: ProfileUploadRequest):
     )
 
     try:
-        client = _get_llm_client()
-        response = await client.chat.completions.create(
-            model=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"),
-            messages=_build_manual_profile_messages(user_text),
+        data = await llm_client.generate_structured(
+            _build_manual_profile_messages(user_text),
+            dict,
             temperature=0.3,
             max_tokens=1500,
-            stream=False,
         )
-        data = parse_llm_json(response.choices[0].message.content)
 
         if profile.name and not data.get("name"):
             data["name"] = profile.name
@@ -149,7 +128,5 @@ async def upload_profile(profile: ProfileUploadRequest):
                 "data": {"student_id": student_id, "student_name": student_name, "profile": data},
             }
         )
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"解析模型返回 JSON 失败: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AI 分析请求失败: {str(e)}")

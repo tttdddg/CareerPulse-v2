@@ -17,7 +17,6 @@ from ..schemas.profile_schema import StudentProfile, active_ability_tags
 
 
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompts" / "profile_agent"
-_MAX_SCHEMA_RETRIES = 2
 _EDUCATION_LEVELS = {"专科", "本科", "硕士", "博士"}
 _FALLBACK_ALIASES = {
     "JavaScript": "JavaScript/TypeScript",
@@ -59,27 +58,16 @@ class ProfileAgent(BaseAgent):
 
     async def _execute(self, state: CareerState) -> dict[str, Any]:
         system_prompt, user_prompt = self._build_prompts(state)
-        last_validation_error: LLMValidationError | None = None
-
-        for attempt in range(_MAX_SCHEMA_RETRIES + 1):
-            prompt = user_prompt
-            if attempt:
-                prompt = self._repair_prompt(user_prompt, attempt)
-            try:
-                raw_profile = await self._llm_client.generate_json(
-                    system_prompt=system_prompt,
-                    user_prompt=prompt,
-                    response_model=StudentProfile,
-                    temperature=0.1,
-                )
-                profile = self._ensure_profile(raw_profile)
-                return {"student_profile": profile.model_dump()}
-            except LLMValidationError as exc:
-                last_validation_error = exc
-
-        raise LLMValidationError(
-            "ProfileAgent output failed JSON/schema validation after 2 repairs"
-        ) from last_validation_error
+        raw_profile = await self._llm_client.generate_structured(
+            [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            StudentProfile,
+            temperature=0.1,
+        )
+        profile = self._ensure_profile(raw_profile)
+        return {"student_profile": profile.model_dump()}
 
     async def _fallback(self, state: CareerState, error: Exception) -> dict[str, Any]:
         try:
@@ -168,18 +156,6 @@ class ProfileAgent(BaseAgent):
         if missing:
             raise RuntimeError("ProfileAgent user template is missing placeholders")
         return system_prompt, user_template
-
-    @staticmethod
-    def _repair_prompt(user_prompt: str, attempt: int) -> str:
-        return (
-            f"{user_prompt}\n\n"
-            "<schema_repair>"
-            f"上一响应未通过 JSON 解析或 ProfileSchema 校验。现在执行第 {attempt} "
-            "次结构修复：不要重新解释任务，不要添加新事实，不要改变已有事实判断；"
-            "仅修复 JSON 语法、必填字段、字段类型、合法范围、标准标签、重复标签和"
-            "敏感 evidence 问题。重新输出完整 JSON 对象，禁止 Markdown 和任何前后文。"
-            "</schema_repair>"
-        )
 
     @staticmethod
     def _ensure_profile(value: Any) -> StudentProfile:

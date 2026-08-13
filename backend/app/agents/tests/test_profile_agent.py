@@ -27,8 +27,8 @@ class QueueClient:
         self.responses = list(responses)
         self.calls: list[dict[str, Any]] = []
 
-    async def generate_json(self, **kwargs: Any) -> StudentProfile:
-        self.calls.append(kwargs)
+    async def generate_structured(self, *args: Any, **kwargs: Any) -> StudentProfile:
+        self.calls.append({"args": args, "kwargs": kwargs})
         if not self.responses:
             raise AssertionError("unexpected LLM call")
         response = self.responses.pop(0)
@@ -128,27 +128,21 @@ class ProfileAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertLess(validated.completeness, 0.5)
         self.assertGreater(len(validated.missing_fields), 0)
 
-    async def test_invalid_json_retries_twice_with_structure_repair(self) -> None:
+    async def test_agent_delegates_structured_generation_to_unified_client(self) -> None:
         valid_profile = deepcopy(load_demo_profiles()[0])
-        client = QueueClient(
-            LLMValidationError("invalid JSON"),
-            LLMValidationError("invalid JSON again"),
-            valid_profile,
-        )
+        client = QueueClient(valid_profile)
         state = profile_state(session_id="profile-json-retry")
 
         result = await ProfileAgent(client=client).run(state)
 
         self.assertEqual("success", result.status)
-        self.assertEqual(3, len(client.calls))
-        self.assertNotIn("<schema_repair>", client.calls[0]["user_prompt"])
-        self.assertIn("<schema_repair>", client.calls[1]["user_prompt"])
-        self.assertIn("第 2 次结构修复", client.calls[2]["user_prompt"])
+        self.assertEqual(1, len(client.calls))
+        messages, response_schema = client.calls[0]["args"]
+        self.assertEqual(StudentProfile, response_schema)
+        self.assertEqual(["system", "user"], [item["role"] for item in messages])
 
     async def test_schema_failure_after_two_repairs_uses_fallback(self) -> None:
-        client = QueueClient(
-            *[LLMValidationError("schema validation failed") for _ in range(3)]
-        )
+        client = QueueClient(LLMValidationError("schema validation failed after retries"))
         state = profile_state(
             session_id="profile-schema-fallback",
             resume_text="使用 Python、SQL 完成数据分析课程项目。",
@@ -160,7 +154,7 @@ class ProfileAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("partial", result.status)
         self.assertTrue(result.fallback_used)
         self.assertIn("LLMValidationError", result.error)
-        self.assertEqual(3, len(client.calls))
+        self.assertEqual(1, len(client.calls))
         self.assertGreaterEqual(len(validated.abilities), 3)
 
     async def test_provider_error_enters_fallback_without_retry(self) -> None:
