@@ -44,6 +44,10 @@
 | --- | --- | --- |
 | session-catchup 脚本缺失 | 1 | 已记录；继续手动生成计划文件 |
 | 当前技能目录缺少 session-catchup.py | 1 | 已读取现有规划文件与 git 状态，手动恢复上下文 |
+| 在 `backend` 工作目录读取 Service 时误加 `backend/` 前缀 | 1 | 已确认仅只读命令路径错误；后续统一按当前工作目录使用相对路径 |
+| 首次 MatchService 旧回归 11/14，3 项失败 | 1 | 两项为兼容投影未按旧公式排列缺失能力，一项为新增字段导致完整 dict 断言过时；修复投影并将测试升级为兼容子集+新 Schema 断言 |
+| `rg` 按预期 JSON 排版搜索拟用能力标签无输出 | 1 | 改用 Python JSON 解析确认48个活动标签；不重复依赖排版敏感正则 |
+| 图谱 upsert 与 robust 加固组合补丁上下文未匹配 | 1 | 无部分修改；读取实际行号后拆分为迁移/初始化/Service小补丁 |
 | 预期的 backend/app/core 与 backend/requirements.txt 不存在 | 1 | 继续按实际目录结构盘点，从根目录依赖文件确认实现边界 |
 | rg 查找依赖文件无匹配并返回 exit 1 | 1 | 改用文件枚举和定向检查，不重复同一失败命令 |
 | 枚举 backend/app/schemas 时目录不存在导致命令 exit 1 | 1 | 已确认需要新建允许的 profile_schema.py，不再依赖该目录预存在 |
@@ -166,3 +170,22 @@
 | L2 | 执行三岗位语义与结构验证 | complete | AI产品/数据分析/后端三组通过 |
 | L3 | 执行稀疏/空趋势/非法JSON/模型异常 | complete | 四组通过，retry/fallback 真实触发 |
 | L4 | 对抗检查幻觉、禁止字段、State 与日志 | complete | grounding Bug 修复后四类造假被拦截 |
+
+## 当前任务：阶段3第2步 人岗匹配与能力缺口分析（2026-08-13）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| M1 | 完整审计 AGENTS、Hermes 日志、阶段2画像、统一维度、Service、数据库与测试 | complete | 复用点、兼容边界、基线结果 |
+| M2 | 设计并实现匹配 Schema、集中权重配置与确定性 MatchService | complete | 匹配结果、能力 Gap、硬条件、置信度和证据 |
+| M3 | 补充规则/Mock 数据及合法、边界、空数据、异常单元测试 | complete | 可重复的测试资产 |
+| M4 | 运行相关回归、复核契约/隐私/diff 并整理示例 | complete | 完整测试结果、公式与风险说明 |
+
+## 当前任务：阶段3职业图谱与确定性路径规划（2026-08-13）
+
+| 阶段 | 任务 | 状态 | 产出 |
+| --- | --- | --- | --- |
+| N1 | 审计 Hermes 规格、图模型/数据、MatchResult、迁移、PathAgent 与测试基线 | complete | 兼容边界、数据缺口、基线结果 |
+| N2 | 设计并实现 CareerNode/Edge、图谱 Repository、初始化图数据与严格 Path Schema | complete | 可校验图谱、查询层、候选路径结构 |
+| N3 | 实现受限 DFS、路径分类/确定性评分、3年/5年年度 Roadmap | complete | PathService 与集中配置 |
+| N4 | 补合法、循环、限长、无通路、未知岗位、数据不足、稳定性和年度路线测试 | complete | 可重复单元测试 |
+| N5 | 同步 ADR/契约，运行回归、生成3年/5年示例并复核 diff | complete | 测试报告、算法公式与已知风险 |

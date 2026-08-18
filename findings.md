@@ -128,6 +128,45 @@
 - 平台受控双 LLM 链路 7/7、ProfileAgent 回归 7/7、compileall 和 JD 日志/规则 evidence 隐私探针通过。
 - 剩余语义风险：非数字趋势摘要、机会/风险和 data_source 的机构名称仍无法完全做确定性语义验证；grounding 使用保守字符串/标签匹配，真实模型的忠实意译可能被误判而进入 fallback。需真实 provider 与真实趋势语料评估误拒率/漏检率。
 
+## 阶段3第2步审计（2026-08-13）
+
+- 根目录仅有一份 `AGENTS.md`；本任务必须保持确定性分数/Gap 在 Service、复用公共维度、每个新 Service 有测试、不得自动提交。
+- 用户提供的 `开发日志/D3 stage1.md` 已完整描述阶段2前置核查与阶段3总规格；本次用户明确只执行其中匹配/Gap 子集，不做 MatchAgent、PathAgent、路径、Tool/MCP、训练推荐或前端。
+- 仓库已经存在阶段2 `backend/app/services/match_service.py` 和 `backend/tests/test_match_service.py`；开发日志称已有 13 项确定性测试，但当前代码和实际测试仍需逐行核对，不能直接照抄日志结论。
+- Hermes 建议保留公共 `overall_score` 公式，新增可信度并行结构、匹配等级、硬条件、缺失数据标志；但本次用户要求的字段名以 `dimension_matches/matched_skills/missing_skills/skill_gaps/hard_constraint_results/confidence/evidence/calculation_version` 为准，需在不破坏现有接口前提下设计兼容 Schema。
+- Hermes 文档中“数据库无 migrations 目录”的判断已过期：当前仓库实际有 `backend/migrations/V001__create_a02_tables.sql`，须以代码现状为准。
+- 冻结 `04_API_CONTRACTS.md §4` 当前公开 MatchResult 仍是 `overall_score/dimensions/ability_gaps/gap_analysis/strengths/matching_algorithm_version`；公式固定为 `Σ weight × min(student_level / required_level, 1)`，缺失能力仅在 Gap 计算中使用 level 0。
+- 阶段2学生 Schema 严格约束标准标签、level 1–5、confidence 0–1、画像 completeness；岗位 Schema 严格约束标准标签、required_level 1–5、weight 0–1 且非空时和为 1、importance 枚举。这两者应直接作为 MatchService 的真实输入验证层。
+- 数据库迁移已有统一 `ability_tags` 和 `student_ability_records`，没有专门 MatchResult 表；CareerState 当前把 `match_result` 作为会话内 dict。用户本步骤未要求持久化，因此不新增数据库表可避免无依据扩张。
+- `init_a02_data.py --check` 会同时验证统一标签、三份学生/岗位 Demo、迁移表和现有 Mock tool 成败 envelope，可作为数据库/规则数据回归的一部分。
+- 基线：MatchService 14/14、能力归一化 5/5、ProfileAgent 7/7；平台旧套件 5/7，失败仍是无 LLM 配置时预期 success/code=0 的已知旧断言冲突；种子检查 48 标签、3 学生、3 岗位、9 迁移表、隐私和 7 个 Mock 工具均通过。
+- 缺失能力策略采用“未知而非 0”：新 `dimension_matches` 中 `student_level/gap/score` 为 null，`missing_skills` 明示未评估；旧 `dimensions/ability_gaps` 只投影已有等级的能力。`overall_score` 表示已证实匹配贡献（未知权重无贡献），但不生成虚构的 level=0 或 Gap。
+- 兼容策略：保留冻结顶层六字段及 `matching_algorithm_version=deterministic-v1`，以加法方式新增用户要求字段；`calculate()` 继续返回 dict，并由 Pydantic `MatchResult` 做输出验证。
+- 集中配置位于 `services/match_config.py`：算法版本、置信度阈值、匹配等级阈值、置信度组件权重、importance 排序和浮点容差均不散落在 Service 中；岗位能力权重仍来自阶段2 JobProfile（它是每个岗位的真实输入向量，不是全局常量）。
+- 新 `MatchResult` 包含用户要求的全部字段，并保留旧 `dimensions/ability_gaps/gap_analysis/matching_algorithm_version`；输出在 Service 边界统一经 Pydantic 验证。
+- 新语义：`matched_skills` 仅列已达到 required_level 的正权重能力；`missing_skills` 列岗位要求但学生画像未提供的正权重能力；`skill_gaps` 只列学生画像有可验证 level、但低于 required_level 的能力。
+- 硬条件仅来自当前岗位 Schema 能表达的 `importance=critical` 能力，分别输出 passed/failed/unknown；学历和经验要求不在 JobProfile 中，因此本步不虚构这些硬条件。
+- 最终缺失策略进一步收紧：`overall_score` 仅在可观测正权重维度上重归一化，未知维度既不计0也不生成新 `skill_gaps`；可观测权重低于50%时不输出高/低结论，而是 `match_level=insufficient_data`。
+- 依据公共 Schema 变更规则新增 ADR-001，并同步 API、Agent 和 MCP Tool Catalog 的 MatchResult 字段；文档明确当前 MatchAgent 尚未接入，避免宣称未实现的平台能力。
+
+## 阶段3职业图谱与路径规划审计（2026-08-13）
+
+- 现有图谱为 10 节点/16 有向边，覆盖数据分析、AI产品、后端三条主线；存在合法的 lateral 往返可能（如数据分析师与AI产品助理），因此 Repository 应能检测/报告环，但 PathService 必须靠 path-local visited 和最大深度剪枝，不能要求整图为 DAG。
+- 当前 `CareerGraphNode` 只有身份/层级/行业/描述，`CareerGraphEdge` 只有关系、成本、增长值和行业；节点无能力向量、典型时长、岗位风险和城市，边无 transition requirements 与转岗风险。
+- 现有 V001 数据库表同样缺少上述图谱扩展列；初始化脚本只写旧字段。本步要实现“可初始化图谱数据”，需新增迁移而不是改写 V001，并同步初始化 upsert。
+- 当前 PathAgent 是写死三阶段 Mock，3年/5年完全复用同一 phases；本次明确不修改它。PathService 将独立返回新严格结构，后续 Agent 集成另行完成。
+- 现有 `MatchResult.skill_gaps` 可提供已知能力 Gap 与 difficulty，但未知能力不会被当成0；路径能力成本只能使用已知 Gap，未知/缺失能力向量通过路径 confidence 和 data-quality flags 表达，不能虚构 Gap。
+- 项目没有 networkx 依赖；10节点图适合纯 Python 邻接表和受限 DFS，避免新增依赖。
+- 开发前基线：MatchService+能力归一化 28/28；种子 48 标签、3学生、3岗位、10节点、16边、9张V001表、隐私和7个Mock工具检查均通过。
+- 通过 JSON 解析确认图谱能力向量拟用标签（含 API设计、Git/版本控制、数据可视化、需求分析、产品规划、大模型应用等）全部属于现有48个活动标签。
+- 图谱现已补齐10个节点能力向量、典型时长、节点风险和16条边的转换要求/风险；城市保持null。V002以加法迁移扩展图表，并通过唯一边索引+upsert支持重复初始化。
+- Repository 不要求图为DAG；当前检测到2个有向横向环，PathService 的path-local visited会阻止重复节点。vertical边仍必须严格升级。
+- PathService 终点能力缺口直接复用输入 MatchResult；中间节点未知能力只添加 `node_match_has_unknown_skills` 标志，不计作0级Gap。
+- 起点排序先按可观测岗位权重覆盖率降序，再按已知 Gap 成本、confidence、score 和 node_key，避免未知能力较多的节点因“没有可计算Gap”错误胜出。
+- Demo `演示学生A→AI产品经理` 推荐 direct 路线为 数据分析助理→数据产品助理→AI产品经理；路径评分分解为 growth=3.8、transfer=2.3、known gap cost=3.3、base=-1.8、偏好=12、风险扣分=6、总分=4.2，confidence=0.6335。
+- 3年 Roadmap 为3个年度阶段并在第3年完成首次目标岗位验证；5年 Roadmap 为5阶段，额外提供目标岗位深化应用与巩固扩展，不是复制同一阶段列表。
+- 最终核心回归55/55；平台旧基线5/7，失败仍是无LLM配置时旧测试期待success/code=0，与PathService无关；种子/V002静态迁移、隐私、7个Mock工具、compileall和diff check均通过。
+
 ## 逐页检查发现（2026-03-09）
 - 路由当前实际使用页面为：
   - `/` -> `views/home/HomeLanding.vue`

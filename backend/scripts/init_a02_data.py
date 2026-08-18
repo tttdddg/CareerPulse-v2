@@ -22,6 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_DIR = BACKEND_DIR.parent
 DATA_DIR = BACKEND_DIR / "app" / "data"
 MIGRATION_FILE = BACKEND_DIR / "migrations" / "V001__create_a02_tables.sql"
+PATH_MIGRATION_FILE = BACKEND_DIR / "migrations" / "V002__extend_career_graph_for_path_planning.sql"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.models import (  # noqa: E402
@@ -102,6 +103,7 @@ def validate_seed_data() -> dict[str, Any]:
             raise ValueError(f"students_demo.json contains possible {label}")
 
     migration = MIGRATION_FILE.read_text(encoding="utf-8")
+    path_migration = PATH_MIGRATION_FILE.read_text(encoding="utf-8")
     expected_tables = {
         "ability_tags",
         "student_ability_records",
@@ -120,6 +122,18 @@ def validate_seed_data() -> dict[str, Any]:
     ]
     if missing_tables or "-- ROLLBACK" not in migration:
         raise ValueError(f"migration contract incomplete: {missing_tables}")
+    expected_path_columns = {
+        "required_skills",
+        "typical_duration",
+        "risk_level",
+        "cities",
+        "transition_requirements",
+    }
+    missing_path_columns = sorted(
+        column for column in expected_path_columns if column not in path_migration
+    )
+    if missing_path_columns or "-- ROLLBACK" not in path_migration:
+        raise ValueError(f"path migration contract incomplete: {missing_path_columns}")
 
     from app.tools.mock_tools import call_mock_tool  # noqa: E402
 
@@ -167,6 +181,7 @@ def validate_seed_data() -> dict[str, Any]:
         "training_types": sorted(training_types),
         "resources": len(resources),
         "migration_tables": len(expected_tables),
+        "path_migration_columns": len(expected_path_columns),
         "privacy_check": "passed",
         "mock_tool_success_failure_check": f"passed ({len(tool_checks)} tools)",
     }
@@ -184,9 +199,11 @@ def apply_database() -> None:
     tags = load_json("ability_tags.json")
     graph = load_json("career_graph.json")
     migration = MIGRATION_FILE.read_text(encoding="utf-8")
+    path_migration = PATH_MIGRATION_FILE.read_text(encoding="utf-8")
     with psycopg2.connect(database_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(migration)
+            cursor.execute(path_migration)
             for item in tags:
                 cursor.execute(
                     """
@@ -203,31 +220,49 @@ def apply_database() -> None:
             for node in graph["nodes"]:
                 cursor.execute(
                     """
-                    INSERT INTO career_graph_nodes (node_key, job_title, level_range, industry, description)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO career_graph_nodes
+                      (node_key, job_title, level_range, industry, description,
+                       required_skills, typical_duration, risk_level, cities)
+                    VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s::jsonb)
                     ON CONFLICT (node_key) DO UPDATE SET
                       job_title = EXCLUDED.job_title,
                       level_range = EXCLUDED.level_range,
                       industry = EXCLUDED.industry,
-                      description = EXCLUDED.description
+                      description = EXCLUDED.description,
+                      required_skills = EXCLUDED.required_skills,
+                      typical_duration = EXCLUDED.typical_duration,
+                      risk_level = EXCLUDED.risk_level,
+                      cities = EXCLUDED.cities
                     """,
-                    (node["node_key"], node["job_title"], node["level_range"], node["industry"], node["description"]),
+                    (
+                        node["node_key"], node["job_title"], node["level_range"],
+                        node["industry"], node["description"],
+                        json.dumps(node.get("required_skills"), ensure_ascii=False),
+                        node.get("typical_duration"), node.get("risk_level"),
+                        json.dumps(node.get("cities"), ensure_ascii=False),
+                    ),
                 )
             for edge in graph["edges"]:
                 cursor.execute(
                     """
                     INSERT INTO career_graph_edges
-                      (source_key, target_key, relation_type, reason, transfer_cost, growth_value, source_industry, target_industry)
-                    SELECT %s, %s, %s, %s, %s, %s, %s, %s
-                    WHERE NOT EXISTS (
-                      SELECT 1 FROM career_graph_edges
-                      WHERE source_key = %s AND target_key = %s AND relation_type = %s
-                    )
+                      (source_key, target_key, relation_type, reason, transfer_cost,
+                       growth_value, source_industry, target_industry,
+                       transition_requirements, risk_level)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+                    ON CONFLICT (source_key, target_key, relation_type) DO UPDATE SET
+                      reason = EXCLUDED.reason,
+                      transfer_cost = EXCLUDED.transfer_cost,
+                      growth_value = EXCLUDED.growth_value,
+                      source_industry = EXCLUDED.source_industry,
+                      target_industry = EXCLUDED.target_industry,
+                      transition_requirements = EXCLUDED.transition_requirements,
+                      risk_level = EXCLUDED.risk_level
                     """,
                     (
                         edge["source_key"], edge["target_key"], edge["relation_type"], edge["reason"],
                         edge["transfer_cost"], edge["growth_value"], edge.get("source_industry"), edge.get("target_industry"),
-                        edge["source_key"], edge["target_key"], edge["relation_type"],
+                        json.dumps(edge.get("transition_requirements", []), ensure_ascii=False), edge.get("risk_level", "medium"),
                     ),
                 )
         connection.commit()

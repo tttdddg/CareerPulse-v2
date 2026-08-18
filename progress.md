@@ -53,3 +53,23 @@
 - 2026-08-10：开始阶段2 JobAgent 独立验证；暂不修改业务逻辑，先确认真实 provider 与趋势资料可用性，再执行至少七组结构/语义/异常测试。
 - 独立验证发现并修复 JobAgent 语义 grounding 小 Bug：修复前合法结构可承载虚构 evidence/技能/38% 趋势，修复后 evidence、趋势标签、数字及空趋势约束均由确定性门禁检查，失败直接 fallback。
 - JobAgent 独立验证完成：8 个主场景、3 个趋势对抗探针、平台注入 7/7、ProfileAgent 7/7、compileall 与日志隐私均通过；无真实 provider/真实趋势文件限制已明确记录。
+- 2026-08-13：开始阶段3第2步人岗匹配与能力缺口分析；先完整审计阶段2资产和测试基线，再实现确定性 MatchService。本步骤明确排除 MatchAgent、PathAgent、百宝箱、MCP/Tool Calling、路径生成、阶段4推荐和新前端页面。
+- `planning-with-files` 的会话恢复脚本在当前技能目录中不存在；已读取现有计划、发现、进度和 Git 状态恢复上下文。唯一未跟踪业务文件为用户提供的 `开发日志/D3 stage1.md`，保持不修改。
+- 已读取根 AGENTS、Hermes 阶段3规格和阶段2 MatchService 开发日志；确认 Hermes 部分仓库现状已过期，后续以实际代码、迁移和测试结果裁决。
+- 已核对冻结 MatchResult/公式、阶段2学生与岗位 Schema、CareerState 和 V001 数据库迁移；当前匹配结果无独立持久化表，本步骤保持会话级结果，不做数据库扩张。
+- 基线执行完成：相关 33 项中 31 通过、2 个已知平台旧断言失败；匹配/归一化/画像专项全部通过。种子与数据库迁移静态检查通过。
+- 审计阶段完成，进入 Schema/配置/MatchService 实现；决定保持旧顶层字段兼容，并用 null 明确表示未提供的学生能力等级，而不是伪造 level=0。
+- 已新增集中配置与严格匹配 Schema，扩展 MatchService 输出全部要求字段；未改 Agent、Tool、数据库、前端和冻结契约。
+- 首次旧回归 11/14：两项兼容 Gap 顺序、一项完整 dict 锁死；已恢复旧 priority 公式并升级空结果断言。扩展后的 MatchService 专项 21/21 通过。
+- 补充未提供能力不参与 observed score 的重归一化规则、50%覆盖门槛和裸 dict evidence 隐私校验；新增 ADR 并同步公共契约/Agent契约/Tool Catalog，明确不代表 MatchAgent 或 Tool 已实现。
+- 最终核心相关测试 35/35；平台基线 5/7（2 个开发前已存在的无 LLM 配置旧断言冲突）；种子、9张迁移表、隐私、7个 Mock 工具、compileall、diff check 均通过。
+- 最终 Demo 示例已生成：演示学生C × 数据分析师 = 90.42/high，confidence=0.8756；匹配能力为数据分析、Python、数据可视化，明确 Gap 为 SQL/数据库和沟通表达各1级。阶段3第2步完成，未提交 Git。
+- 2026-08-13：开始阶段3职业图谱与确定性路径规划；范围限定为 CareerNode/Edge、Repository、初始化图数据、候选搜索、循环/限长、PathService、评分、3/5年年度 Roadmap 与单元测试，明确排除 PathAgent、百宝箱和前端。
+- 已读取 Hermes 路径设计规格；接受城市缺失只标记、节点/边双 risk、career_roadmap 与 path_plan 并行、3/5年年度粒度四项决定。保持上一步 MatchService 未提交改动不被覆盖。
+- 已审计现有 10节点/16边图、种子模型、迁移/初始化、MatchResult 与 Mock PathAgent；确认需扩展图谱数据与新增 V002 迁移，PathAgent 保持不动。
+- 开发前 Match/归一化基线 28/28，种子与迁移检查通过；已用 JSON 解析核对路径能力向量所需标签均来自统一48标签体系。
+- 完成图模型/数据、严格Path Schema、集中配置、Repository、V002迁移/初始化和PathService；三条Demo主线均可生成路径，3年为3阶段、5年为5阶段。进入系统化测试。
+- PathService/Repository 专项扩展为18项并与Match/归一化合跑46/46；覆盖环、限长、连续lateral、未知岗位图内fallback、无通路、数据不足、Match目标错配、城市缺失、评分单调性、3/5年差异和10次稳定性。
+- 新增ADR-002并同步架构、API、Agent、数据字典和Tool Catalog；文档明确PathAgent/MCP尚未接入，不宣称平台能力。
+- 末端审查补充起点能力覆盖率排序和未知节点能力的confidence扣减；未知项仍不按0级计算。最终核心回归55/55。
+- 已生成演示学生A×AI产品经理示例：3条候选（direct+2 extension），推荐 数据分析助理→数据产品助理→AI产品经理；3年3阶段、5年5阶段，算法版本deterministic-path-v1。任务完成，未提交Git。

@@ -150,6 +150,30 @@ student_input + target_job_input
 ```json
 {
   "overall_score": "float — 0.0-100.0, 综合匹配度, 由 MatchService 代码计算",
+  "match_level": "string — high / good / fair / weak / low / insufficient_data",
+  "dimension_matches": [
+    {
+      "dimension": "string — 统一能力标签",
+      "student_level": "int 1-5 | null — null 表示画像未提供，不等于0级",
+      "required_level": "int — 1-5",
+      "gap": "int >=0 | null — 仅学生等级已知时计算",
+      "score": "float 0.0-100.0 | null",
+      "weight": "float — 0.0-1.0",
+      "student_evidence": "string | null",
+      "job_evidence": "string | null",
+      "confidence": "float 0.0-1.0 | null",
+      "importance": "string — critical / important / nice_to_have",
+      "status": "string — matched / gap / unknown / excluded"
+    }
+  ],
+  "matched_skills": ["string — 达到要求的正权重能力"],
+  "missing_skills": ["string — 岗位需要但学生画像未提供的正权重能力"],
+  "skill_gaps": ["object — 有明确学生等级且低于岗位要求的能力差距、证据和优先级"],
+  "hard_constraint_results": ["object — critical能力的passed/failed/unknown结论"],
+  "confidence": "float — 0.0-1.0, 结果可靠度而非能力等级",
+  "evidence": ["object — 按能力维度对齐的学生和岗位证据"],
+  "calculation_version": "string — 固定为 deterministic-match-v2",
+  "data_quality_flags": ["string — 画像缺失、低置信度等确定性标志"],
   "dimensions": [
     {
       "name": "string — 维度名称",
@@ -162,7 +186,7 @@ student_input + target_job_input
   "ability_gaps": [
     {
       "tag": "string — 能力标签",
-      "current_level": "int — 1-5",
+      "current_level": "int — 0-5；0仅为旧兼容投影中的未知哨兵",
       "required_level": "int — 1-5",
       "gap": "int — required_level - current_level, ≥0",
       "priority": "int — 提升优先级, 1=最高, 正整数, 由 MatchService 计算"
@@ -194,10 +218,16 @@ Gap_k    = max(Jik - Suk, 0)
 Priority_k = Gap_k × wk × (1 / Difficulty_k)
   其中 Difficulty_k 为能力提升难度系数 (1.0-3.0)
 
-缺失能力: Suk = 0 → min(0, 1) = 0 → 该维度贡献为 0
+已知维度集合 Kobs = 学生画像提供 level 且岗位 weight > 0 的能力维度
+Score(u,i) = Σ(k∈Kobs) wk × min(Suk / Jik, 1) / Σ(k∈Kobs) wk
+
+缺失能力: student_level / gap / score = null，不直接判定为0级；
+可观测岗位权重 < 0.5 时 match_level = insufficient_data。
+旧 ability_gaps.current_level=0 仅为 deterministic-v1 兼容投影。
 ```
 
 > 匹配分 **严禁由 LLM 直接产出**。LLM 仅负责 `gap_analysis[].suggestion` 和 `strengths` 的自然语言生成。
+> 阶段3加法扩展与缺失语义见 `decisions/ADR-001-stage3-match-result-extension.md`。
 
 ---
 
@@ -279,6 +309,41 @@ GrowthValue       = Σ (目标岗位能力等级 × 该能力市场溢价系数)
 TransferCost      = Σ (需要学习的新能力数 × 学习难度)
 AbilityGapCost    = Σ (Gap_k × Difficulty_k)
 ```
+
+### 5.4 阶段3确定性 PathResult（加法扩展）
+
+PathService 独立返回以下结构；冻结 `path_plan` 仍保留，后续由 PathAgent 做兼容投影：
+
+```json
+{
+  "status": "success / no_reachable_path / insufficient_data",
+  "requested_horizon_years": "3 / 5",
+  "candidate_paths": ["CandidatePath — 图谱节点序列、边、评分与数据标志"],
+  "recommended_path": "CandidatePath | null",
+  "alternative_paths": ["CandidatePath"],
+  "path_scores": {"path_id": "PathScore"},
+  "three_year_roadmap": "CareerRoadmap — 3个年度阶段",
+  "five_year_roadmap": "CareerRoadmap — 5个年度阶段",
+  "assumptions": ["string"],
+  "risks": ["string"],
+  "confidence": "float 0.0-1.0",
+  "data_quality_flags": ["string"],
+  "calculation_version": "deterministic-path-v1"
+}
+```
+
+每个 `PathScore` 至少包含：`current_match_score/growth_value/transfer_cost/ability_gap_cost/`
+`base_score/preference_adjustment/industry_continuity/region_fit/risk_penalty/`
+`target_consistency/data_confidence/total_score`。
+
+```text
+base_score = growth_value - transfer_cost - ability_gap_cost
+adjusted = base_score + preference + industry_continuity×5 + region_fit×5 - risk_penalty
+total_score = adjusted × target_consistency
+```
+
+未知学生能力不按0级计 Gap；未知岗位不创建推断节点。具体决策见
+`decisions/ADR-002-stage3-career-graph-and-roadmap.md`。
 
 ---
 

@@ -82,6 +82,28 @@ class CareerGraphNode(StrictModel):
     level_range: Literal["entry", "junior", "mid", "senior", "lead"]
     industry: str | None = None
     description: str
+    required_skills: list[JobAbilityWeight] | None = Field(default=None, min_length=1)
+    typical_duration: int | None = Field(default=None, ge=1, le=120)
+    risk_level: Literal["low", "medium", "high"] | None = None
+    cities: list[str] | None = None
+
+    @model_validator(mode="after")
+    def required_skill_weights_sum_to_one(self) -> "CareerGraphNode":
+        if self.required_skills is not None:
+            tags = [item.tag for item in self.required_skills]
+            if len(tags) != len(set(tags)):
+                raise ValueError("career node required_skills must use unique tags")
+            total = sum(item.weight for item in self.required_skills)
+            if abs(total - 1.0) > 1e-9:
+                raise ValueError(
+                    f"career node required skill weights must sum to 1.0, got {total}"
+                )
+        if self.cities is not None:
+            normalized = [city.strip() for city in self.cities]
+            if any(not city for city in normalized) or len(normalized) != len(set(normalized)):
+                raise ValueError("career node cities must be unique non-empty values")
+            self.cities = normalized
+        return self
 
 
 class CareerGraphEdge(StrictModel):
@@ -93,6 +115,16 @@ class CareerGraphEdge(StrictModel):
     growth_value: float = Field(ge=0.0)
     source_industry: str | None = None
     target_industry: str | None = None
+    transition_requirements: list[str] = Field(default_factory=list)
+    risk_level: Literal["low", "medium", "high"] = "medium"
+
+    @model_validator(mode="after")
+    def transition_requirements_are_unique(self) -> "CareerGraphEdge":
+        normalized = [tag.strip() for tag in self.transition_requirements]
+        if any(not tag for tag in normalized) or len(normalized) != len(set(normalized)):
+            raise ValueError("transition_requirements must contain unique non-empty tags")
+        self.transition_requirements = normalized
+        return self
 
 
 class CareerGraph(StrictModel):
