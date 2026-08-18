@@ -261,6 +261,16 @@
   "type": "object",
   "properties": {
     "overall_score": {"type": "number", "minimum": 0, "maximum": 100},
+    "match_level": {"type": "string", "enum": ["high", "good", "fair", "weak", "low", "insufficient_data"]},
+    "dimension_matches": {"type": "array", "items": {"type": "object"}},
+    "matched_skills": {"type": "array", "items": {"type": "string"}},
+    "missing_skills": {"type": "array", "items": {"type": "string"}},
+    "skill_gaps": {"type": "array", "items": {"type": "object"}},
+    "hard_constraint_results": {"type": "array", "items": {"type": "object"}},
+    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "evidence": {"type": "array", "items": {"type": "object"}},
+    "calculation_version": {"type": "string", "const": "deterministic-match-v2"},
+    "data_quality_flags": {"type": "array", "items": {"type": "string"}},
     "dimensions": {
       "type": "array",
       "items": {
@@ -338,10 +348,30 @@
 
 ### 4.2 输出
 
+> 当前百宝箱工具仍只返回冻结 `path_plan + learning_plan`；阶段3 PathService 已新增
+> `path_result`，但尚未接入 PathAgent/MCP。未来接入时作为可选并行字段，不替换旧字段。
+
 ```json
 {
   "type": "object",
   "properties": {
+    "path_result": {
+      "type": "object",
+      "description": "可选的阶段3确定性PathResult；当前工具尚未接入",
+      "properties": {
+        "status": {"type": "string", "enum": ["success", "no_reachable_path", "insufficient_data"]},
+        "candidate_paths": {"type": "array"},
+        "recommended_path": {"type": ["object", "null"]},
+        "alternative_paths": {"type": "array"},
+        "path_scores": {"type": "object"},
+        "three_year_roadmap": {"type": "object"},
+        "five_year_roadmap": {"type": "object"},
+        "assumptions": {"type": "array", "items": {"type": "string"}},
+        "risks": {"type": "array", "items": {"type": "string"}},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "calculation_version": {"type": "string", "const": "deterministic-path-v1"}
+      }
+    },
     "path_plan": {
       "type": "object",
       "properties": {

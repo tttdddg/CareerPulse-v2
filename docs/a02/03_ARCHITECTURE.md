@@ -110,8 +110,11 @@ backend/
 │   │   ├── student_service.py     # [保留]
 │   │   ├── job_service.py         # [保留]
 │   │   ├── resume_service.py      # [保留]
-│   │   ├── matching_service.py    # [重写] 确定性匹配算法
+│   │   ├── match_service.py       # 确定性匹配与能力缺口算法
+│   │   ├── match_config.py        # 匹配阈值与置信度权重集中配置
 │   │   ├── path_service.py        # [新]
+│   │   ├── path_config.py         # 路径搜索/评分集中配置
+│   │   ├── career_graph_repository.py # 图谱加载、校验与邻接查询
 │   │   ├── training_service.py    # [新]
 │   │   ├── resource_service.py    # [新]
 │   │   ├── feedback_service.py    # [新]

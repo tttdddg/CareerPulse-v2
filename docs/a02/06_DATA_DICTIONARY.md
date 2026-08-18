@@ -59,7 +59,11 @@ CREATE TABLE career_graph_nodes (
     job_title    VARCHAR(128) NOT NULL,          -- 岗位名称
     level_range  VARCHAR(16),                   -- 级别范围: entry / junior / mid / senior / lead
     industry     VARCHAR(64),
-    description  TEXT
+    description  TEXT,
+    required_skills JSONB,                      -- 统一能力标签向量
+    typical_duration INTEGER,                   -- 典型停留月数 1-120
+    risk_level VARCHAR(16),                     -- low / medium / high
+    cities JSONB                                -- 城市数据缺失时为 null，不推断
 );
 ```
 
@@ -75,11 +79,17 @@ CREATE TABLE career_graph_edges (
     transfer_cost   REAL         NOT NULL DEFAULT 1.0,  -- 转移成本
     growth_value    REAL         NOT NULL DEFAULT 1.0,  -- 成长价值
     source_industry VARCHAR(64),
-    target_industry VARCHAR(64)
+    target_industry VARCHAR(64),
+    transition_requirements JSONB NOT NULL DEFAULT '[]'::jsonb,
+    risk_level VARCHAR(16) NOT NULL DEFAULT 'medium'
 );
+CREATE UNIQUE INDEX uq_graph_edge_identity
+ON career_graph_edges(source_key, target_key, relation_type);
 CREATE INDEX idx_graph_source ON career_graph_edges(source_key);
 CREATE INDEX idx_graph_target ON career_graph_edges(target_key);
 ```
+
+> 图谱扩展由 `V002__extend_career_graph_for_path_planning.sql` 加法迁移提供；V001不改。
 
 ### 2.5 training_records — 训练记录
 

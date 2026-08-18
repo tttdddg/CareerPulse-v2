@@ -152,6 +152,9 @@
 
 ## 3. MatchAgent
 
+> 阶段3第2步只完成 Match Schema 与 MatchService；当前 Mock MatchAgent 尚未接入
+> 新 Service。本节描述目标边界，不代表该 Agent 集成已经配置或测试。
+
 ### 3.1 职责
 
 调用 MatchService 计算匹配分、gap、priority → 用 LLM 生成自然语言解释。
@@ -170,6 +173,15 @@
 ```json
 {
   "overall_score": "float 0.0-100.0 — 由 MatchService 代码计算, 非LLM产出",
+  "match_level": "high / good / fair / weak / low / insufficient_data — Service计算",
+  "dimension_matches": "array — 等级、Gap、证据、置信度及known/unknown状态，由Service计算",
+  "matched_skills": ["string — Service计算"],
+  "missing_skills": ["string — 画像未提供，不等于能力为0"],
+  "skill_gaps": "array — 仅包含有明确学生等级的不足项",
+  "hard_constraint_results": "array — critical能力的passed/failed/unknown结论",
+  "confidence": "float 0.0-1.0 — 结果可靠度，由Service计算",
+  "evidence": "array — 按统一能力维度对齐的证据",
+  "calculation_version": "deterministic-match-v2",
   "dimensions": [
     {
       "name": "string",
@@ -221,12 +233,16 @@
 
 ### 3.7 Fallback
 
-- MatchService 失败：使用规则兜底算法（当前 `matching_service.py` 的 `_rule_fallback_analysis`）
+- MatchService 失败：由 MatchAgent 记录失败并进入后续明确实现的规则 fallback；
+  当前 `match_service.py` 不调用 LLM，也不吞掉非法输入
 - LLM 失败：`gap_analysis[].suggestion` 使用固定模板 "建议补充{tag}的实践项目"
 
 ---
 
 ## 4. PathAgent
+
+> 阶段3当前只完成 CareerGraphRepository、Path Schema 与 PathService。现有 Mock
+> PathAgent 尚未接入这些模块，本节描述后续集成边界，不代表百宝箱链路已经可用。
 
 ### 4.1 职责
 
@@ -254,8 +270,8 @@
 ### 4.5 执行流程
 
 ```
-1. PathService.search(student_profile, job_profile, match_result)
-   → plan_3year, plan_5year (代码计算)
+1. PathService.calculate(student_profile, job_profile, match_result, preferences, horizon)
+   → candidate_paths + path_scores + three_year_roadmap + five_year_roadmap（代码计算）
 2. LLM 生成 phase 的 milestone 描述和 alternative_paths 的 reason
 ```
 
@@ -266,7 +282,8 @@
 
 ### 4.7 Fallback
 
-- PathService 失败：返回固定 3 阶段路径 `[基础→进阶→目标]`
+- PathService 对无通路/未知岗位/数据不足返回明确 status、空路线或图内 fallback 节点；
+  PathAgent 不得伪造图谱外岗位
 - LLM 失败：milestone 用固定模板
 
 ---
