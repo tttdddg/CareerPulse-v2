@@ -51,6 +51,9 @@ class CareerState(BaseModel):
     match_result: dict[str, Any] | None = None
     path_plan: dict[str, Any] | None = None
     learning_plan: dict[str, Any] | None = None
+    career_roadmap: dict[str, Any] | None = None
+    career_preferences: dict[str, Any] | None = None
+    desired_city: str | None = None
     training_plan: dict[str, Any] | None = None
     resource_result: dict[str, Any] | None = None
     feedback_result: dict[str, Any] | None = None
