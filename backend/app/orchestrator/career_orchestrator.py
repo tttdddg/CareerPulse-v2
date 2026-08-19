@@ -62,6 +62,7 @@ class CareerOrchestrator:
             "match_result": state.match_result,
             "path_plan": state.path_plan,
             "learning_plan": state.learning_plan,
+            "career_roadmap": state.career_roadmap,
             "training_plan": state.training_plan,
             "resource_result": state.resource_result,
             "feedback_result": state.feedback_result,
