@@ -137,7 +137,8 @@ backend/
 │   │
 │   ├── mcp/                       # [新] MCP 适配（如平台支持）
 │   │   ├── __init__.py
-│   │   └── mcp_server.py          # MCP Server 实现
+│   │   ├── server.py              # 官方 SDK MCP Server + Streamable HTTP/Bearer
+│   │   └── tool_service.py        # session/前置/日志薄适配，复用真实 Agent/Service
 │   │
 │   ├── platform/                  # [新] 平台适配层
 │   │   ├── __init__.py
@@ -209,12 +210,23 @@ front/
 - 返回最终 CareerState
 ```
 
+阶段3本地联调中，CareerOrchestrator 在每个 match/path 阶段完成后把 CareerState 与
+AgentRunLog 原子写入 StateRepository。默认本地后端为文件型 SQLite；配置
+`A02_DATABASE_URL` 后使用 PostgreSQL V003。数据库失败必须回滚并返回数据库错误，
+不得伪装为内存持久化成功。
+
 ### 3.2 BaseAgent
 
 ```
 职责：
 - 统一入口：async def run(state: CareerState) -> AgentResult
 - 统一日志：开始/结束时间、tool_calls、fallback
+
+百宝箱最小接入在 CareerOrchestrator 外增加薄 HTTP 适配层，不改变 MatchAgent、
+PathAgent、MatchService 或 PathService。适配层负责 Bearer 鉴权、固定 Pydantic Schema、
+请求指纹/幂等、超时、稳定错误 envelope 和 `platform_tool_calls`；业务计算仍按
+`平台 → 适配层 → CareerOrchestrator → Agent → Service` 执行。平台调用记录通过
+`agent_run_key` 关联 AgentRunLog，不暴露数据库连接或表查询能力。
 - 统一降级：LLM 失败 → 规则/Demo 数据
 - 子类实现：async def _execute(state) -> dict
 ```
@@ -308,11 +320,15 @@ front/
 
 ```
 方式A: MCP (Model Context Protocol)
-  百宝箱 MCP Client → CareerPulse MCP Server → tools → services
+  百宝箱 MCP Client → POST /mcp (Streamable HTTP)
+  → CareerPulse MCP ToolService → CareerOrchestrator → Agents → Services
 
 方式B: HTTP API (MCP 不支持时的备选)
-  百宝箱 HTTP 工具 → POST https://<host>/api/tbox/<tool_name>
-  鉴权: Bearer Token (X-API-Key)
+  百宝箱 HTTP 工具 → /api/platform/v1/tools/<tool_name>
+
+两种方式均使用 Authorization Bearer，但 MCP 使用独立 `MCP_API_TOKEN`，HTTP 使用
+`A02_TBOX_API_TOKEN`。MCP 与 HTTP 共享 CareerState、Agent/Service 和平台调用日志，不通过
+内部网络互调，也不复制匹配/路径算法。
 ```
 
 > 以平台实际支持的方式为准。D1 确认后写入 `decisions/ADR-004-tbox-integration.md`。

@@ -23,6 +23,8 @@ PROJECT_DIR = BACKEND_DIR.parent
 DATA_DIR = BACKEND_DIR / "app" / "data"
 MIGRATION_FILE = BACKEND_DIR / "migrations" / "V001__create_a02_tables.sql"
 PATH_MIGRATION_FILE = BACKEND_DIR / "migrations" / "V002__extend_career_graph_for_path_planning.sql"
+STATE_MIGRATION_FILE = BACKEND_DIR / "migrations" / "V003__persist_stage3_career_state.sql"
+TOOL_MIGRATION_FILE = BACKEND_DIR / "migrations" / "V004__add_platform_tool_calls.sql"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.models import (  # noqa: E402
@@ -104,6 +106,8 @@ def validate_seed_data() -> dict[str, Any]:
 
     migration = MIGRATION_FILE.read_text(encoding="utf-8")
     path_migration = PATH_MIGRATION_FILE.read_text(encoding="utf-8")
+    state_migration = STATE_MIGRATION_FILE.read_text(encoding="utf-8")
+    tool_migration = TOOL_MIGRATION_FILE.read_text(encoding="utf-8")
     expected_tables = {
         "ability_tags",
         "student_ability_records",
@@ -134,6 +138,36 @@ def validate_seed_data() -> dict[str, Any]:
     )
     if missing_path_columns or "-- ROLLBACK" not in path_migration:
         raise ValueError(f"path migration contract incomplete: {missing_path_columns}")
+    expected_state_contract = {
+        "CREATE TABLE IF NOT EXISTS career_state",
+        "service_name",
+        "run_key",
+        "uq_agent_logs_run_key",
+        "MATCH_COMPLETED",
+        "PATH_COMPLETED",
+    }
+    missing_state_contract = sorted(
+        item for item in expected_state_contract if item not in state_migration
+    )
+    if missing_state_contract or "-- ROLLBACK" not in state_migration:
+        raise ValueError(
+            f"state persistence migration contract incomplete: {missing_state_contract}"
+        )
+    expected_tool_contract = {
+        "CREATE TABLE IF NOT EXISTS platform_tool_calls",
+        "idempotency_key",
+        "request_fingerprint",
+        "agent_run_key",
+        "uq_platform_tool_idempotency",
+        "timed_out",
+    }
+    missing_tool_contract = sorted(
+        item for item in expected_tool_contract if item not in tool_migration
+    )
+    if missing_tool_contract or "-- ROLLBACK" not in tool_migration:
+        raise ValueError(
+            f"platform tool migration contract incomplete: {missing_tool_contract}"
+        )
 
     from app.tools.mock_tools import call_mock_tool  # noqa: E402
 
@@ -182,6 +216,8 @@ def validate_seed_data() -> dict[str, Any]:
         "resources": len(resources),
         "migration_tables": len(expected_tables),
         "path_migration_columns": len(expected_path_columns),
+        "state_migration_contract": len(expected_state_contract),
+        "platform_tool_migration_contract": len(expected_tool_contract),
         "privacy_check": "passed",
         "mock_tool_success_failure_check": f"passed ({len(tool_checks)} tools)",
     }
@@ -200,10 +236,14 @@ def apply_database() -> None:
     graph = load_json("career_graph.json")
     migration = MIGRATION_FILE.read_text(encoding="utf-8")
     path_migration = PATH_MIGRATION_FILE.read_text(encoding="utf-8")
+    state_migration = STATE_MIGRATION_FILE.read_text(encoding="utf-8")
+    tool_migration = TOOL_MIGRATION_FILE.read_text(encoding="utf-8")
     with psycopg2.connect(database_url) as connection:
         with connection.cursor() as cursor:
             cursor.execute(migration)
             cursor.execute(path_migration)
+            cursor.execute(state_migration)
+            cursor.execute(tool_migration)
             for item in tags:
                 cursor.execute(
                     """

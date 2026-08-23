@@ -26,6 +26,7 @@ class MatchAgent(BaseAgent):
     """Call MatchService deterministically, optionally enhance with LLM."""
 
     name = "MatchAgent"
+    service_name = "MatchService"
     required_fields = ("student_profile", "job_profile")
     output_fields = ("match_result",)
     tool_name = "calculate_job_match"

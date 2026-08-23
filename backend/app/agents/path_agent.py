@@ -25,6 +25,7 @@ class PathAgent(BaseAgent):
     """Call PathService deterministically, optionally enhance with LLM."""
 
     name = "PathAgent"
+    service_name = "PathService"
     required_fields = ("student_profile", "job_profile", "match_result")
     output_fields = ("path_plan", "learning_plan", "career_roadmap")
     tool_name = "recommend_career_path"

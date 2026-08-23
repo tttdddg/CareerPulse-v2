@@ -46,6 +46,8 @@ CareerState 是跨 Agent 共享的会话级状态对象，由 CareerOrchestrator
   "session_id": "string, required — 后端会话ID, e.g. sess-20260804-001",
   "platform_session_id": "string | null — 百宝箱会话ID, 首次对话时填充",
   "user_id": "string | null — 登录用户ID",
+  "status": "string — 阶段状态，见 §1.1",
+  "error_type": "string | null — FAILED 时的可判断错误类型",
   "student_input": "object | null — 用户原始输入 {resume_text, form_fields, target_job}",
   "target_job_input": "object | null — 目标岗位 {job_id, job_title, industry}",
   "student_profile": "object | null — ProfileAgent 输出, 见 §2.1",
@@ -54,6 +56,7 @@ CareerState 是跨 Agent 共享的会话级状态对象，由 CareerOrchestrator
   "match_result": "object | null — MatchAgent 输出, 见 §4.1",
   "path_plan": "object | null — PathAgent 输出, 见 §5.1",
   "learning_plan": "object | null — 学习计划, 见 §5.2",
+  "career_roadmap": "object | null — PathService 完整确定性 PathResult, 见 §5.4",
   "training_plan": "object | null — TrainingAgent 输出, 见 §6.1",
   "resource_result": "object | null — 资源推荐结果, 见 §6.2",
   "feedback_result": "object | null — FeedbackAgent 输出, 见 §7.1",
@@ -77,6 +80,125 @@ student_input + target_job_input
 ```
 
 每个 Agent 执行前检查前置字段是否为 null；为 null 时跳过并记录 fallback。
+
+阶段3本地分步状态：
+
+```text
+INITIALIZED
+  → MATCH_STARTED → MATCH_COMPLETED
+  → PATH_STARTED  → PATH_COMPLETED
+```
+
+执行失败统一写入 `FAILED`，并在 `error_type` 中保存不含原始简历/JD的错误类型。
+完整六 Agent 链可继续使用 `COMPLETED` / `PARTIAL`。
+
+### 1.2 阶段3本地分步 API（HTTP，不含平台 Tool/MCP）
+
+| 方法 | 路径 | 输入 | 输出 |
+|---|---|---|---|
+| POST | `/api/career-agent/stage3/prepare` | `session_id/user_id` + 阶段2 `StudentProfile`、`JobProfile`（至少一个） | `CareerState` |
+| POST | `/api/career-agent/stage3/match` | `session_id/user_id` | `CareerState`，成功状态 `MATCH_COMPLETED` |
+| POST | `/api/career-agent/stage3/path` | `session_id/user_id` | `CareerState`，成功状态 `PATH_COMPLETED` |
+| GET | `/api/career-agent/session/{session_id}` | path parameter | 持久化 `CareerState` |
+| GET | `/api/agent/logs/{session_id}` | path parameter | 持久化 `AgentLog[]` |
+
+`prepare` 只接收阶段2真实 Schema，不接收客户端提供的 Match/Path 结果。`match` 和
+`path` 从数据库读取前一步结果；相同 session 的相同请求幂等返回已有结果，不追加重复日志；
+相同 session 的冲突画像返回 HTTP 409。
+
+### 1.3 百宝箱阶段3最小工具 API（`stage3-tool-v1`）
+
+以下是加法扩展，不改变 §1.2 的本地接口，也不接入阶段4工具。所有端点均要求
+`Authorization: Bearer <A02_TBOX_API_TOKEN>`，请求/响应模型均 `extra=forbid`。
+
+| 方法 | 路径 | operationId | 固定请求 | 固定成功响应 |
+|---|---|---|---|---|
+| POST | `/api/platform/v1/tools/analyze_job_match` | `analyze_job_match` | `AnalyzeJobMatchRequest` | `AnalyzeJobMatchResponse` |
+| POST | `/api/platform/v1/tools/generate_career_path` | `generate_career_path` | `GenerateCareerPathRequest` | `GenerateCareerPathResponse` |
+| GET | `/api/platform/v1/tools/calls/{tool_call_id}/status` | `get_stage3_tool_call_status` | path parameter | `ToolStatusResponse` |
+| GET | `/api/platform/v1/tools/calls/{tool_call_id}/result` | `get_stage3_tool_call_result` | path parameter | `ToolResultResponse` |
+
+`AnalyzeJobMatchRequest` 必填字段：
+
+```json
+{
+  "schema_version": "stage3-tool-v1",
+  "idempotency_key": "string(8-128)",
+  "session_id": "string(1-128)",
+  "platform_session_id": "string|null",
+  "user_id": "string|null",
+  "student_profile": "阶段2 StudentProfile",
+  "job_profile": "阶段2 JobProfile"
+}
+```
+
+`GenerateCareerPathRequest` 必填/可选字段：
+
+```json
+{
+  "schema_version": "stage3-tool-v1",
+  "idempotency_key": "string(8-128)",
+  "session_id": "string(1-128)",
+  "platform_session_id": "string|null",
+  "user_id": "string|null"
+}
+```
+
+路径请求不接受 `match_result`、`overall_score`、`skill_gaps`、候选节点或路径分数；这些值
+只能从后端持久化的匹配结果进入 PathService。匹配请求也不接受任何结果分数字段。
+
+成功 envelope 固定为 `code/message/request_id/data/error`。`request_id` 即持久化的
+`tool_call_id`；`data.agent_run_id` 固定关联 `session_id:MatchAgent` 或
+`session_id:PathAgent`。匹配数据仅返回 `match_result`，路径数据仅返回
+`career_roadmap`，不回传完整学生画像。
+
+相同 `tool_name + idempotency_key` 和相同请求指纹返回原 `request_id`/结果，并设置
+`idempotent_replay=true`；相同键但不同请求返回 `-8`。原始请求、Bearer token 和明文
+`user_id` 不写入平台调用日志。
+
+### 1.4 标准远程 MCP Server（`stage3-mcp-v1`）
+
+这是 §1.3 HTTP Tool API 的加法适配，不删除或改变 HTTP 契约。服务使用官方
+`mcp==2.0.0`，传输为 Streamable HTTP，默认端点 `/mcp`。启用时要求
+`Authorization: Bearer <MCP_API_TOKEN>`；本地测试可以显式设置
+`MCP_AUTH_ENABLED=false`。当前没有百宝箱只支持旧 SSE 的已验证依据，因此不提供 `/sse`。
+
+| MCP 工具 | 必填输入 | 真实执行入口 | 成功状态 | 确定性结果 |
+|---|---|---|---|---|
+| `build_student_profile` | `session_id/user_id/student_input` | `ProfileAgent` / `ProfileService` | `PROFILE_COMPLETED` | `StudentProfile` |
+| `analyze_target_job` | `session_id/user_id/target_job_input` | `JobAgent` | `JOB_COMPLETED` | `JobProfile + TrendResult` |
+| `analyze_job_match` | `session_id/user_id` | `MatchAgent` / `MatchService` | `MATCH_COMPLETED` | `MatchResult` |
+| `generate_career_path` | `session_id/user_id` | `PathAgent` / `PathService` | `PATH_COMPLETED` | `PathResult` |
+
+所有工具可选传 `trace_id`（1–64 字符，标识符字符集同 `tool_call_id`）；缺省时服务端生成
+`tool-<uuid>`。`trace_id` 同时是 `platform_tool_calls.tool_call_id`，用于关联安全平台调用日志和
+`session_id:<AgentName>` AgentRunLog。每个逻辑调用必须使用唯一 trace；原始输入、Token 和
+明文 user_id 不写入平台调用账本。
+
+MCP 统一结构化结果字段：
+
+```json
+{
+  "success": true,
+  "error_code": null,
+  "message": "string",
+  "missing_fields": [],
+  "retryable": false,
+  "trace_id": "tool-...",
+  "session_id": "string",
+  "status": "PROFILE_COMPLETED | JOB_COMPLETED | MATCH_COMPLETED | PATH_COMPLETED | ...",
+  "data": "tool-specific validated object | null"
+}
+```
+
+业务前置失败返回 `success=false`、稳定 `error_code`、`missing_fields` 和 `retryable`，不返回
+Python 堆栈。Pydantic/JSON Schema 不匹配由 MCP `tools/call` 协议错误拒绝。匹配要求同一
+session 已保存 `student_profile` 和 `job_profile`；路径要求已保存 `match_result` 且状态为
+`MATCH_COMPLETED`。MCP 的后两步不接受画像、岗位、分数、缺口、节点或路径分数输入。
+
+`PROFILE_COMPLETED`/`JOB_COMPLETED` 是仓库现有状态机中对外“PROFILE_READY/JOB_READY”
+语义的正式状态名，不新增第二套状态枚举。规则 fallback 产生的结构化 Profile/Job 仍通过
+固定 Schema 验证并保留 `fallback_used=true` AgentRunLog。
 
 ---
 
@@ -468,12 +590,14 @@ total_score = adjusted × target_consistency
 {
   "session_id": "string",
   "agent_name": "string — ProfileAgent / JobAgent / MatchAgent / PathAgent / TrainingAgent / FeedbackAgent",
+  "service_name": "string | null — MatchService / PathService 等确定性 Service",
   "status": "string — success / partial / failed",
   "summary": "string — 1句话摘要",
   "duration_ms": "int",
   "tool_calls": [
     {
       "tool_name": "string",
+      "service_name": "string | null",
       "input_summary": "string — 禁止包含完整简历文本",
       "output_summary": "string",
       "duration_ms": "int",
@@ -542,6 +666,9 @@ total_score = adjusted × target_consistency
 | -4 | LLM 调用失败（返回 fallback） |
 | -5 | 数据库错误 |
 | -6 | 超时 |
+| -7 | Bearer 鉴权失败 |
+| -8 | 幂等键、会话 payload 或并发调用冲突 |
+| -9 | 会话身份或工具前置条件不满足 / 结果尚不可用 |
 
 ---
 
@@ -726,6 +853,7 @@ Demo Mode 下：
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-08-21 | v1.2 | 加法新增 stage3-mcp-v1 四工具、状态、trace、错误和安全约束 | CareerPulse A02 Team |
 | 2026-08-04 | v1.0 | 初始冻结：CareerState、统一错误格式、能力等级、能力标签体系、Demo格式 | 技术负责人 |
 
 > **后续修改本文件的流程**：

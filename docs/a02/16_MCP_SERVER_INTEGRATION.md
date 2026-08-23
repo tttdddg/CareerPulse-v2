@@ -1,0 +1,235 @@
+# CareerPulse A02 标准远程 MCP 接入说明
+
+## 1. 实现范围
+
+- SDK：官方 Model Context Protocol Python SDK `mcp==2.0.0`（固定稳定版，Python >=3.10）。
+- 传输：Streamable HTTP。
+- 默认端点：`/mcp`。
+- 运行方式：挂载到现有 `app.main:app` FastAPI 应用，共用 CareerOrchestrator、
+  CareerState、StateRepository、Agent、Service 和平台调用账本。
+- 鉴权：MCP 独立静态 Bearer Token；不复用或改变 HTTP Tool API 的
+  `A02_TBOX_API_TOKEN`。
+- SSE：未实现。当前没有目标百宝箱租户只支持旧 SSE 的已验证证据，避免维护重复传输。
+
+MCP 适配层只处理协议、输入验证、session 前置、状态、鉴权和日志。匹配、能力缺口、路径
+生成与路径评分仍由现有 MatchService/PathService 确定性计算。
+
+## 2. 本地安装与启动
+
+从 `backend/` 目录执行：
+
+```powershell
+python -m pip install -r requirements.txt
+
+$env:A02_DEMO_MODE = "true"
+$env:MCP_ENABLED = "true"
+$env:MCP_AUTH_ENABLED = "true"
+$env:MCP_API_TOKEN = "example-local-token-change-me"
+$env:MCP_HOST = "127.0.0.1"
+$env:MCP_PORT = "8000"
+$env:MCP_PATH = "/mcp"
+$env:MCP_TOOL_TIMEOUT_SECONDS = "25"
+$env:MCP_ALLOWED_HOSTS = "127.0.0.1:*,localhost:*"
+$env:MCP_ALLOWED_ORIGINS = "http://127.0.0.1:*,http://localhost:*"
+
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+客户端地址：`http://127.0.0.1:8000/mcp`。
+
+`MCP_HOST` / `MCP_PORT` 是部署配置记录和 SDK 传输安全配置；Uvicorn 的 `--host/--port`
+必须与之保持一致。`MCP_ENABLED=false` 时不挂载 MCP，原 FastAPI 和 HTTP Tool API 保持原样。
+
+## 3. 环境变量
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `MCP_ENABLED` | `false` | MCP 总开关 |
+| `MCP_AUTH_ENABLED` | `true` | 是否要求静态 Bearer；只能在受控本地测试显式关闭 |
+| `MCP_API_TOKEN` | 空 | MCP Bearer secret；鉴权启用时必填 |
+| `MCP_HOST` | `127.0.0.1` | 运行 host 记录/SDK 安全配置 |
+| `MCP_PORT` | `8000` | 运行端口，范围 1–65535 |
+| `MCP_PATH` | `/mcp` | Streamable HTTP 路径，必须以 `/` 开头且无尾斜杠 |
+| `MCP_ALLOWED_HOSTS` | localhost allowlist | 逗号分隔的 Host allowlist，防 DNS rebinding |
+| `MCP_ALLOWED_ORIGINS` | localhost allowlist | 逗号分隔的 Origin allowlist |
+| `MCP_TOOL_TIMEOUT_SECONDS` | `25` | MCP Agent 调用超时，范围 `(0,60]` |
+
+不要把真实 Token 写进 `.env.example`、文档、Prompt、截图或日志。
+
+## 4. 鉴权格式
+
+所有远程 MCP 请求携带：
+
+```http
+Authorization: Bearer example-local-token-change-me
+```
+
+Token 缺失或不匹配返回 HTTP 401，响应不会回显 Token。MCP 鉴权只包装 `/mcp` 传输，
+不会影响 `/api/platform/v1/tools/*` 的现有鉴权。
+
+## 5. 工具列表与映射
+
+| MCP 工具 | 现有 Agent/内部工具 | HTTP Tool API | session 行为 |
+|---|---|---|---|
+| `build_student_profile` | ProfileAgent / `analyze_student_profile` | 无独立正式平台 operation | 写 `student_profile` |
+| `analyze_target_job` | JobAgent / `analyze_job_and_trend` | 无独立正式平台 operation | 写 `job_profile/trend_result` |
+| `analyze_job_match` | MatchAgent + MatchService / `calculate_job_match` | `analyze_job_match` | 只读已有画像/岗位，写 `match_result` |
+| `generate_career_path` | PathAgent + PathService / `recommend_career_path` | `generate_career_path` | 只读已有匹配，写路径结果 |
+
+HTTP API 保持 `stage3-tool-v1` 契约不变。HTTP 匹配工具仍接收完整已验证 Profile；MCP 用四步
+session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得到的 MatchResult/PathResult
+已做逐字段一致性测试。
+
+## 6. 调用顺序与样例
+
+四步必须复用相同 `session_id` 和 `user_id`。`trace_id` 可省略由服务端生成；若由平台提供，
+每个逻辑调用使用唯一值。
+
+### 6.1 build_student_profile
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-profile-001",
+  "student_input": {
+    "form_fields": {
+      "education_level": "本科",
+      "major": "计算机科学",
+      "graduation_year": 2027,
+      "target_job": "后端开发工程师",
+      "target_industry": "企业服务/SaaS"
+    },
+    "parsed_data": {
+      "skills": ["Python", "SQL/数据库", "Git/版本控制"],
+      "projects": ["完成匿名课程后端项目"]
+    }
+  }
+}
+```
+
+成功状态：`PROFILE_COMPLETED`（即对外 PROFILE_READY 语义）。
+
+### 6.2 analyze_target_job
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-job-001",
+  "target_job_input": {
+    "job_id": 91003,
+    "job_title": "后端开发工程师",
+    "industry": "企业服务/SaaS",
+    "job_description": "匿名岗位描述"
+  }
+}
+```
+
+成功状态：`JOB_COMPLETED`（即对外 JOB_READY 语义）。
+
+### 6.3 analyze_job_match
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-match-001"
+}
+```
+
+不得传 `student_profile`、`job_profile`、score 或 gaps。成功状态：`MATCH_COMPLETED`。
+
+### 6.4 generate_career_path
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-path-001"
+}
+```
+
+不得传 match/path JSON、节点或分数。成功状态：`PATH_COMPLETED`。
+
+## 7. 统一结果与前置错误
+
+所有工具返回：`success/error_code/message/missing_fields/retryable/trace_id/session_id/status/data`。
+典型前置错误：
+
+| error_code | missing_fields | 处理 |
+|---|---|---|
+| `SESSION_NOT_FOUND` | `student_profile, job_profile` | 先执行画像/岗位工具 |
+| `MATCH_PREREQUISITES_NOT_READY` | 实际缺少的画像或岗位 | 补齐对应工具 |
+| `STUDENT_PROFILE_INCOMPLETE` | `student_profile.ability_dimensions` | 补充有证据的能力信息 |
+| `MATCH_NOT_COMPLETED` | `match_result` | 先成功调用匹配工具 |
+| `SESSION_USER_MISMATCH` | 空 | 使用 session 所属 user_id |
+| `MCP_TOOL_TIMEOUT` | 空 | 可按 `retryable=true` 重试新调用 |
+
+异常堆栈、数据库地址、API Key 和完整简历不会进入 MCP 结果。Profile/Job 的 LLM 失败可使用
+现有验证过的规则/Demo fallback，结果中 `fallback_used=true`；Match/Path 的 Service 结果不被
+LLM 覆盖。
+
+## 8. 官方客户端测试
+
+项目测试：
+
+```powershell
+python -m unittest tests.test_mcp_server -v
+python -m unittest tests.test_tbox_stage3_tools -v
+```
+
+第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、四工具状态
+串联、Schema 拒绝、Bearer、Streamable HTTP、HTTP 结果一致性、fallback 和日志隐私。
+
+远程人工验证示例：
+
+```python
+import asyncio
+import httpx2
+from mcp import Client
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    async with httpx2.AsyncClient(
+        headers={"Authorization": "Bearer example-local-token-change-me"}
+    ) as http:
+        transport = streamable_http_client(
+            "http://127.0.0.1:8000/mcp", http_client=http
+        )
+        async with Client(transport, mode="legacy") as client:
+            print(client.session.initialize_result)
+            print(await client.list_tools())
+
+asyncio.run(main())
+```
+
+也可以用 MCP Inspector 连接同一 URL，但不得把真实 Token 保存在截图或共享配置中。
+
+## 9. 公网部署要求
+
+- 使用受信任证书的 HTTPS；百宝箱必须能从其网络访问该 URL。
+- 反向代理必须放行 POST/GET/DELETE、Authorization、Content-Type 和 `Mcp-*` Header。
+- 代理和平台超时必须大于 `MCP_TOOL_TIMEOUT_SECONDS` 并预留网络时间。
+- `MCP_ALLOWED_HOSTS` 设置为真实公共域名（必要时带端口模式），不要使用无边界通配符。
+- 若客户端会发送 Origin，`MCP_ALLOWED_ORIGINS` 必须只加入实际可信 Origin。
+- 多实例部署继续使用共享 PostgreSQL；当前本地 SQLite 只适合单实例 Demo。
+- 在目标环境重新执行官方远程客户端测试，并检查平台调用账本/AgentRunLog。
+
+## 10. 百宝箱中应填写的逻辑字段
+
+控制台字段名称必须以目标租户实际页面为准。若选择“创建 MCP 服务”，逻辑上填写：
+
+| 逻辑字段 | 值 |
+|---|---|
+| 服务名称 | `CareerPulse A02` |
+| 服务 URL | `https://<public-career-pulse-host>/mcp` |
+| 传输 | Streamable HTTP |
+| Authentication | Bearer / Authorization Header |
+| Header | `Authorization: Bearer <deployment-secret>`（密钥字段） |
+| 工具发现 | 从 `tools/list` 读取四个工具 |
+| 超时 | 大于 CareerPulse 后端超时；平台上限待现场验证 |
+
+目前尚未验证目标百宝箱租户是否支持远程 Streamable HTTP MCP、其精确字段名、超时、返回
+大小、并发和 allowlist 要求。因此 CareerPulse 侧已经具备可填写的服务地址契约，但在公网
+HTTPS 部署并完成百宝箱现场验证前，不能声称“已接入/已发布”。

@@ -5,6 +5,11 @@
 > 工具名、参数名、类型、required 字段不得随意修改。
 > 百宝箱工具配置必须与本文件严格一致。
 
+> **阶段3运行状态（2026-08-24）**：当前标准 MCP Server 的 `tools/list` **只注册**
+> `build_student_profile`、`analyze_target_job`、`analyze_job_match`、
+> `generate_career_path` 四个工具。下文第 1～8 节保留的是 D2 历史语义与规划参考，
+> 其中列出的旧名称均**尚未按该名称注册**，不得据此宣称已有 7 个可调用 MCP 工具。
+
 ---
 
 ## 0. 通用约定
@@ -51,9 +56,26 @@
 - 号码脱敏：`138****1234`
 - 邮箱脱敏：`u***@example.com`
 
+### 0.5 阶段3远程 MCP 运行映射（2026-08-21 加法实现）
+
+历史目录中的 7 个名称继续保留为需求语义，不静默修改。本轮只注册仓库已经具备真实
+Agent/Service 的四个阶段3 MCP 工具；远程端点为 Streamable HTTP `/mcp`：
+
+| 远程 MCP 工具名 | 历史目录/内部 Agent 工具名 | 正式 HTTP 对应 | 说明 |
+|---|---|---|---|
+| `build_student_profile` | `analyze_student_profile` | 无独立正式 HTTP 平台工具 | 真实 ProfileAgent，写 session 状态 |
+| `analyze_target_job` | `analyze_job_and_trend` | 无独立正式 HTTP 平台工具 | 真实 JobAgent，写 session 状态 |
+| `analyze_job_match` | `calculate_job_match` | `analyze_job_match` | MCP 从 session 读画像/岗位；HTTP 保留现有完整 profile 输入契约 |
+| `generate_career_path` | `recommend_career_path` | `generate_career_path` | 两者均从 session 读已完成匹配 |
+
+MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配和路径工具不接受任何
+客户端计算结果字段。运行 Schema、统一错误、状态与 trace 规则以
+`04_API_CONTRACTS.md §1.4` 为准；启动、鉴权和百宝箱填写说明见
+`16_MCP_SERVER_INTEGRATION.md`。
+
 ---
 
-## 1. analyze_student_profile
+## 1. analyze_student_profile（历史语义参考，尚未按此名称注册）
 
 **功能**：解析用户简历或表单，生成结构化学生能力画像
 
@@ -145,7 +167,7 @@
 
 ---
 
-## 2. analyze_job_and_trend
+## 2. analyze_job_and_trend（历史语义参考，尚未按此名称注册）
 
 **功能**：分析目标岗位的能力要求和职业趋势
 
@@ -234,7 +256,7 @@
 
 ---
 
-## 3. calculate_job_match
+## 3. calculate_job_match（历史语义参考，尚未按此名称注册）
 
 **功能**：计算人岗匹配度、能力缺口和提升优先级
 
@@ -326,7 +348,7 @@
 
 ---
 
-## 4. recommend_career_path
+## 4. recommend_career_path（历史语义参考，尚未按此名称注册）
 
 **功能**：推荐 3年/5年职业发展路径和学习计划
 
@@ -348,8 +370,9 @@
 
 ### 4.2 输出
 
-> 当前百宝箱工具仍只返回冻结 `path_plan + learning_plan`；阶段3 PathService 已新增
-> `path_result`，但尚未接入 PathAgent/MCP。未来接入时作为可选并行字段，不替换旧字段。
+> 本节是旧名称/旧返回结构的历史参考。当前已注册的
+> `generate_career_path` 已接入 PathAgent/PathService，其运行 Schema 以
+> `04_API_CONTRACTS.md §1.4` 为准。
 
 ```json
 {
@@ -464,7 +487,7 @@
 
 ---
 
-## 5. generate_and_score_training
+## 5. generate_and_score_training（规划中，尚未注册）
 
 **功能**：生成职场训练题 / 对用户回答进行评分
 
@@ -576,7 +599,7 @@
 
 ---
 
-## 6. recommend_learning_and_job_resources
+## 6. recommend_learning_and_job_resources（规划中，尚未注册）
 
 **功能**：推荐学习资源和岗位资源
 
@@ -643,7 +666,7 @@
 
 ---
 
-## 7. save_growth_feedback
+## 7. save_growth_feedback（规划中，尚未注册）
 
 **功能**：保存用户反馈，更新成长档案和学习优先级
 
@@ -726,17 +749,17 @@
 
 ---
 
-## 8. 工具清单总览
+## 8. 历史/规划工具清单总览（均非当前注册名）
 
-| # | 工具名 | 输入最小字段 | 输出核心字段 | 调用 LLM | 优先级 |
-|---|--------|------------|------------|---------|--------|
-| 1 | `analyze_student_profile` | session_id | student_profile | ✅ | P0 |
-| 2 | `analyze_job_and_trend` | session_id | job_profile + trend_result | ✅ | P0 |
-| 3 | `calculate_job_match` | session_id + student_id + job_id | match_result | ✅(仅解释) | P0 |
-| 4 | `recommend_career_path` | session_id + student_id + job_id | path_plan + learning_plan | ✅(仅描述) | P1 |
-| 5 | `generate_and_score_training` | session_id + student_id + job_id + training_type | TrainingTask / TrainingScore | ✅ | P1 |
-| 6 | `recommend_learning_and_job_resources` | session_id | learning_resources + job_resources | ❌ | P1 |
-| 7 | `save_growth_feedback` | session_id + user_id + satisfaction | feedback_result | ❌ | P1 |
+| # | 历史/规划名称 | 当前状态 | 当前阶段3注册映射 |
+|---|---|---|---|
+| 1 | `analyze_student_profile` | 历史语义参考；尚未按此名称注册 | `build_student_profile` |
+| 2 | `analyze_job_and_trend` | 历史语义参考；尚未按此名称注册 | `analyze_target_job` |
+| 3 | `calculate_job_match` | 历史语义参考；尚未按此名称注册 | `analyze_job_match` |
+| 4 | `recommend_career_path` | 历史语义参考；尚未按此名称注册 | `generate_career_path` |
+| 5 | `generate_and_score_training` | 规划中；尚未注册 | 无 |
+| 6 | `recommend_learning_and_job_resources` | 规划中；尚未注册 | 无 |
+| 7 | `save_growth_feedback` | 规划中；尚未注册 | 无 |
 
 ---
 
@@ -745,3 +768,4 @@
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
 | 2026-08-04 | v1.0 | 初始冻结：7个工具完整输入输出Schema | 技术负责人 |
+| 2026-08-24 | v1.1 | 明确阶段3仅注册4个标准MCP工具；7个旧名称仅保留为历史/规划参考 | Codex |

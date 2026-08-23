@@ -1,18 +1,41 @@
-"""Shared in-memory state for the A02 mock agent workflow."""
+"""Shared state model for the A02 Agent workflow."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
+Status = Literal[
+    "INITIALIZED",
+    "PROFILE_STARTED",
+    "PROFILE_COMPLETED",
+    "JOB_STARTED",
+    "JOB_COMPLETED",
+    "MATCH_STARTED",
+    "MATCH_COMPLETED",
+    "PATH_STARTED",
+    "PATH_COMPLETED",
+    "TRAINING_STARTED",
+    "TRAINING_COMPLETED",
+    "FEEDBACK_STARTED",
+    "FEEDBACK_COMPLETED",
+    "COMPLETED",
+    "PARTIAL",
+    "FAILED",
+]
+
+_IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+
+
 class ToolCallLog(BaseModel):
-    """Privacy-safe summary of one mock tool invocation."""
+    """Privacy-safe summary of one tool invocation."""
 
     model_config = ConfigDict(extra="forbid")
 
     tool_name: str
+    service_name: str | None = Field(default=None, max_length=64)
     input_summary: str
     output_summary: str
     duration_ms: int = Field(ge=0)
@@ -24,8 +47,9 @@ class AgentLog(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    session_id: str
+    session_id: str = Field(min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN)
     agent_name: str
+    service_name: str | None = Field(default=None, max_length=64)
     status: str = Field(pattern="^(success|partial|failed)$")
     summary: str
     duration_ms: int = Field(ge=0)
@@ -36,13 +60,21 @@ class AgentLog(BaseModel):
 
 
 class CareerState(BaseModel):
-    """Conversation-scoped state passed through all six mock agents."""
+    """Conversation-scoped state passed through all A02 agents."""
 
     model_config = ConfigDict(extra="forbid")
 
-    session_id: str = Field(min_length=1)
-    platform_session_id: str | None = None
-    user_id: str | None = None
+    session_id: str = Field(
+        min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
+    )
+    platform_session_id: str | None = Field(
+        default=None, max_length=128, pattern=_IDENTIFIER_PATTERN
+    )
+    user_id: str | None = Field(
+        default=None, max_length=128, pattern=_IDENTIFIER_PATTERN
+    )
+    status: Status = "INITIALIZED"
+    error_type: str | None = Field(default=None, max_length=128)
     student_input: dict[str, Any] | None = None
     target_job_input: dict[str, Any] | None = None
     student_profile: dict[str, Any] | None = None
@@ -66,6 +98,13 @@ class CareerState(BaseModel):
             if field_name not in type(self).model_fields or field_name in {
                 "session_id",
                 "agent_logs",
+                "status",
+                "error_type",
             }:
                 raise ValueError(f"Agent attempted to update unsupported field: {field_name}")
             setattr(self, field_name, value)
+
+    def set_status(self, status: Status, error_type: str | None = None) -> None:
+        """Transition the career state machine."""
+        self.status = status
+        self.error_type = error_type

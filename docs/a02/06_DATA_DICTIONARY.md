@@ -145,8 +145,10 @@ CREATE INDEX idx_growth_user ON growth_archives(user_id);
 ```sql
 CREATE TABLE agent_logs (
     id            BIGSERIAL PRIMARY KEY,
-    session_id    VARCHAR(64)  NOT NULL,
-    agent_name    VARCHAR(32)  NOT NULL,
+    session_id    VARCHAR(128) NOT NULL,
+    agent_name    VARCHAR(64)  NOT NULL,
+    service_name  VARCHAR(64),             -- MatchService / PathService 等
+    run_key       VARCHAR(256),            -- 新写入幂等键，旧记录允许 null
     status        VARCHAR(16)  NOT NULL CHECK (status IN ('success', 'partial', 'failed')),
     summary       TEXT,
     duration_ms   INTEGER,
@@ -158,7 +160,10 @@ CREATE TABLE agent_logs (
 );
 CREATE INDEX idx_agent_logs_session ON agent_logs(session_id);
 CREATE INDEX idx_agent_logs_agent ON agent_logs(agent_name);
+CREATE UNIQUE INDEX uq_agent_logs_run_key ON agent_logs(run_key) WHERE run_key IS NOT NULL;
 ```
+
+上述阶段3字段由 `V003__persist_stage3_career_state.sql` 加法迁移提供。
 
 ### 2.9 user_feedback — 用户反馈
 
@@ -175,6 +180,55 @@ CREATE TABLE user_feedback (
     created_at      TIMESTAMPTZ  DEFAULT CURRENT_TIMESTAMP
 );
 ```
+
+### 2.10 career_state — 阶段3会话状态快照
+
+```sql
+CREATE TABLE career_state (
+    session_id          VARCHAR(128) PRIMARY KEY,
+    platform_session_id VARCHAR(128),
+    user_id             VARCHAR(128),
+    status              VARCHAR(32) NOT NULL DEFAULT 'INITIALIZED',
+    error_type          VARCHAR(128),
+    state_data          JSONB NOT NULL,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_career_state_user ON career_state(user_id);
+```
+
+`state_data` 保存完整 Pydantic `CareerState` 快照；`agent_logs` 仍独立保存可查询的
+AgentRunLog。两者在同一事务写入。生产 PostgreSQL 使用 V003；本地 Demo/测试使用等价
+SQLite 表结构和真实文件数据库，不使用内存成功兜底。
+
+### 2.11 platform_tool_calls — 百宝箱阶段3工具调用记录
+
+```sql
+CREATE TABLE platform_tool_calls (
+    tool_call_id        VARCHAR(64) PRIMARY KEY,
+    tool_name           VARCHAR(64) NOT NULL,
+    idempotency_key     VARCHAR(128) NOT NULL,
+    request_fingerprint CHAR(64) NOT NULL,
+    session_id          VARCHAR(128) NOT NULL,
+    platform_session_id VARCHAR(128),
+    user_id_hash        CHAR(64),
+    status              VARCHAR(16) NOT NULL,
+    result_data         JSONB,
+    error_code          INTEGER,
+    error_type          VARCHAR(128),
+    agent_run_key       VARCHAR(256),
+    duration_ms         INTEGER,
+    created_at          TIMESTAMPTZ NOT NULL,
+    updated_at          TIMESTAMPTZ NOT NULL,
+    UNIQUE (tool_name, idempotency_key)
+);
+```
+
+V004 只保存请求 SHA-256 指纹、`user_id` 哈希、CareerState 结果字段指针和安全错误类型；
+不保存原始 StudentProfile/JobProfile 请求副本、证据文本、完整结果、明文 user_id、
+完整简历或鉴权 token。完整结果仍由 `career_state` 保存，并仅通过鉴权结果接口读取。
+`agent_run_key` 关联 V003 `agent_logs.run_key`（`session_id:AgentName`）。状态只允许
+`running/succeeded/failed/timed_out`。
 
 ---
 

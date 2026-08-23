@@ -1,7 +1,0 @@
-请从下面的合并画像资料中抽取有证据支持的候选能力。
-
-<profile_material>
-{{profile_material}}
-</profile_material>
-
-只输出包含 ability_dimensions、explicit_facts、inferred_items 的 JSON对象。不得把 inferred_items 放入 ability_dimensions。

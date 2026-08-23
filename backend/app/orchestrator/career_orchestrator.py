@@ -1,4 +1,4 @@
-"""Sequential A02 Mock orchestration with continuation-safe fallback."""
+"""Sequential A02 orchestration with state persistence and safe fallback."""
 
 from __future__ import annotations
 
@@ -14,13 +14,18 @@ from ..agents import (
     ProfileAgent,
     TrainingAgent,
 )
+from ..db_state import StateRepository
 from .career_state import CareerState
 
 
 class CareerOrchestrator:
-    """Own CareerState and run the six frozen A02 agents in order."""
+    """Own CareerState, run the six A02 agents in order, and persist snapshots."""
 
-    def __init__(self, agents: Iterable[BaseAgent] | None = None) -> None:
+    def __init__(
+        self,
+        agents: Iterable[BaseAgent] | None = None,
+        repository: StateRepository | None = None,
+    ) -> None:
         self.agents = list(
             agents
             or [
@@ -33,18 +38,65 @@ class CareerOrchestrator:
             ]
         )
         self._sessions: dict[str, CareerState] = {}
+        self.repository = repository or StateRepository()
 
     async def run(self, state: CareerState) -> CareerState:
+        state.set_status("INITIALIZED")
         for agent in self.agents:
             await agent.run(state)
 
         state.final_report = self._build_final_report(state)
-        self._sessions[state.session_id] = state.model_copy(deep=True)
+        state.set_status(self._final_status(state))
+        self.persist(state)
         return state
+
+    async def run_stage(self, state: CareerState, agent_name: str) -> CareerState:
+        """Run one configured Agent and durably persist the resulting snapshot."""
+
+        agent = next(
+            (candidate for candidate in self.agents if candidate.name == agent_name),
+            None,
+        )
+        if agent is None:
+            raise ValueError(f"Agent is not configured: {agent_name}")
+        await agent.run(state)
+        self.persist(state)
+        return state
+
+    def persist(self, state: CareerState) -> None:
+        """Atomically persist state plus all current Agent logs."""
+
+        try:
+            self.repository.save_state_and_logs(
+                state.model_dump(mode="json"),
+                [log.model_dump(mode="json") for log in state.agent_logs],
+            )
+        except Exception as exc:
+            state.set_status("FAILED", error_type=f"DATABASE_WRITE_FAILED:{type(exc).__name__}")
+            raise StatePersistenceError("career state persistence failed") from exc
+        self._sessions[state.session_id] = state.model_copy(deep=True)
 
     def get_session(self, session_id: str) -> CareerState | None:
         state = self._sessions.get(session_id)
-        return state.model_copy(deep=True) if state else None
+        if state is not None:
+            return state.model_copy(deep=True)
+        data = self.repository.get_state(session_id)
+        if data is None:
+            return None
+        return CareerState.model_validate(data)
+
+    def get_agent_logs(self, session_id: str):
+        """Read AgentRunLog rows from their durable table."""
+
+        return self.repository.list_agent_logs(session_id)
+
+    @staticmethod
+    def _final_status(state: CareerState) -> str:
+        if any(log.status == "failed" for log in state.agent_logs):
+            return "PARTIAL"
+        if any(log.fallback_used for log in state.agent_logs):
+            return "PARTIAL"
+        return "COMPLETED"
 
     @staticmethod
     def _build_final_report(state: CareerState) -> dict[str, object]:
@@ -67,3 +119,10 @@ class CareerOrchestrator:
             "resource_result": state.resource_result,
             "feedback_result": state.feedback_result,
         }
+
+
+class StatePersistenceError(RuntimeError):
+    """Raised after a database transaction fails and has been rolled back."""
+
+
+__all__ = ["CareerOrchestrator", "StatePersistenceError"]

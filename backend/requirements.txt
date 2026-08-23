@@ -9,3 +9,4 @@ pytesseract
 Pillow
 pandas
 python-multipart
+mcp==2.0.0

@@ -1,0 +1,165 @@
+{
+  "http": {
+    "method": "POST",
+    "path": "/api/platform/v1/tools/analyze_job_match",
+    "headers": {
+      "Authorization": "Bearer <A02_TBOX_API_TOKEN>",
+      "Content-Type": "application/json"
+    }
+  },
+  "request": {
+    "schema_version": "stage3-tool-v1",
+    "idempotency_key": "mock-match-0001",
+    "session_id": "mock-stage3-001",
+    "platform_session_id": "tbox-mock-001",
+    "user_id": "mock-user",
+    "student_profile": {
+      "user_id": "mock-user",
+      "basic_info": {
+        "name": null,
+        "education_level": "本科",
+        "major": "演示专业",
+        "graduation_year": 2026,
+        "city": "杭州",
+        "target_job": "AI产品经理",
+        "target_industry": "人工智能",
+        "years_of_experience": 0.0
+      },
+      "ability_dimensions": [
+        {
+          "dimension": "专业知识",
+          "tags": ["产品规划"],
+          "level": 3,
+          "confidence": 0.8,
+          "evidence": ["匿名课程项目"],
+          "evidence_source": "demo"
+        }
+      ],
+      "ability_tags": ["产品规划"],
+      "profile_completeness": 0.7,
+      "career_competitiveness_score": 60.0,
+      "missing_fields": [],
+      "follow_up_questions": [],
+      "summary": "匿名最小Mock画像",
+      "created_at": "2026-08-21T00:00:00+00:00",
+      "updated_at": "2026-08-21T00:00:00+00:00"
+    },
+    "job_profile": {
+      "job_id": 91002,
+      "title": "AI产品经理",
+      "normalized_title": "AI产品经理",
+      "industry": "人工智能",
+      "required_abilities": [
+        {
+          "tag": "产品规划",
+          "required_level": 4,
+          "weight": 1.0,
+          "importance": "critical",
+          "evidence": "匿名岗位要求"
+        }
+      ],
+      "soft_skills": [],
+      "salary_range": null,
+      "job_description": "匿名最小Mock岗位"
+    }
+  },
+  "response": {
+    "code": 0,
+    "message": "success",
+    "request_id": "tool-mock-match-0001",
+    "data": {
+      "tool_call_id": "tool-mock-match-0001",
+      "tool_name": "analyze_job_match",
+      "session_id": "mock-stage3-001",
+      "status": "succeeded",
+      "idempotent_replay": false,
+      "agent_run_id": "mock-stage3-001:MatchAgent",
+      "match_result": {
+        "overall_score": 75.0,
+        "match_level": "good",
+        "dimension_matches": [
+          {
+            "dimension": "产品规划",
+            "student_level": 3,
+            "required_level": 4,
+            "gap": 1,
+            "score": 75.0,
+            "weight": 1.0,
+            "student_evidence": "匿名课程项目",
+            "job_evidence": "匿名岗位要求",
+            "confidence": 0.8,
+            "importance": "critical",
+            "status": "gap"
+          }
+        ],
+        "matched_skills": [],
+        "missing_skills": [],
+        "skill_gaps": [
+          {
+            "dimension": "产品规划",
+            "student_level": 3,
+            "required_level": 4,
+            "gap": 1,
+            "score": 75.0,
+            "weight": 1.0,
+            "priority": 1,
+            "importance": "critical",
+            "difficulty": 2.0,
+            "student_evidence": "匿名课程项目",
+            "job_evidence": "匿名岗位要求",
+            "confidence": 0.8
+          }
+        ],
+        "strengths": [],
+        "hard_constraint_results": [
+          {
+            "constraint": "产品规划",
+            "required_level": 4,
+            "student_level": 3,
+            "status": "failed",
+            "passed": false,
+            "reason": "学生能力等级低于岗位关键能力要求"
+          }
+        ],
+        "confidence": 0.85,
+        "evidence": [
+          {
+            "dimension": "产品规划",
+            "student_evidence": "匿名课程项目",
+            "job_evidence": "匿名岗位要求",
+            "confidence": 0.8
+          }
+        ],
+        "calculation_version": "deterministic-match-v2",
+        "data_quality_flags": [],
+        "dimensions": [
+          {
+            "name": "产品规划",
+            "student_score": 75.0,
+            "job_required": 100.0,
+            "gap": -25.0,
+            "weight": 1.0
+          }
+        ],
+        "ability_gaps": [
+          {
+            "tag": "产品规划",
+            "current_level": 3,
+            "required_level": 4,
+            "gap": 1,
+            "priority": 1
+          }
+        ],
+        "gap_analysis": [
+          {
+            "item": "产品规划",
+            "status": "insufficient",
+            "suggestion": ""
+          }
+        ],
+        "matching_algorithm_version": "deterministic-v1"
+      }
+    },
+    "error": null
+  }
+}

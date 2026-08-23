@@ -423,12 +423,14 @@ profile        profile     result       learning_    plan          result
 {
   "session_id": "string",
   "agent_name": "string",
+  "service_name": "string | null — Agent实际调用的确定性Service",
   "status": "success | partial | failed",
   "summary": "string",
   "duration_ms": "int",
   "tool_calls": [
     {
       "tool_name": "string",
+      "service_name": "string | null",
       "input_summary": "string — 禁止完整简历",
       "output_summary": "string",
       "duration_ms": "int",

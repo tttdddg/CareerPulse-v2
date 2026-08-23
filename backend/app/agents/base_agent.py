@@ -17,6 +17,7 @@ class AgentResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_name: str
+    service_name: str | None = Field(default=None, max_length=64)
     status: str = Field(pattern="^(success|partial|failed)$")
     data: dict[str, Any] | None = None
     summary: str
@@ -34,6 +35,7 @@ class BaseAgent(ABC):
     """Base class that guarantees logging and continuation-safe fallback."""
 
     name = "BaseAgent"
+    service_name: str | None = None
     required_fields: tuple[str, ...] = ()
     output_fields: tuple[str, ...] = ()
     tool_name = "mock_agent_tool"
@@ -42,25 +44,29 @@ class BaseAgent(ABC):
         started = perf_counter()
         fallback_used = False
         error: str | None = None
+        service_name = self.service_name
 
         try:
             self._check_dependencies(state)
+            self._set_status(state, "STARTED")
             data = await self._execute(state)
             self._validate_output(data)
             state.apply_agent_data(data)
             status = "success"
-            summary = f"{self.name} Mock 执行完成"
+            summary = f"{self.name} 执行完成"
             tool_status = "success"
+            self._set_status(state, "COMPLETED")
         except Exception as exc:  # fallback is part of the Agent contract
             fallback_used = True
             error = self._safe_error(exc)
+            self._set_status(state, "FAILED", error_type=type(exc).__name__)
             try:
                 data = await self._fallback(state, exc)
                 self._validate_output(data)
                 if data:
                     state.apply_agent_data(data)
                     status = "partial"
-                    summary = f"{self.name} 使用 Mock fallback 继续"
+                    summary = f"{self.name} 使用 fallback 继续"
                 else:
                     status = "failed"
                     summary = f"{self.name} 跳过，后续 Agent 继续"
@@ -69,11 +75,15 @@ class BaseAgent(ABC):
                 status = "failed"
                 summary = f"{self.name} fallback 失败，后续 Agent 继续"
                 error = f"{error}; fallback: {self._safe_error(fallback_exc)}"
+                self._set_status(
+                    state, "FAILED", error_type=type(fallback_exc).__name__
+                )
             tool_status = "error"
 
         duration_ms = max(0, round((perf_counter() - started) * 1000))
         tool_call = ToolCallLog(
             tool_name=self.tool_name,
+            service_name=service_name,
             input_summary=self._input_summary(state),
             output_summary=self._output_summary(data),
             duration_ms=duration_ms,
@@ -81,6 +91,7 @@ class BaseAgent(ABC):
         )
         result = AgentResult(
             agent_name=self.name,
+            service_name=service_name,
             status=status,
             data=data,
             summary=summary,
@@ -97,6 +108,29 @@ class BaseAgent(ABC):
             )
         )
         return result
+
+    def _set_status(
+        self,
+        state: CareerState,
+        step: str,
+        error_type: str | None = None,
+    ) -> None:
+        """Map agent/step to the canonical CareerState status."""
+        agent_key = {
+            "ProfileAgent": "profile",
+            "JobAgent": "job",
+            "MatchAgent": "match",
+            "PathAgent": "path",
+            "TrainingAgent": "training",
+            "FeedbackAgent": "feedback",
+        }.get(self.name)
+        if not agent_key:
+            return
+        if step == "FAILED":
+            state.set_status("FAILED", error_type=error_type)
+            return
+        status = f"{agent_key}_{step}".upper()
+        state.set_status(status, error_type=error_type)
 
     def _check_dependencies(self, state: CareerState) -> None:
         missing = [name for name in self.required_fields if not getattr(state, name)]
@@ -120,8 +154,9 @@ class BaseAgent(ABC):
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:
-        # Exceptions are generated internally and never include raw request bodies.
-        return f"{type(exc).__name__}: {str(exc)[:200]}"
+        # Provider and validation exceptions may echo request data.  The public
+        # error type is actionable without retaining raw resume/JD content.
+        return f"{type(exc).__name__}: agent execution failed"
 
     @staticmethod
     def _timestamp() -> str:
@@ -131,10 +166,13 @@ class BaseAgent(ABC):
 
     @abstractmethod
     async def _execute(self, state: CareerState) -> dict[str, Any]:
-        """Execute Agent-specific Mock logic."""
+        """Execute Agent-specific logic."""
 
     @abstractmethod
     async def _fallback(
         self, state: CareerState, error: Exception
     ) -> dict[str, Any]:
         """Return safe fallback state updates after any failure."""
+
+
+__all__ = ["AgentResult", "BaseAgent", "MissingDependencyError"]

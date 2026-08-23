@@ -8,6 +8,7 @@ from fastapi import APIRouter
 
 from .api.career_agent_api import router as career_agent_router
 from .api.career_agent_api import agent_log_router
+from .api.platform_tool_api import router as platform_tool_router
 from .routes import (
     history_router,
     jobs_router,
@@ -22,6 +23,7 @@ router = APIRouter()
 # A02 新 Agent 链路 API（先注册，与旧路由无前缀冲突）
 router.include_router(career_agent_router)
 router.include_router(agent_log_router)
+router.include_router(platform_tool_router)
 
 # 旧业务路由（保守保留，后续阶段统一替换）
 router.include_router(jobs_router)
