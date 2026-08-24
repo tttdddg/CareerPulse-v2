@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any, TypeVar
@@ -21,6 +22,18 @@ from ..orchestrator import AgentLog, CareerOrchestrator, CareerState, ToolCallLo
 from ..schemas.career_profile_schema import StudentProfile
 from ..schemas.job_schema import JobProfile, TrendResult
 from ..schemas.match_schema import MatchResult
+from ..schemas.internal_tool_schema import (
+    GenerateAndScoreTrainingData,
+    GenerateAndScoreTrainingRequest,
+    GenerateAndScoreTrainingResult,
+    RecommendLearningAndJobResourcesData,
+    RecommendLearningAndJobResourcesRequest,
+    RecommendLearningAndJobResourcesResult,
+    ResourceRecommendation,
+    SaveGrowthFeedbackData,
+    SaveGrowthFeedbackRequest,
+    SaveGrowthFeedbackResult,
+)
 from ..schemas.mcp_tool_schema import (
     AnalyzeJobMatchMCPData,
     AnalyzeJobMatchMCPRequest,
@@ -37,6 +50,9 @@ from ..schemas.mcp_tool_schema import (
     MCPToolResult,
 )
 from ..schemas.path_schema import PathResult
+from ..schemas.feedback_schema import FeedbackAgentResult
+from ..schemas.training_schema import TrainingScore, TrainingTask
+from ..services.resource_service import ResourceService
 
 
 ResultT = TypeVar("ResultT", bound=MCPToolResult)
@@ -68,11 +84,13 @@ class CareerMCPToolService:
         orchestrator: CareerOrchestrator,
         *,
         timeout_seconds: float = 25.0,
+        resource_service: ResourceService | None = None,
     ) -> None:
         if timeout_seconds <= 0 or timeout_seconds > 60:
             raise ValueError("MCP tool timeout must be in (0, 60]")
         self.orchestrator = orchestrator
         self.timeout_seconds = timeout_seconds
+        self.resource_service = resource_service or ResourceService()
 
     async def build_student_profile(
         self, request: BuildStudentProfileRequest
@@ -306,6 +324,297 @@ class CareerMCPToolService:
                 GenerateCareerPathMCPResult, request, trace_id, state, exc, started
             )
 
+    async def generate_and_score_training(
+        self,
+        request: GenerateAndScoreTrainingRequest,
+    ) -> GenerateAndScoreTrainingResult:
+        """Run the real TrainingAgent without persisting transient user input."""
+
+        trace_id = request.trace_id or f"tool-{uuid4().hex}"
+        started = perf_counter()
+        state: CareerState | None = None
+        try:
+            record, created = self._begin_call(
+                "generate_and_score_training", request, trace_id
+            )
+            if not created:
+                self._require_replayable(record)
+                return self._replay_training(request, trace_id, record)
+
+            state = self._load_required(request)
+            missing = [
+                name
+                for name in ("student_profile", "job_profile")
+                if getattr(state, name) is None
+            ]
+            if request.mode == "generate" and state.match_result is None:
+                missing.append("match_result")
+            if missing:
+                raise MCPToolFailure(
+                    "TRAINING_PREREQUISITES_NOT_READY",
+                    "Complete the profile, target job, and match context first.",
+                    missing_fields=missing,
+                )
+
+            if request.mode == "generate":
+                stage_input = {"training_type": request.training_type}
+            else:
+                task_value = state.get_training_task(request.training_id)
+                if task_value is None:
+                    raise MCPToolFailure(
+                        "TRAINING_NOT_FOUND",
+                        "The requested training task is not available in this session.",
+                        missing_fields=["training_plan"],
+                    )
+                task = TrainingTask.model_validate(task_value)
+                if (
+                    request.training_type is not None
+                    and request.training_type != task.type
+                ):
+                    raise MCPToolFailure(
+                        "TRAINING_TYPE_MISMATCH",
+                        "The supplied training type does not match the stored task.",
+                    )
+                stage_input = {
+                    "training_type": task.type,
+                    "training_id": request.training_id,
+                    "user_answer": request.user_answer,
+                }
+
+            await self._run_agent(
+                state,
+                "TrainingAgent",
+                trace_id,
+                stage_input=stage_input,
+                tool_name="generate_and_score_training",
+            )
+            if state.status == "FAILED":
+                raise MCPToolFailure(
+                    "TRAINING_FAILED",
+                    "CareerPulse could not produce a validated training result.",
+                    retryable=True,
+                )
+
+            if request.mode == "generate":
+                task_value = state.get_training_task()
+                if task_value is None:
+                    raise MCPToolFailure(
+                        "TRAINING_RESULT_NOT_FOUND",
+                        "TrainingAgent completed without a training task.",
+                        retryable=True,
+                    )
+                task = TrainingTask.model_validate(task_value)
+                data = GenerateAndScoreTrainingData(
+                    agent_run_id=f"{request.session_id}:TrainingAgent",
+                    mode="generate",
+                    training_task=task,
+                )
+                result_metadata = {
+                    "mode": "generate",
+                    "training_id": task.training_id,
+                }
+            else:
+                score_value = state.get_latest_training_score()
+                if (
+                    score_value is None
+                    or score_value.get("training_id") != request.training_id
+                ):
+                    raise MCPToolFailure(
+                        "TRAINING_RESULT_NOT_FOUND",
+                        "TrainingAgent completed without the requested score.",
+                        retryable=True,
+                    )
+                score = TrainingScore.model_validate(score_value)
+                data = GenerateAndScoreTrainingData(
+                    agent_run_id=f"{request.session_id}:TrainingAgent",
+                    mode="score",
+                    training_score=score,
+                )
+                result_metadata = {
+                    "mode": "score",
+                    "training_id": score.training_id,
+                }
+
+            self._finish_success(
+                trace_id,
+                request.session_id,
+                "training_plan",
+                "TrainingAgent",
+                started,
+                result_metadata=result_metadata,
+            )
+            return GenerateAndScoreTrainingResult(
+                success=True,
+                message=(
+                    "Training task generated."
+                    if request.mode == "generate"
+                    else "Training answer scored."
+                ),
+                trace_id=trace_id,
+                session_id=request.session_id,
+                status=state.status,
+                data=data,
+            )
+        except Exception as exc:
+            return self._failure_result(
+                GenerateAndScoreTrainingResult,
+                request,
+                trace_id,
+                state,
+                exc,
+                started,
+            )
+
+    async def recommend_learning_and_job_resources(
+        self,
+        request: RecommendLearningAndJobResourcesRequest,
+    ) -> RecommendLearningAndJobResourcesResult:
+        """Recommend real resources from ordered match gaps without an LLM."""
+
+        trace_id = request.trace_id or f"tool-{uuid4().hex}"
+        started = perf_counter()
+        state: CareerState | None = None
+        try:
+            record, created = self._begin_call(
+                "recommend_learning_and_job_resources", request, trace_id
+            )
+            if not created:
+                self._require_replayable(record)
+                return self._replay_resources(request, trace_id)
+
+            state = self._load_required(request)
+            if state.match_result is None:
+                raise MCPToolFailure(
+                    "MATCH_RESULT_NOT_FOUND",
+                    "Run job matching before requesting learning resources.",
+                    missing_fields=["match_result"],
+                )
+
+            ability_gaps = []
+            for item in state.get_skill_gaps() or []:
+                if not isinstance(item, Mapping):
+                    continue
+                dimension = item.get("dimension")
+                if isinstance(dimension, str) and dimension.strip():
+                    ability_gaps.append(dimension)
+            title = (state.job_profile or {}).get("title")
+            target_job = title if isinstance(title, str) and title.strip() else None
+            raw_result = self.resource_service.recommend_resources(
+                ability_gaps=ability_gaps,
+                target_job=target_job,
+            )
+            if not isinstance(raw_result, Mapping):
+                raise MCPToolFailure(
+                    "RESOURCE_SERVICE_ERROR",
+                    "ResourceService returned an invalid result.",
+                    retryable=True,
+                )
+            if isinstance(raw_result.get("error"), str):
+                raise MCPToolFailure(
+                    "RESOURCE_SERVICE_ERROR",
+                    "ResourceService could not produce recommendations.",
+                    retryable=True,
+                )
+            resource_result = ResourceRecommendation.model_validate(raw_result)
+            state.apply_agent_data(
+                {"resource_result": resource_result.model_dump(mode="json")}
+            )
+            self.orchestrator.persist(state)
+
+            self._finish_success(
+                trace_id,
+                request.session_id,
+                "resource_result",
+                None,
+                started,
+            )
+            return RecommendLearningAndJobResourcesResult(
+                success=True,
+                message="Learning and job resources recommended.",
+                trace_id=trace_id,
+                session_id=request.session_id,
+                status=state.status,
+                data=RecommendLearningAndJobResourcesData(
+                    resource_result=resource_result,
+                ),
+            )
+        except Exception as exc:
+            return self._failure_result(
+                RecommendLearningAndJobResourcesResult,
+                request,
+                trace_id,
+                state,
+                exc,
+                started,
+            )
+
+    async def save_growth_feedback(
+        self,
+        request: SaveGrowthFeedbackRequest,
+    ) -> SaveGrowthFeedbackResult:
+        """Save real feedback while State supplies match/training context."""
+
+        trace_id = request.trace_id or f"tool-{uuid4().hex}"
+        started = perf_counter()
+        state: CareerState | None = None
+        try:
+            record, created = self._begin_call(
+                "save_growth_feedback", request, trace_id
+            )
+            if not created:
+                self._require_replayable(record)
+                return self._replay_feedback(request, trace_id)
+
+            state = self._load_required(request)
+            stage_input = request.model_dump(
+                mode="json",
+                exclude={"session_id", "user_id", "trace_id"},
+                exclude_none=True,
+            )
+            await self._run_agent(
+                state,
+                "FeedbackAgent",
+                trace_id,
+                stage_input=stage_input,
+                tool_name="save_growth_feedback",
+            )
+            if state.status == "FAILED" or state.feedback_result is None:
+                raise MCPToolFailure(
+                    "FEEDBACK_FAILED",
+                    "CareerPulse could not save validated feedback.",
+                    retryable=True,
+                )
+            feedback_result = FeedbackAgentResult.model_validate(
+                state.feedback_result
+            )
+            self._finish_success(
+                trace_id,
+                request.session_id,
+                "feedback_result",
+                "FeedbackAgent",
+                started,
+            )
+            return SaveGrowthFeedbackResult(
+                success=True,
+                message="Feedback saved and growth snapshot updated.",
+                trace_id=trace_id,
+                session_id=request.session_id,
+                status=state.status,
+                data=SaveGrowthFeedbackData(
+                    agent_run_id=f"{request.session_id}:FeedbackAgent",
+                    feedback_result=feedback_result,
+                ),
+            )
+        except Exception as exc:
+            return self._failure_result(
+                SaveGrowthFeedbackResult,
+                request,
+                trace_id,
+                state,
+                exc,
+                started,
+            )
+
     def _begin_call(
         self, tool_name: str, request: BaseModel, trace_id: str
     ) -> tuple[dict[str, Any], bool]:
@@ -384,15 +693,25 @@ class CareerMCPToolService:
             state.user_id = user_id
 
     async def _run_agent(
-        self, state: CareerState, agent_name: str, trace_id: str
+        self,
+        state: CareerState,
+        agent_name: str,
+        trace_id: str,
+        *,
+        stage_input: dict[str, Any] | None = None,
+        tool_name: str | None = None,
     ) -> None:
         try:
             await asyncio.wait_for(
-                self.orchestrator.run_stage(state, agent_name),
+                self.orchestrator.run_stage(
+                    state,
+                    agent_name,
+                    stage_input=stage_input,
+                ),
                 timeout=self.timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
-            self._append_timeout_log(state, agent_name)
+            self._append_timeout_log(state, agent_name, tool_name=tool_name)
             state.set_status("FAILED", error_type="MCP_TOOL_TIMEOUT")
             self.orchestrator.persist(state)
             raise MCPToolFailure(
@@ -406,14 +725,21 @@ class CareerMCPToolService:
         trace_id: str,
         session_id: str,
         result_field: str,
-        agent_name: str,
+        agent_name: str | None,
         started: float,
+        *,
+        result_metadata: dict[str, Any] | None = None,
     ) -> None:
+        result_data = {"result_field": result_field}
+        if result_metadata:
+            result_data.update(result_metadata)
         self.orchestrator.repository.finish_tool_call(
             trace_id,
             status="succeeded",
-            result_data={"result_field": result_field},
-            agent_run_key=f"{session_id}:{agent_name}",
+            result_data=result_data,
+            agent_run_key=(
+                f"{session_id}:{agent_name}" if agent_name is not None else None
+            ),
             duration_ms=self._duration(started),
         )
 
@@ -526,6 +852,86 @@ class CareerMCPToolService:
             session_id=request.session_id, status=state.status, data=data
         )
 
+    def _replay_training(
+        self,
+        request: GenerateAndScoreTrainingRequest,
+        trace_id: str,
+        record: dict[str, Any],
+    ) -> GenerateAndScoreTrainingResult:
+        state = self._load_required(request)
+        metadata = record.get("result_data") or {}
+        training_id = metadata.get("training_id") or request.training_id
+        if request.mode == "generate":
+            task_value = state.get_training_task(training_id)
+            task = TrainingTask.model_validate(task_value)
+            data = GenerateAndScoreTrainingData(
+                agent_run_id=f"{request.session_id}:TrainingAgent",
+                mode="generate",
+                training_task=task,
+            )
+        else:
+            score_value = state.get_latest_training_score()
+            if (
+                score_value is None
+                or score_value.get("training_id") != request.training_id
+            ):
+                raise MCPToolFailure(
+                    "TRAINING_RESULT_NOT_FOUND",
+                    "The persisted score is no longer available.",
+                )
+            data = GenerateAndScoreTrainingData(
+                agent_run_id=f"{request.session_id}:TrainingAgent",
+                mode="score",
+                training_score=TrainingScore.model_validate(score_value),
+            )
+        return GenerateAndScoreTrainingResult(
+            success=True,
+            message="Training result replayed.",
+            trace_id=trace_id,
+            session_id=request.session_id,
+            status=state.status,
+            data=data,
+        )
+
+    def _replay_resources(
+        self,
+        request: RecommendLearningAndJobResourcesRequest,
+        trace_id: str,
+    ) -> RecommendLearningAndJobResourcesResult:
+        state = self._load_required(request)
+        resource_result = ResourceRecommendation.model_validate(
+            state.resource_result
+        )
+        return RecommendLearningAndJobResourcesResult(
+            success=True,
+            message="Resource recommendations replayed.",
+            trace_id=trace_id,
+            session_id=request.session_id,
+            status=state.status,
+            data=RecommendLearningAndJobResourcesData(
+                resource_result=resource_result,
+            ),
+        )
+
+    def _replay_feedback(
+        self,
+        request: SaveGrowthFeedbackRequest,
+        trace_id: str,
+    ) -> SaveGrowthFeedbackResult:
+        state = self._load_required(request)
+        feedback_result = FeedbackAgentResult.model_validate(state.feedback_result)
+        return SaveGrowthFeedbackResult(
+            success=True,
+            message="Feedback result replayed.",
+            trace_id=trace_id,
+            session_id=request.session_id,
+            status=state.status,
+            data=SaveGrowthFeedbackData(
+                agent_run_id=f"{request.session_id}:FeedbackAgent",
+                feedback_result=feedback_result,
+            ),
+        )
+
     @staticmethod
     def _agent_fallback(state: CareerState, agent_name: str) -> bool:
         return any(
@@ -533,12 +939,20 @@ class CareerMCPToolService:
             for log in state.agent_logs
         )
 
-    def _append_timeout_log(self, state: CareerState, agent_name: str) -> None:
+    def _append_timeout_log(
+        self,
+        state: CareerState,
+        agent_name: str,
+        *,
+        tool_name: str | None = None,
+    ) -> None:
         if any(log.agent_name == agent_name for log in state.agent_logs):
             return
         service_name = {
             "MatchAgent": "MatchService",
             "PathAgent": "PathService",
+            "TrainingAgent": "TrainingService",
+            "FeedbackAgent": "FeedbackService",
         }.get(agent_name)
         state.agent_logs.append(
             AgentLog(
@@ -550,7 +964,7 @@ class CareerMCPToolService:
                 duration_ms=round(self.timeout_seconds * 1000),
                 tool_calls=[
                     ToolCallLog(
-                        tool_name=agent_name,
+                        tool_name=tool_name or agent_name,
                         service_name=service_name,
                         input_summary="已提供结构化会话字段",
                         output_summary="未生成结果",

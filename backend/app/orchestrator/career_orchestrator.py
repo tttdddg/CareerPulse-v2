@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Iterable
+from typing import Any, Iterable
 
 from ..agents import (
     BaseAgent,
@@ -50,7 +51,13 @@ class CareerOrchestrator:
         self.persist(state)
         return state
 
-    async def run_stage(self, state: CareerState, agent_name: str) -> CareerState:
+    async def run_stage(
+        self,
+        state: CareerState,
+        agent_name: str,
+        *,
+        stage_input: dict[str, Any] | None = None,
+    ) -> CareerState:
         """Run one configured Agent and durably persist the resulting snapshot."""
 
         agent = next(
@@ -59,7 +66,26 @@ class CareerOrchestrator:
         )
         if agent is None:
             raise ValueError(f"Agent is not configured: {agent_name}")
-        await agent.run(state)
+
+        input_key = {
+            "TrainingAgent": "training",
+            "FeedbackAgent": "feedback",
+        }.get(agent_name)
+        if stage_input is not None and input_key is None:
+            raise ValueError(
+                f"Agent does not accept transient stage input: {agent_name}"
+            )
+
+        original_input = state.student_input
+        if stage_input is not None:
+            staged_input = deepcopy(state.student_input or {})
+            staged_input[input_key] = deepcopy(stage_input)
+            state.student_input = staged_input
+        try:
+            await agent.run(state)
+        finally:
+            if stage_input is not None:
+                state.student_input = original_input
         self.persist(state)
         return state
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 Status = Literal[
@@ -92,6 +94,18 @@ class CareerState(BaseModel):
     final_report: dict[str, Any] | None = None
     agent_logs: list[AgentLog] = Field(default_factory=list)
 
+    @field_validator(
+        "training_plan",
+        "resource_result",
+        "feedback_result",
+        mode="before",
+    )
+    @classmethod
+    def copy_stage4_state(cls, value: Any) -> Any:
+        """Keep mutable Stage 4 results owned by one CareerState instance."""
+
+        return deepcopy(value)
+
     def apply_agent_data(self, data: dict[str, Any]) -> None:
         """Apply only declared state fields from an Agent result."""
         for field_name, value in data.items():
@@ -102,7 +116,88 @@ class CareerState(BaseModel):
                 "error_type",
             }:
                 raise ValueError(f"Agent attempted to update unsupported field: {field_name}")
-            setattr(self, field_name, value)
+            setattr(self, field_name, deepcopy(value))
+
+    def get_skill_gaps(self) -> list[dict[str, Any]] | None:
+        """Return an isolated view of the latest deterministic match gaps."""
+
+        gaps = (self.match_result or {}).get("skill_gaps")
+        if not isinstance(gaps, list) or not gaps:
+            return None
+        return deepcopy(gaps)
+
+    def get_training_task(
+        self,
+        training_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Resolve an exact task, or the task belonging to the latest context."""
+
+        plan = self.training_plan or {}
+        trainings = plan.get("trainings")
+        if not isinstance(trainings, list) or not trainings:
+            return None
+
+        selected_id = training_id
+        if selected_id is None:
+            latest_score = plan.get("latest_score")
+            if isinstance(latest_score, Mapping):
+                candidate = latest_score.get("training_id")
+                if isinstance(candidate, str) and candidate:
+                    selected_id = candidate
+
+        if selected_id is not None:
+            for item in trainings:
+                if isinstance(item, Mapping) and item.get("training_id") == selected_id:
+                    return deepcopy(dict(item))
+            if training_id is not None:
+                return None
+
+        for item in reversed(trainings):
+            if isinstance(item, Mapping):
+                return deepcopy(dict(item))
+        return None
+
+    def get_latest_training_score(self) -> dict[str, Any] | None:
+        """Return the last deterministic TrainingService score, if available."""
+
+        score = (self.training_plan or {}).get("latest_score")
+        if not isinstance(score, Mapping):
+            return None
+        return deepcopy(dict(score))
+
+    def get_latest_ability_updates(self) -> list[dict[str, Any]]:
+        """Project ability updates from the latest score without storing a copy."""
+
+        score = self.get_latest_training_score()
+        updates = (score or {}).get("ability_updates")
+        if not isinstance(updates, list):
+            return []
+        return deepcopy(updates)
+
+    def get_latest_training_target_abilities(self) -> list[str] | None:
+        """Return targets from the task associated with the latest context."""
+
+        task = self.get_training_task()
+        targets = (task or {}).get("target_abilities")
+        if not isinstance(targets, list) or not targets:
+            return None
+        return deepcopy(targets)
+
+    def get_match_overall_score(self) -> float | None:
+        """Return the latest deterministic match score without recomputation."""
+
+        score = (self.match_result or {}).get("overall_score")
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            return None
+        return float(score)
+
+    def get_growth_snapshot(self) -> dict[str, Any] | None:
+        """Project the growth snapshot from the latest feedback result."""
+
+        snapshot = (self.feedback_result or {}).get("growth_snapshot")
+        if not isinstance(snapshot, Mapping):
+            return None
+        return deepcopy(dict(snapshot))
 
     def set_status(self, status: Status, error_type: str | None = None) -> None:
         """Transition the career state machine."""
