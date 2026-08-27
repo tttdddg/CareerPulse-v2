@@ -1,3 +1,60 @@
+# 阶段4 MCP 仓库侧接入执行日志（2026-08-27）
+
+- 已完整读取 `planning-with-files` 技能并启用文件化计划。
+- session catchup 脚本缺失；已记录错误并通过现有计划、发现、进度和 Git diff 恢复上下文。
+- 已确认任务开始时 MCP Server、MCP 测试、API 契约和集成说明存在上一任务未提交的扁平参数改动，本轮将保留并增量修改。
+- 已建立五阶段执行计划，当前进入实现与测试契约审计。
+- 已完整读取现有 MCP Server、MCP 基础 Schema、阶段4内部 Schema 及三个 handler 实现。
+- 已确认三个 handler 和严格结果 envelope 可直接复用；注册层只需构造 Request 并调用对应 service 方法。
+- 已确认注册后的统一 `extra=forbid` Schema 重建循环会自动覆盖新增工具；不会为测试放宽任何 Schema。
+- 已完整读取 MCP 协议测试，确认需把工具集合/远程数量从 4 更新为 7，并将真实 Training/Feedback Agent 注入测试 Orchestrator。
+- 已核查三份 MCP 公共文档，确认阶段4旧规划输入与真实 session-state 契约不一致，需同步为真实注册状态而非仅修改标题。
+- 已冻结三个 MCP 公开签名：Training 合并模式、Resource 纯 session-state、Feedback 严格 1–5 rating；不新增或改写业务字段。
+- 已决定把 Server 能力版本更新为 `stage4-mcp-v1`，同时在文档明确其不代表百宝箱现场配置完成。
+- 已核对公共契约修改流程；本轮会新增 ADR-003 记录阶段4三工具注册决策，满足冻结文档的变更要求。
+- 已注册三个阶段4薄适配器、升级 Server 元信息，并扩展 MCP 测试 fixture/Schema/连续链/失败覆盖。
+- 首轮 MCP 定向测试 `10 passed, 1 error`；唯一错误是新测试误用内部返回对象下标，协议实现和三个新工具成功链均已通过，正在改用官方 Client 路径。
+- 修正失败测试后，MCP 定向测试 `11/11` 通过；阶段4注册、Schema、成功/失败、连续 session 和原鉴权均已获得协议级证据。
+- 已核对 `05_AGENT_CONTRACTS.md`，确认需随公共 MCP 契约同步少量 Training/Feedback 真实边界，避免保留已不存在的默认分数/Redis 等规划声明。
+- 已新增 ADR-003，并同步 API、Agent、MCP 工具目录和接入说明；正在用实际 Schema/Service 输出做最终文档复核。
+- 已直接打印运行时 MCP Schema，确认 `tools/list=7`、三个新工具均 `additionalProperties=false` 且必填/枚举/rating 边界正确。
+- 已对照 ResourceService/FeedbackService 真实返回字段复核文档，不声明未实现的岗位资源或保存 fallback。
+- 已完成 ADR-003、API/Agent 契约、MCP 工具目录和接入说明同步；文档明确总数 7、Training 合并模式、真实请求/响应/错误及平台现场未完成边界。
+- `git diff --check` 当前通过，仅有工作树既有 LF/CRLF 提示；进入分组与完整回归阶段。
+- 阶段4分组回归 29/29 通过（MCP 11 + 内部工具 14 + 最终 E2E 4）。
+- 阶段3分组回归 26/26 通过（MCP 11 + HTTP 平台工具 5 + 阶段3 E2E 10）。
+- `backend/tests` 完整发现测试 180/180 通过。
+- `backend/app` 内嵌套件 70/77 通过；7 个未通过均为既有 Profile prompt 缺失的直接/级联失败，已分类记录，不越界修复。
+- Match/Path/Training/Feedback Agent 适用回归 60/60 通过。
+- compileall 与 `git diff --check` 通过；受保护的 Service/handler/Orchestrator/main/platform 无 diff。
+- 已逐段复核 Server diff，确认任务前扁平参数改动未被覆盖或回退。
+- 最终 MCP 再跑 11/11；阶段4文档 8 个 JSON 块解析通过；运行时 `tools/list` 精确为 7 个预期名称。
+- 指定活动文档无过期“4工具/阶段4未注册”声明；feedback_schema 工作树与 HEAD hash 相同，无交付内容差异。
+- 本轮仓库侧阶段4 MCP 接入完成，未执行 Git commit，未进入百宝箱/Cloudflare/Token/现场配置。
+
+---
+
+# MCP 百宝箱入参兼容修复执行日志（2026-08-27）
+
+- 已读取 planning-with-files 技能并启用文件化计划。
+- 技能引用的 session-catchup 脚本不存在；已记录错误，改由现有规划文件和 Git 状态恢复上下文。
+- 已确认现有规划文件属于历史任务，本轮仅追加记录，不覆盖旧内容。
+- 已定位根因：MCP SDK 从两个注册函数的 Pydantic 参数注解生成嵌套对象，平台传 String 时在函数调用前校验失败。
+- 已核对两个输入模型真实字段；Student 输入不是单文本模型，不能按“单文本字段”例外继续公开 `student_input: str`。
+- 已确认共享 MCP 工具 Service 可保持不变，适配函数内部重建 Request 即可。
+- 已核对所有现有 MCP 调用点、远程 HTTP 传输测试与契约文档；修改范围冻结为 MCP 注册、MCP 测试及两份直接相关文档。
+- 已将两个 MCP 工具改为扁平基础类型签名，并在适配层内部构造原 `StudentProfileInput` / `TargetJobInput`。
+- 已新增两项普通 JSON 调用测试，更新四工具链调用和 `tools/list` 无 `$ref/$defs` 断言。
+- 已同步公共 API 契约中的 MCP 小节和百宝箱接入 JSON 样例；HTTP API 契约明确保持不变。
+- MCP 定向套件首轮 `8/8` 通过，包含两个新增扁平 JSON 调用、四工具完整链、Schema、远程鉴权和 HTTP 一致性回归。
+- 已直接输出注册后的两个 input schema，确认无 `$ref/$defs` 和业务 object 入参。
+- 追加阶段3 HTTP 工具 `5/5`、阶段3 E2E `10/10` 回归，全部通过。
+- backend 全套回归 `177/177` 通过；没有历史 Profile prompt 失败，本工作树当前基线全绿。
+- compileall、`git diff --check` 和禁止范围 diff 审计通过；Service、平台/鉴权、HTTP 挂载及输入模型定义无改动。
+- 本次兼容修复完成，未执行 Git commit、部署或百宝箱现场配置修改。
+
+---
+
 # D4-2.6 阶段4最终端到端验证执行日志
 
 ## 2026-08-24

@@ -1,3 +1,149 @@
+# 阶段4 MCP 仓库侧接入发现（2026-08-27）
+
+## 初始边界与工作树
+
+- 目标是把三个已经真实化的阶段4内部 handler 注册到现有 MCP Server，使 `tools/list` 为 7；不进入百宝箱、Cloudflare、固定 Token 或现场联调。
+- 任务开始时 `backend/app/mcp/server.py`、`backend/tests/test_mcp_server.py`、`docs/a02/04_API_CONTRACTS.md`、`docs/a02/16_MCP_SERVER_INTEGRATION.md` 已有上一任务未提交的扁平参数兼容改动，必须原样保留并增量编辑。
+- `docs/a02/17_STAGE5_INTERFACE清单.md` 和两份开发日志为任务开始前未跟踪文件，本轮不擅自覆盖。
+- planning skill 的 session catchup 脚本缺失；已通过计划文件和 Git diff 恢复，不再重复失败命令。
+
+## 待核查
+
+- 三个内部 Request/Result Schema 的精确字段、联合校验和错误 envelope。
+- 现有 MCP 测试的官方客户端、tools/list、连续会话、鉴权与业务失败测试模式。
+- 公共 API 契约、MCP 工具目录和集成说明中所有“4 工具/阶段3/规划中”表述。
+- `server.py` 元信息应如何从 stage3 更新为准确的阶段4 MCP 能力状态，同时避免声称平台现场已配置。
+
+## 实现与 Schema 核查
+
+- 现有唯一注册工厂为 `create_career_mcp_server()`；四个阶段3函数均使用 `@server.tool(..., structured_output=True)`，函数内构造严格 Request 后直接调用同一个 `CareerMCPToolService`。注册完成后统一把 SDK 动态参数模型改为 `extra="forbid"` 并重建 JSON Schema，因此新增工具只要放在该循环之前就自动获得同样的未知字段拒绝语义。
+- `server.py` 当前扁平化改动只影响 Profile/Job 两个公开签名和适配构造；新增注册必须在其后增量添加，不能恢复嵌套 `StudentProfileInput` / `TargetJobInput` 参数。
+- `GenerateAndScoreTrainingRequest` 已严格区分两种模式：无 `user_answer` 时要求 `training_type` 且禁止 `training_id`；有 `user_answer` 时要求 `training_id`，可选 `training_type` 仅用于与存储任务做一致性检查。
+- `RecommendLearningAndJobResourcesRequest` 只有公共 `session_id/user_id/trace_id`，调用方不能覆盖 gaps 或 target job。
+- `SaveGrowthFeedbackRequest` 要求 `satisfaction: Rating`，三个分项 rating 和最长 10000 字符 comments 可选。
+- 三个 Result 均继承现有 `MCPToolResult` 成功/失败一致性 envelope；成功分别返回 Training task/score、ResourceService 四类结果、FeedbackAgent 完整结果，失败必须为 `data=None + error_code`。
+- `CareerMCPToolService` 三个 handler 已完整实现状态加载、身份绑定、trace 幂等账本、安全错误 envelope 和持久化；MCP 注册层无需也不应复制任何前置、训练、资源或反馈逻辑。
+- 现有内部工具测试已经覆盖 handler 的 generate、score、resource、feedback、非法 Schema、业务前置失败、隐私、LLM fallback、ResourceService 失败、session 隔离与幂等；新的 MCP 测试重点应验证官方协议适配，而不是重复 Service 算法。
+
+## 现有 MCP 测试与文档核查
+
+- `backend/tests/test_mcp_server.py` 使用官方 MCP `Client(..., mode="legacy")` 覆盖 initialize、tools/list/call、阶段3四步状态链、HTTP 等值、前置失败、未知字段、Streamable HTTP Bearer；当前本地 list 集合和远程 list 数量分别硬编码为 4。
+- 当前测试 Orchestrator 只注入 Profile/Job/Match/Path 四个 Agent。要从 MCP 协议真正调用 Training/Feedback，测试 fixture 必须增量注入真实 `TrainingAgent` / `FeedbackAgent`（使用现有离线 LLM double 和真实 Service），不能 mock MCP handler。
+- 阶段4 MCP 成功链可复用 `_run_chain()` 先建立同一 session 的真实 profile/job/match/path，再在同一个 `Client` 上执行 training generate → score → resources → feedback；这同时覆盖用户要求的连续发现和多工具调用。
+- `docs/a02/13_MCP_TOOL_CATALOG.md` 顶部和总览明确声称只注册 4 个且阶段4未注册，§5 的 Training 输入还是旧 `student_id/job_id` 规划契约，§6 允许 caller 提供 gaps/target job；这些都必须改成真实 session-state 契约，不能只替换标题状态。
+- `docs/a02/04_API_CONTRACTS.md §1.4` 当前只定义 `stage3-mcp-v1` 四工具；应以加法方式升级为阶段4七工具，保持 §1.3 HTTP `stage3-tool-v1` 不变。
+- `docs/a02/16_MCP_SERVER_INTEGRATION.md` 工具表、四步措辞、测试覆盖和百宝箱 `tools/list` 数量均仍是 4；需要加入三个真实工具、请求样例、前置/业务错误和“代码已注册但平台未现场配置”边界。
+- 文档检索命令包含 Windows 不接受的 `backend/README*` 字面路径，导致该单项报错；其他指定文档均成功读取，后续使用 `rg --files` 解析路径，不重复该形式。
+
+## 冻结的公开 MCP 设计
+
+- `generate_and_score_training` 公开参数固定为 `session_id/user_id`、可选 `trace_id/training_type/training_id/user_answer`；`training_type` 使用现有三值 `TrainingType`。Request 的 model validator 是模式裁决唯一来源：generate 要求 `training_type`，score 要求 `training_id + user_answer`，不拆工具。
+- `recommend_learning_and_job_resources` 公开参数只有 `session_id/user_id/trace_id`，确保能力缺口和目标岗位只能从同一 session 的 State 投影。
+- `save_growth_feedback` 公开参数为 `session_id/user_id/satisfaction`、可选 `trace_id/path_rating/training_rating/resource_rating/comments`；四个 rating 均复用严格 1–5 `Rating` 类型。
+- Server 元信息升级为 `stage4-mcp-v1`，描述七工具 session 流程；instructions 明确先画像/岗位/匹配/路径，再按需训练、资源、反馈。该版本只表示仓库侧 MCP 能力版本，不表示百宝箱现场发布。
+- 协议测试将保留现有四工具断言并新增：7 名称/Schema、同一 Client 的阶段3+阶段4连续成功链、三个非法/缺失参数拒绝、阶段4业务失败安全 envelope、原有远程 Bearer list/call 数量回归。
+- 测试 LLM 继续使用统一离线失败 double；TrainingService 的确定性 fallback 和 FeedbackAgent 的文字 fallback均为真实生产路径，不在 MCP 层造返回值。
+- `Status` 已包含 `TRAINING_STARTED/COMPLETED` 和 `FEEDBACK_STARTED/COMPLETED`，无需扩展状态枚举。
+- `04_API_CONTRACTS.md` 自身要求任何修改先在 `decisions/` 建 ADR。由于本次把三个规划工具改为真实公开注册并纠正旧入参，属于加法公共契约变化；将新增 `ADR-003-stage4-mcp-tool-registration.md`，记录不改 HTTP API、只激活现有 MCP Server、State 自动补齐上下文和未现场发布边界。
+- 现有 ADR 风格为简洁的“背景/决策/影响”，状态 Accepted；ADR-003 将沿用该格式，不引入新的流程或架构。
+
+## 首轮实现验证
+
+- 三个 `@server.tool` 薄适配器已加入唯一 MCP Server 工厂；函数体仅构造对应 Request 并调用同名 `CareerMCPToolService` 方法。
+- Server 元信息已更新为 `stage4-mcp-v1`；原 Profile/Job 扁平签名及其构造逻辑完整保留。
+- MCP 测试 fixture 已加入真实 TrainingAgent/FeedbackAgent，原四工具仍走原路径；新增连续测试在同一 Client/session 中执行 tools/list、阶段3四步、Training generate/score、Resource、Feedback。
+- 首次定向测试 10/11 通过，唯一错误为测试把 `CallToolResult` 当列表；改用官方 Client 后 `python -m unittest tests.test_mcp_server -v` 为 `11 passed`。
+- 通过的协议测试已证明：tools/list 为 7、Training 两分支成功、Resource/Feedback 成功、非法 enum/extra/rating 与缺参被拒、业务失败返回安全 envelope、远程 Bearer 鉴权仍工作。
+
+## 关联契约补充核查
+
+- `05_AGENT_CONTRACTS.md` 与 `04_API_CONTRACTS.md`/工具目录声明捆绑；其 Training/Feedback 段仍保留旧规划措辞（LLM 生成训练题/分数、默认 60、Redis 补写等），与已经验收的真实 Agent/Service 不一致。
+- 本轮将只在相关 Training/Feedback 段做事实纠正：列出真实 MCP 瞬时输入、数值归属确定性 Service、可选 LLM 仅做语义/文字、Service 失败使用安全错误而非虚构分数或保存成功；不改 Agent 公共输出字段。
+- 文档检索再次因 Windows 裸 wildcard 路径单项报错；已用 `rg --files` 获得精确清单，后续不再重复该命令形式。
+
+## 实际运行 Schema / Service 复核
+
+- 直接调用唯一 Server 的实际 `list_tools()` 返回 `COUNT 7`，名称依次为原四工具加三个阶段4工具；三个新 input schema 均为根层 `additionalProperties=false`。
+- Training 实际 tools/list 必填仅 `session_id/user_id`，三个模式字段为可空；三值 enum 正确。跨字段 generate/score 约束由适配器内现有 `GenerateAndScoreTrainingRequest` 二次严格验证。
+- Resource 实际公开 properties 精确为 `session_id/user_id/trace_id`；Feedback 必填 `session_id/user_id/satisfaction`，四个 rating 的 JSON Schema 均带 1–5 边界。
+- ResourceService 真实返回四字段：`learning_resources`（最多 10）、固定空 `job_resources`、`certificate_suggestions`、`data_quality_flags`；FeedbackService 返回保存标志、archive 标志、priority updates、growth snapshot 和 flags，Agent 只加自然语言摘要。文档已按这套形状更新。
+
+## 分组回归结果
+
+- 阶段4 MCP + 内部工具 + 最终 E2E：`python -m unittest tests.test_mcp_server tests.test_stage4_internal_tools tests.test_stage4_final_e2e -v`，29/29 通过。
+- 阶段3 MCP + HTTP 平台工具 + E2E：`python -m unittest tests.test_mcp_server tests.test_tbox_stage3_tools tests.test_stage3_e2e -v`，26/26 通过。
+- 两组均包含原四 MCP 工具回归；远程 Streamable HTTP 401/成功、tools/list=7、阶段3 HTTP OpenAPI 与确定性 Match/Path 均未回归。
+
+## 完整回归结果与既有阻塞
+
+- `python -m unittest discover -s tests -t .`：180/180 通过；这是仓库后端顶层完整测试集，较任务前 177 项增加 3 个 MCP 协议测试。
+- 额外 `python -m unittest discover -s app -t .`：运行 77 项，70 通过、6 failures + 1 error。失败精确为 5 个 `ProfileAgentTests` 和 2 个 `MockCareerFlowTests`，根因是任务开始前已知缺失 `prompts/profile_agent/system.txt` 与 `user_template.txt`；与前序 D4 验收记录一致。
+- 本轮未修改 ProfileAgent、prompt 或旧 Mock flow；不会为 MCP 接入猜写业务 prompt 或降低旧断言。将运行 Match/Path/Training/Feedback Agent 适用套件证明相关代码无回归。
+- 排除上述已知 Profile/Mock 阻塞后，Match/Path/Training/Feedback Agent 适用回归 60/60 通过；三个阶段4真实 Agent/Service 边界无回归。
+
+## 最终差异初审
+
+- `python -m compileall -q app tests` 与 `git diff --check` 均通过；只有 Git 对工作树 LF/CRLF 的提示，无 whitespace error。
+- `backend/app/services`、`backend/app/mcp/tool_service.py`、`backend/app/orchestrator`、`backend/app/main.py`、`backend/app/platform` 的 diff 均为空，证明未重写 Service/handler、总体架构、挂载或鉴权。
+- `server.py` 相对 HEAD 的 diff 同时包含任务前扁平 Profile/Job 参数改动和本轮三个注册；逐段检查确认扁平字段、构造逻辑及原四工具完整保留。
+- 实际业务差异集中于 `server.py`、阶段4 Schema 模块说明、MCP 协议测试；其余为 ADR/契约/接入文档和 planning skill 工作记录。
+- `feedback_schema.py` 曾因本轮注释试改后恢复，`git diff` 已为空；Git status 仍受行尾/索引状态显示 M，但没有内容差异，不把它列为交付变更。
+
+## 最终协议与文档证据
+
+- 最终 `python -m unittest tests.test_mcp_server` 再次 11/11 通过。
+- 直接运行时清单为 7：`build_student_profile, analyze_target_job, analyze_job_match, generate_career_path, generate_and_score_training, recommend_learning_and_job_resources, save_growth_feedback`。
+- 工具目录阶段4范围内 8 个 `json` fenced blocks 均通过 `json.loads`；指定活动文档没有残留“只注册/阶段4规划未注册/读取四工具”的声明。
+- `feedback_schema.py` 工作树 blob 与 HEAD blob 均为 `21779afd74f4a671576ecda17045b5f0e499ff5b`，确认无内容变化。
+- 最终组合命令的退出码 1 仅来自末尾 `rg` 无匹配；此前所有实际检查均为成功输出。
+
+---
+
+# MCP 百宝箱入参兼容修复发现（2026-08-27）
+
+## 初始边界
+
+- 只处理 `build_student_profile` 与 `analyze_target_job` 的 MCP 注册/适配和测试。
+- 已知 `analyze_job_match`、`generate_career_path` 在百宝箱调试通过，作为回归基线。
+- `tools/list` 必须不再为这两个工具公开嵌套输入模型的 `$ref` / `$defs`。
+- 当前尚未读取实现；真实字段和最小签名以代码中的 `StudentProfileInput`、`TargetJobInput` 为准。
+
+## 第一轮代码核查
+
+- 根因已定位在 `backend/app/mcp/server.py`：两个注册函数直接把 `student_input: StudentProfileInput`、`target_job_input: TargetJobInput` 放进 SDK 工具函数签名，SDK 因而把它们生成为嵌套 Pydantic object Schema；百宝箱侧却按 String 传入，SDK 在进入适配函数前即校验失败。
+- `StudentProfileInput` 不是单一自然语言字段。真实字段为 `resume_text`、`form_fields`、`form_data`、`parsed_data`、`skills`、`education`、`projects`、`internships`、`work_experience`、`competitions`、`certificates`、`supplementary_info`，且要求至少一个非空证据。
+- `TargetJobInput` 真实字段为 `job_id`、必填 `job_title`、`industry`、`city`、`job_description`、`trend_context`。
+- 共享 `CareerMCPToolService` 当前只接收已构造好的 `BuildStudentProfileRequest` / `AnalyzeTargetJobRequest`，再原样调用 Agent/Service；因此兼容修复可完全限制在 MCP 注册适配层与 MCP 测试，不改业务 Service。
+- 现有 MCP 测试仍用嵌套 `student_input` / `target_job_input`，`tools/list` 只断言嵌套参数名存在，没有阻止 `$ref/$defs`，正好解释为何本地通过而百宝箱失败。
+- 相关实现和测试文件当前 `git diff` 为空，本轮可以做清晰的最小增量修改。
+
+## 公开签名设计
+
+- `build_student_profile` 公开模型/现有 Service 使用的基础字段：`resume_text`、教育与目标表单标量、字符串数组形式的技能/经历字段、`supplementary_info`；适配层把表单标量归入真实 `form_fields` 后构造 `StudentProfileInput`。仅接受 mapping 的 `form_data/parsed_data` 不再作为 MCP 入参暴露，HTTP/内部模型不变。
+- `analyze_target_job` 将公开 `job_title: str`（必填）、`job_id: int | null`、`industry/city/job_description/trend_context: str | null`；适配层构造 `TargetJobInput`。`trend_context` 选择真实模型已经支持的字符串分支，不公开 object/任意元素列表分支。
+- `session_id`、`user_id` 仍必填，`trace_id` 仍可选；后两个通过工具签名保留原名和语义。
+- 新 Schema 测试需要递归断言两个输入 Schema 不含 `$ref` 或 `$defs`，并逐字段验证顶层类型；同时断言旧嵌套参数名不再出现。
+- `docs/a02/04_API_CONTRACTS.md` 是 AGENTS 规定的公共 Schema 所有者，必须同步；`docs/a02/16_MCP_SERVER_INTEGRATION.md` 的百宝箱 JSON 样例也必须同步，避免现场继续填写旧嵌套对象。
+
+## 第一轮验证
+
+- `python -m unittest tests.test_mcp_server -v`：8 项全部通过。
+- 两个新增普通 JSON 测试已通过，并验证适配层写入 State 的内部 `student_input.form_fields`、技能列表和 `target_job_input` 与扁平参数一致。
+- 现有四工具完整链、Match/Path 与 HTTP 结果逐字段一致性、远程 Streamable HTTP 鉴权、前置错误和未知字段拒绝均通过。
+- `tools/list` 测试已验证两个目标工具的 input schema 中没有 `$ref` / `$defs`，也没有旧的 `student_input` / `target_job_input` 属性；`job_title` 是顶层必填字符串。
+- 直接打印 SDK 注册后的实际 Schema 再次确认：根层 `type=object`、`additionalProperties=false`；基础字段只出现 `string`、`integer`、`number`、`array(items=string)` 与可选 `null`，没有 object 类型的业务入参。
+- 阶段3正式 HTTP 工具回归 `5/5` 通过，阶段3端到端 Match/Path 回归 `10/10` 通过；HTTP 鉴权/OpenAPI、匹配、路径、幂等、超时、持久化与确定性结果未回归。
+
+## 最终验证与范围
+
+- `python -m unittest discover -s tests -t .`：backend 全套 `177 passed`，无失败。
+- `python -m compileall -q app tests`：通过。
+- `git diff --check`：通过；只有仓库现有 LF/CRLF 提示。
+- `backend/app/services`、`backend/app/platform`、`backend/app/main.py`、`backend/app/schemas/mcp_tool_schema.py` 均无差异，证明 Service、鉴权/HTTP 集成、应用挂载和真实输入模型定义没有被改动。
+- Git 状态中的 3 个未跟踪文档为任务开始前已存在的用户文件，本轮未触碰。
+
+---
+
 # D4-2.6 阶段4最终端到端验证发现
 
 ## 初始基线

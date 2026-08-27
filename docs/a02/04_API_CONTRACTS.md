@@ -156,19 +156,46 @@ INITIALIZED
 `idempotent_replay=true`；相同键但不同请求返回 `-8`。原始请求、Bearer token 和明文
 `user_id` 不写入平台调用日志。
 
-### 1.4 标准远程 MCP Server（`stage3-mcp-v1`）
+### 1.4 标准远程 MCP Server（`stage4-mcp-v1`）
 
-这是 §1.3 HTTP Tool API 的加法适配，不删除或改变 HTTP 契约。服务使用官方
+这是 §1.3 HTTP Tool API 的加法适配，不删除或改变 HTTP `stage3-tool-v1` 契约。服务使用官方
 `mcp==2.0.0`，传输为 Streamable HTTP，默认端点 `/mcp`。启用时要求
 `Authorization: Bearer <MCP_API_TOKEN>`；本地测试可以显式设置
 `MCP_AUTH_ENABLED=false`。当前没有百宝箱只支持旧 SSE 的已验证依据，因此不提供 `/sse`。
 
 | MCP 工具 | 必填输入 | 真实执行入口 | 成功状态 | 确定性结果 |
 |---|---|---|---|---|
-| `build_student_profile` | `session_id/user_id/student_input` | `ProfileAgent` / `ProfileService` | `PROFILE_COMPLETED` | `StudentProfile` |
-| `analyze_target_job` | `session_id/user_id/target_job_input` | `JobAgent` | `JOB_COMPLETED` | `JobProfile + TrendResult` |
+| `build_student_profile` | `session_id/user_id` + 至少一个扁平画像证据字段 | `ProfileAgent` / `ProfileService` | `PROFILE_COMPLETED` | `StudentProfile` |
+| `analyze_target_job` | `session_id/user_id/job_title` + 可选扁平岗位字段 | `JobAgent` | `JOB_COMPLETED` | `JobProfile + TrendResult` |
 | `analyze_job_match` | `session_id/user_id` | `MatchAgent` / `MatchService` | `MATCH_COMPLETED` | `MatchResult` |
 | `generate_career_path` | `session_id/user_id` | `PathAgent` / `PathService` | `PATH_COMPLETED` | `PathResult` |
+| `generate_and_score_training` | generate: `session_id/user_id/training_type`; score: `session_id/user_id/training_id/user_answer` | `TrainingAgent` / `TrainingService` | `TRAINING_COMPLETED` | `TrainingTask` 或 `TrainingScore` |
+| `recommend_learning_and_job_resources` | `session_id/user_id` | `ResourceService` | 保持当前 session 状态 | `ResourceRecommendation` |
+| `save_growth_feedback` | `session_id/user_id/satisfaction` | `FeedbackAgent` / `FeedbackService` | `FEEDBACK_COMPLETED` | `FeedbackAgentResult` |
+
+`build_student_profile` 的 MCP 公开字段为基础类型：可选 `resume_text`、
+`education_level`、`major`、`graduation_year`、`city`、`target_job`、
+`target_industry`、`years_of_experience`、`skills`、`projects`、`internships`、
+`work_experience`、`competitions`、`certificates`、`supplementary_info`，其中
+`skills` 及各经历字段是字符串数组。调用时至少提供一个非空画像证据字段。
+
+`analyze_target_job` 的 MCP 公开字段为必填字符串 `job_title`，以及可选基础类型
+`job_id`、`industry`、`city`、`job_description`、`trend_context`。这两个工具不再公开
+`student_input` / `target_job_input` 嵌套对象；MCP 适配层会用扁平字段构造内部严格模型。
+这一变化只影响 MCP 工具参数，§1.3 的 HTTP Tool API 契约保持不变。
+
+`generate_and_score_training` 是一个合并工具，不拆分为生成/评分两个 MCP 名称。生成模式不传
+`user_answer`，必须传三值枚举 `training_type`；评分模式必须传 `training_id + user_answer`，
+可选 `training_type` 只能用于校验其与已保存任务一致。调用方不得传 evaluation criteria、
+coverage、score 或 ability updates；所有数值由 TrainingService 计算。
+
+`recommend_learning_and_job_resources` 不接受 `ability_gaps` 或 `target_job`。它从同一 session
+的 `match_result.skill_gaps` 和 `job_profile` 读取有序上下文，返回
+`learning_resources/job_resources/certificate_suggestions/data_quality_flags`。
+
+`save_growth_feedback` 要求整数 `satisfaction`（1–5），可选同范围的 `path_rating`、
+`training_rating`、`resource_rating` 和最长 10000 字符 `comments`。技能缺口、训练目标和综合分
+从 State 投影，调用方不能传入或覆盖。
 
 所有工具可选传 `trace_id`（1–64 字符，标识符字符集同 `tool_call_id`）；缺省时服务端生成
 `tool-<uuid>`。`trace_id` 同时是 `platform_tool_calls.tool_call_id`，用于关联安全平台调用日志和
@@ -186,15 +213,17 @@ MCP 统一结构化结果字段：
   "retryable": false,
   "trace_id": "tool-...",
   "session_id": "string",
-  "status": "PROFILE_COMPLETED | JOB_COMPLETED | MATCH_COMPLETED | PATH_COMPLETED | ...",
+  "status": "PROFILE_COMPLETED | JOB_COMPLETED | MATCH_COMPLETED | PATH_COMPLETED | TRAINING_COMPLETED | FEEDBACK_COMPLETED | ...",
   "data": "tool-specific validated object | null"
 }
 ```
 
 业务前置失败返回 `success=false`、稳定 `error_code`、`missing_fields` 和 `retryable`，不返回
-Python 堆栈。Pydantic/JSON Schema 不匹配由 MCP `tools/call` 协议错误拒绝。匹配要求同一
+Python 堆栈。Pydantic/JSON Schema 不匹配由 MCP `tools/call` 协议错误拒绝。常见阶段4错误包括
+`TRAINING_PREREQUISITES_NOT_READY`、`TRAINING_NOT_FOUND`、`TRAINING_TYPE_MISMATCH`、
+`MATCH_RESULT_NOT_FOUND`、`RESOURCE_SERVICE_ERROR` 和 `FEEDBACK_FAILED`。匹配要求同一
 session 已保存 `student_profile` 和 `job_profile`；路径要求已保存 `match_result` 且状态为
-`MATCH_COMPLETED`。MCP 的后两步不接受画像、岗位、分数、缺口、节点或路径分数输入。
+`MATCH_COMPLETED`。匹配、路径、训练和资源工具都不接受可覆盖后端业务结果的输入。
 
 `PROFILE_COMPLETED`/`JOB_COMPLETED` 是仓库现有状态机中对外“PROFILE_READY/JOB_READY”
 语义的正式状态名，不新增第二套状态枚举。规则 fallback 产生的结构化 Profile/Job 仍通过
@@ -853,6 +882,7 @@ Demo Mode 下：
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-08-27 | v1.3 | 加法注册 stage4-mcp-v1 三工具，标准 MCP 工具总数更新为7 | CareerPulse A02 Team |
 | 2026-08-21 | v1.2 | 加法新增 stage3-mcp-v1 四工具、状态、trace、错误和安全约束 | CareerPulse A02 Team |
 | 2026-08-04 | v1.0 | 初始冻结：CareerState、统一错误格式、能力等级、能力标签体系、Demo格式 | 技术负责人 |
 

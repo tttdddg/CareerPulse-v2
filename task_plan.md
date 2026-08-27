@@ -1,3 +1,86 @@
+# CareerPulse 阶段4 MCP 仓库侧接入（2026-08-27）
+
+## 当前目标
+
+在保留阶段3四个 MCP 工具及 `server.py` 现有扁平参数改动的前提下，将已经完成的阶段4 Training / Resource / Feedback 内部 handler 以三个薄 MCP 适配器注册到现有 Server，使 `tools/list` 从 4 个增加到 7 个；同步严格协议测试、公开契约与服务元信息，并完成阶段4、阶段3及后端适用回归。仅完成代码仓库侧接入，不配置百宝箱、Cloudflare 或真实 Token。
+
+## 当前阶段
+
+1. **已完成** — 审计现有 MCP Server、阶段4 handler/Schema、阶段3与内部工具测试、公开契约和全部未提交差异。
+2. **已完成** — 冻结三个公开 MCP 签名、工具描述、错误语义、元信息和文档更新范围。
+3. **已完成** — 增量注册三个薄适配器并扩展 MCP 协议测试，保持原四工具不变。
+4. **已完成** — 同步 MCP 工具目录、API 契约、集成说明和 stage/version/instructions 元信息。
+5. **已完成** — 运行阶段4 MCP、阶段3 MCP、后端适用回归、compile/diff/tools-list 检查并汇总结果。
+
+## 本轮约束
+
+- 不创建第二套 MCP Server，不改变现有鉴权、部署或总体架构。
+- MCP 层只做扁平协议参数到已有严格 Request Schema、再到 `CareerMCPToolService` handler 的适配。
+- Training 保持一个合并工具，由现有字段区分 generate / score。
+- 不修改或重写 TrainingService、ResourceService、FeedbackService 和三个既有 handler。
+- 公开 Schema 不放宽；新增平台工具必须有成功与失败测试。
+- 保留任务开始前所有未提交改动，不覆盖用户文件，不执行 Git commit。
+- 不将仓库侧代码完成表述为百宝箱现场接入完成。
+
+## 本轮错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 不存在 | 1 | 与现有任务记录一致；改用三份规划文件、Git 状态和 diff 恢复上下文，不再重试。 |
+| 文档检索向 `rg` 传入 Windows 不接受的 `backend/README*` 字面路径 | 1 | 指定的三个 MCP 文档和根 README 已正常读取；后续先用 `rg --files` 解析文件，不重复该 glob。 |
+| 首轮 MCP 定向测试 1 项错误：把 `MCPServer.call_tool()` 的 `CallToolResult` 当列表下标访问 | 1 | 三个新增工具和其余 10 项均通过；改为官方 `Client.call_tool()` 后定向测试 11/11 通过。 |
+| 第二次文档检索继续向 `rg` 传入 Windows 不接受的 `docs/a02/*.md` / `decisions/*.md` | 1 | 已改用 `rg --files docs/a02 decisions` 获取精确文件；后续不再向命令传裸 wildcard 路径。 |
+| 从 `backend/` 复核 Service 时误用 `backend/app/...`，且把内部 `server.list_tools()` 的 list 当作 Client 包装对象 | 1 | 未产生文件变化；下次使用 `app/services/...` 和直接迭代返回 list，不重复错误形式。 |
+| `python -m unittest discover -s app -t .` 为 6 failures / 1 error | 1 | 5 个 ProfileAgent 直接失败均由任务前已缺 `prompts/profile_agent/system.txt`/`user_template.txt` 导致，2 个旧 Mock 全链为同一原因级联；不越界猜写 prompt，另跑 Match/Path/Training/Feedback Agent 适用回归。 |
+| 最终组合检查退出码 1 | 1 | 前置 MCP 11/11、JSON 解析、tools=7、diff check、hash 均成功；最后 `rg` 因没有找到任何过期活动声明按约定返回 1，不是测试/实现失败，不重复命令。 |
+
+## 完成结论
+
+- 现有唯一 MCP Server 已增量注册三个阶段4薄适配器，实际 `tools/list` 为 7；Training 保持合并工具。
+- 原四工具、扁平 Profile/Job 参数、鉴权、Service/handler/Orchestrator 和 HTTP API 均未回归或被覆盖。
+- 阶段4分组 29/29、阶段3分组 26/26、backend 顶层完整套件 180/180、相关 Agent 60/60、最终 MCP 11/11 均通过。
+- `backend/app` 的 7 个既有 Profile prompt 缺失直接/级联失败仍在，已如实分类；不属于本次接入范围。
+- 仓库侧代码和契约已完成；百宝箱、Cloudflare、固定 Token、公网与现场联调仍需人工完成。
+
+---
+
+# CareerPulse MCP 百宝箱入参兼容修复（2026-08-27）
+
+## 当前目标
+
+仅修复 `build_student_profile`、`analyze_target_job` 的 MCP 公开入参与服务端模型不一致问题：公开 Schema 使用百宝箱可识别的基础类型，在 MCP 适配层重建真实 Pydantic 输入；保持工具名、身份/追踪字段、Service、返回结构、HTTP API、部署和鉴权不变，并回归四个阶段3工具。
+
+## 当前阶段
+
+1. **已完成** — 定位 MCP 注册、真实输入模型、共享调用层与现有测试，核对工作区已有改动。
+2. **已完成** — 冻结两个工具的扁平基础类型签名及预期 `tools/list` JSON Schema。
+3. **已完成** — 最小修改 MCP 适配层并补充百宝箱普通 JSON 调用及四工具回归测试。
+4. **已完成** — 运行定向测试、相关回归、Schema/隐私/差异检查。
+5. **已完成** — 汇总根因、修改文件、新参数结构、测试结果和百宝箱测试参数。
+
+## 本轮约束
+
+- 不修改部署、鉴权、HTTP API、原有 Service 业务逻辑和返回结构。
+- 不改变工具名称及 `user_id`、`session_id`、`trace_id`。
+- 不把 Pydantic BaseModel 或嵌套对象直接暴露为 MCP 入参，不虚构模型字段。
+- 保留并避开用户已有未提交文件，不自动提交 Git。
+
+## 本轮错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| planning-with-files 的 `scripts/session-catchup.py` 不存在 | 1 | 已读取现有规划文件和 Git 状态恢复上下文，不再重复失败。 |
+| 首次 `rg` 组合正则被 PowerShell 双引号误解析为模块名 | 1 | 改用单引号包裹正则后成功定位全部 MCP 测试调用点。 |
+| 文档检索包含不存在的 `backend/README.md` | 1 | 其余目标文档已正常检索；移除该不存在路径，不重复调用。 |
+
+## 完成结论
+
+- 修复仅涉及 MCP 注册适配、对应测试和 MCP 公共契约/百宝箱样例；Service、HTTP API、部署、鉴权和输入模型定义均未修改。
+- MCP 定向 `8/8`、HTTP 工具 `5/5`、阶段3 E2E `10/10`、backend 全套 `177/177` 全部通过。
+- `tools/list` 已确认无目标工具的 `$ref/$defs` 或嵌套 object 入参；compileall 与 `git diff --check` 通过。
+
+---
+
 # CareerPulse A02：D4-2.6 阶段4最终端到端验证
 
 ## 2026-08-24 当前目标

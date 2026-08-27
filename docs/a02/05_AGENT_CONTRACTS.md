@@ -302,6 +302,10 @@
 | state | `job_profile` | object | |
 | state | `match_result` | object | 用于定位能力短板 |
 
+标准 MCP 工具 `generate_and_score_training` 的瞬时参数为：生成模式
+`session_id/user_id/training_type`，评分模式 `session_id/user_id/training_id/user_answer`；
+`trace_id` 可选。ability gaps、岗位和 evaluation criteria 由 State/Service 提供，调用方不能覆盖。
+
 ### 5.3 输出 → `state.training_plan`
 
 ```json
@@ -331,7 +335,8 @@
 
 ### 5.4 训练评分（二次调用）
 
-用户完成训练后，百宝箱再次调用 `generate_and_score_training` 工具（带 `user_answer` 参数）：
+用户完成训练后再次调用同一个 `generate_and_score_training` 工具，并同时提供
+`training_id + user_answer`。该工具是 generate/score 合并工具，不拆成两个 MCP 工具：
 
 ```json
 // 返回 TrainingScore（见 04_API_CONTRACTS.md §6.2）
@@ -339,8 +344,8 @@
   "training_id": "string",
   "total_score": "float",
   "dimension_scores": [{"dimension": "string", "score": "float", "comment": "string"}],
-  "overall_comment": "string — LLM 生成",
-  "improvement_suggestions": ["string — LLM 生成"],
+  "overall_comment": "string — Service 结果，可由已验证文字解释补充",
+  "improvement_suggestions": ["string — Service 结果"],
   "ability_updates": [{"tag": "string", "level_change": "int -1 / 0 / +1"}]
 }
 ```
@@ -352,13 +357,14 @@
 
 ### 5.6 LLM 调用
 
-- 训练题生成：Prompt 模板 `prompts/training_agent/generate.txt`
-- 评价生成：Prompt 模板 `prompts/training_agent/score.txt`
+- 训练任务由 TrainingService 的冻结任务库确定性生成。
+- 评分时 LLM 只可返回无数值的 coverage/reason 语义信号；TrainingService 独占全部数值计算。
+- 可选 LLM 文字反馈失败不影响已完成的确定性评分。
 
 ### 5.7 Fallback
 
-- 训练题生成失败：返回内置 3 类各 1 道固定训练题（来自 `data/training_tasks.json`）
-- 评分失败：返回默认分数 60 + 通用建议
+- LLM coverage 不可用时由 TrainingService 使用其确定性 fallback 评分路径。
+- TrainingService/Schema 失败返回安全错误，不虚构训练题、默认分数或 ability update。
 
 ---
 
@@ -373,7 +379,7 @@
 | 来源 | CareerState 字段 | 类型 | 说明 |
 |------|-----------------|------|------|
 | state | `session_id` | string | |
-| 工具参数 | `ratings` | object | 用户评分数据 |
+| 工具参数 | `feedback` | object | `satisfaction` 必填；三个分项 rating 和 comments 可选 |
 
 ### 6.3 输出 → `state.feedback_result`
 
@@ -386,18 +392,19 @@
 ### 6.5 执行流程
 
 ```
-1. FeedbackService.save(session_id, ratings)
-2. FeedbackService.update_priorities(session_id)
-3. FeedbackService.update_growth_archive(user_id)
+1. FeedbackAgent 从 State 投影 skill gaps、abilities、training targets 和 overall score
+2. FeedbackService.save_feedback(...) 保存评分、更新 priorities 和 growth snapshot
+3. 结果经 FeedbackAgentResult Schema 校验后写入 feedback_result
 ```
 
 ### 6.6 LLM 调用
 
-- 不调用 LLM。纯确定性计算。
+- FeedbackService 的保存、priority 和 growth snapshot 为纯确定性计算。
+- Agent 可请求一句自然语言解释；解释失败使用固定安全文案，不改变 Service 字段。
 
 ### 6.7 Fallback
 
-- 反馈数据本地缓存（Redis），数据库恢复后补写
+- FeedbackService/Schema 失败返回安全错误，不声称已保存，也不虚构中性评分或成长快照。
 
 ---
 

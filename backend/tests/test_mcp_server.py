@@ -13,10 +13,12 @@ from fastapi.testclient import TestClient
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
+from app.agents.feedback_agent import FeedbackAgent
 from app.agents.job_agent import JobAgent
 from app.agents.match_agent import MatchAgent
 from app.agents.path_agent import PathAgent
 from app.agents.profile_agent import ProfileAgent
+from app.agents.training_agent import TrainingAgent
 from app.db_state import StateRepository
 from app.main import create_app
 from app.mcp.server import create_career_mcp_server
@@ -29,6 +31,10 @@ from app.schemas.path_schema import PathResult
 
 TOKEN = "test-only-mcp-token"
 USER_ID = "anonymous-user-001"
+LONG_ANSWER = (
+    "我会先同步当前进展和已经确认的事实，再说明风险、下一步与负责人，"
+    "并使用异步文档记录决策和反馈期限，确保所有参与者都能追踪。"
+)
 
 
 class OfflineLLMClient:
@@ -38,40 +44,34 @@ class OfflineLLMClient:
         raise RuntimeError("simulated offline LLM")
 
 
-def student_input() -> dict[str, Any]:
+def student_tool_arguments() -> dict[str, Any]:
     return {
         "resume_text": (
             "匿名候选人使用产品规划、需求分析和数据驱动决策完成AI产品项目。"
             "联络信息 candidate@example.com 13800138000 仅用于脱敏日志测试。"
         ),
-        "form_fields": {
-            "education_level": "硕士",
-            "major": "统计学（演示）",
-            "graduation_year": 2026,
-            "city": "上海",
-            "target_job": "AI产品经理",
-            "target_industry": "人工智能",
-            "years_of_experience": 0.5,
-        },
-        "parsed_data": {
-            "skills": [
-                "产品规划",
-                "需求分析",
-                "数据驱动决策",
-                "大模型应用",
-                "用户研究",
-                "项目管理",
-                "沟通表达",
-            ],
-            "projects": [
-                "完成匿名AI产品方案、用户研究、需求拆解和大模型应用原型。"
-            ],
-            "internships": ["参与匿名项目管理和跨团队沟通表达。"],
-        },
+        "education_level": "硕士",
+        "major": "统计学（演示）",
+        "graduation_year": 2026,
+        "city": "上海",
+        "target_job": "AI产品经理",
+        "target_industry": "人工智能",
+        "years_of_experience": 0.5,
+        "skills": [
+            "产品规划",
+            "需求分析",
+            "数据驱动决策",
+            "大模型应用",
+            "用户研究",
+            "项目管理",
+            "沟通表达",
+        ],
+        "projects": ["完成匿名AI产品方案、用户研究、需求拆解和大模型应用原型。"],
+        "internships": ["参与匿名项目管理和跨团队沟通表达。"],
     }
 
 
-def target_job_input() -> dict[str, Any]:
+def target_job_tool_arguments() -> dict[str, Any]:
     return {
         "job_id": 91001,
         "job_title": "AI产品经理",
@@ -89,6 +89,8 @@ def real_orchestrator(repository: StateRepository) -> CareerOrchestrator:
             JobAgent(client=offline),
             MatchAgent(client=offline),
             PathAgent(client=offline),
+            TrainingAgent(client=offline),
+            FeedbackAgent(client=offline),
         ],
         repository=repository,
     )
@@ -136,7 +138,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             {
                 **common,
                 "trace_id": f"tool-{session_id}-profile",
-                "student_input": student_input(),
+                **student_tool_arguments(),
             },
         )
         job = await client.call_tool(
@@ -144,7 +146,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             {
                 **common,
                 "trace_id": f"tool-{session_id}-job",
-                "target_job_input": target_job_input(),
+                **target_job_tool_arguments(),
             },
         )
         match = await client.call_tool(
@@ -173,6 +175,9 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             "analyze_target_job",
             "analyze_job_match",
             "generate_career_path",
+            "generate_and_score_training",
+            "recommend_learning_and_job_resources",
+            "save_growth_feedback",
         }
         self.assertEqual(expected, {tool.name for tool in listed.tools})
         schemas = {tool.name: tool.input_schema for tool in listed.tools}
@@ -180,10 +185,120 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(False, schema.get("additionalProperties"), name)
             self.assertTrue({"session_id", "user_id"}.issubset(schema["required"]))
             self.assertIn("trace_id", schema["properties"])
-        self.assertIn("student_input", schemas["build_student_profile"]["required"])
-        self.assertIn("target_job_input", schemas["analyze_target_job"]["required"])
+        profile_schema = schemas["build_student_profile"]
+        job_schema = schemas["analyze_target_job"]
+        nested_schema_json = json.dumps(
+            [profile_schema, job_schema], ensure_ascii=False, sort_keys=True
+        )
+        self.assertNotIn('"$ref"', nested_schema_json)
+        self.assertNotIn('"$defs"', nested_schema_json)
+        self.assertNotIn("student_input", profile_schema["properties"])
+        self.assertNotIn("target_job_input", job_schema["properties"])
+        self.assertIn("resume_text", profile_schema["properties"])
+        self.assertIn("skills", profile_schema["properties"])
+        self.assertIn("job_title", job_schema["required"])
+        self.assertEqual(
+            {"string", "null"},
+            {
+                item["type"]
+                for item in profile_schema["properties"]["resume_text"]["anyOf"]
+            },
+        )
+        self.assertEqual(
+            "string",
+            profile_schema["properties"]["skills"]["anyOf"][0]["items"]["type"],
+        )
+        self.assertEqual("string", job_schema["properties"]["job_title"]["type"])
         self.assertNotIn("student_profile", schemas["analyze_job_match"]["properties"])
         self.assertNotIn("match_result", schemas["generate_career_path"]["properties"])
+        training_schema = schemas["generate_and_score_training"]
+        resource_schema = schemas["recommend_learning_and_job_resources"]
+        feedback_schema = schemas["save_growth_feedback"]
+        self.assertEqual(
+            {"session_id", "user_id"},
+            set(training_schema["required"]),
+        )
+        self.assertEqual(
+            {
+                "session_id",
+                "user_id",
+                "training_type",
+                "training_id",
+                "user_answer",
+                "trace_id",
+            },
+            set(training_schema["properties"]),
+        )
+        training_type_schema = training_schema["properties"]["training_type"]
+        self.assertEqual(
+            {
+                "remote_collaboration",
+                "ai_office_task",
+                "cross_role_communication",
+            },
+            set(training_type_schema["anyOf"][0]["enum"]),
+        )
+        self.assertEqual(
+            {"session_id", "user_id", "trace_id"},
+            set(resource_schema["properties"]),
+        )
+        self.assertEqual(
+            {"session_id", "user_id", "satisfaction"},
+            set(feedback_schema["required"]),
+        )
+        self.assertEqual(
+            1, feedback_schema["properties"]["satisfaction"]["minimum"]
+        )
+        self.assertEqual(
+            5, feedback_schema["properties"]["satisfaction"]["maximum"]
+        )
+
+    async def test_build_student_profile_accepts_flat_tbox_json_arguments(self) -> None:
+        session_id = "mcp-flat-profile-001"
+        arguments = {
+            "session_id": session_id,
+            "user_id": USER_ID,
+            "trace_id": "tool-flat-profile-001",
+            **student_tool_arguments(),
+        }
+        async with Client(self.server, mode="legacy") as client:
+            result = await client.call_tool("build_student_profile", arguments)
+
+        self.assertFalse(result.is_error, result)
+        self.assertTrue(result.structured_content["success"])
+        state = self.orchestrator.get_session(session_id)
+        assert state is not None
+        self.assertEqual(arguments["resume_text"], state.student_input["resume_text"])
+        self.assertEqual(arguments["skills"], state.student_input["skills"])
+        self.assertEqual(
+            {
+                "education_level": "硕士",
+                "major": "统计学（演示）",
+                "graduation_year": 2026,
+                "city": "上海",
+                "target_job": "AI产品经理",
+                "target_industry": "人工智能",
+                "years_of_experience": 0.5,
+            },
+            state.student_input["form_fields"],
+        )
+
+    async def test_analyze_target_job_accepts_flat_tbox_json_arguments(self) -> None:
+        session_id = "mcp-flat-job-001"
+        arguments = {
+            "session_id": session_id,
+            "user_id": USER_ID,
+            "trace_id": "tool-flat-job-001",
+            **target_job_tool_arguments(),
+        }
+        async with Client(self.server, mode="legacy") as client:
+            result = await client.call_tool("analyze_target_job", arguments)
+
+        self.assertFalse(result.is_error, result)
+        self.assertTrue(result.structured_content["success"])
+        state = self.orchestrator.get_session(session_id)
+        assert state is not None
+        self.assertEqual(target_job_tool_arguments(), state.target_job_input)
 
     async def test_four_real_tools_chain_state_fallback_and_private_logs(self) -> None:
         session_id = "mcp-chain-001"
@@ -228,6 +343,170 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("candidate@example.com", serialized_logs)
         self.assertNotIn("13800138000", serialized_logs)
         self.assertNotIn(TOKEN, serialized_logs)
+
+    async def test_stage4_tools_continuous_session_generate_score_resources_feedback(
+        self,
+    ) -> None:
+        session_id = "mcp-stage4-chain-001"
+        common = {"session_id": session_id, "user_id": USER_ID}
+        async with Client(self.server, mode="legacy") as client:
+            listed = await client.list_tools()
+            self.assertEqual(7, len(listed.tools))
+            await self._run_chain(client, session_id)
+            generated = await client.call_tool(
+                "generate_and_score_training",
+                {
+                    **common,
+                    "trace_id": "tool-stage4-generate-001",
+                    "training_type": "remote_collaboration",
+                },
+            )
+            self.assertFalse(generated.is_error, generated)
+            generated_body = generated.structured_content
+            self.assertTrue(generated_body["success"])
+            self.assertEqual("generate", generated_body["data"]["mode"])
+            training_id = generated_body["data"]["training_task"]["training_id"]
+
+            scored = await client.call_tool(
+                "generate_and_score_training",
+                {
+                    **common,
+                    "trace_id": "tool-stage4-score-001",
+                    "training_id": training_id,
+                    "user_answer": LONG_ANSWER,
+                },
+            )
+            resources = await client.call_tool(
+                "recommend_learning_and_job_resources",
+                {**common, "trace_id": "tool-stage4-resources-001"},
+            )
+            feedback = await client.call_tool(
+                "save_growth_feedback",
+                {
+                    **common,
+                    "trace_id": "tool-stage4-feedback-001",
+                    "satisfaction": 4,
+                    "path_rating": 5,
+                    "training_rating": 4,
+                    "resource_rating": 4,
+                    "comments": "希望继续提供结构化训练建议。",
+                },
+            )
+
+        for result in (scored, resources, feedback):
+            self.assertFalse(result.is_error, result)
+            self.assertTrue(result.structured_content["success"])
+        scored_body = scored.structured_content
+        self.assertEqual("score", scored_body["data"]["mode"])
+        self.assertEqual(
+            training_id, scored_body["data"]["training_score"]["training_id"]
+        )
+        self.assertEqual(
+            "ResourceService", resources.structured_content["data"]["service_name"]
+        )
+        self.assertTrue(
+            feedback.structured_content["data"]["feedback_result"]["feedback_saved"]
+        )
+        state = self.orchestrator.get_session(session_id)
+        assert state is not None
+        self.assertEqual("FEEDBACK_COMPLETED", state.status)
+        self.assertIsNotNone(state.training_plan)
+        self.assertIsNotNone(state.resource_result)
+        self.assertIsNotNone(state.feedback_result)
+        self.assertNotIn(LONG_ANSWER, json.dumps(state.model_dump(), ensure_ascii=False))
+
+    async def test_stage4_schema_rejects_invalid_and_missing_arguments(self) -> None:
+        common = {"session_id": "mcp-stage4-invalid", "user_id": USER_ID}
+        async with Client(self.server, mode="legacy") as client:
+            invalid_training_type = await client.call_tool(
+                "generate_and_score_training",
+                {**common, "training_type": "unsupported_training"},
+            )
+            missing_training_mode = await client.call_tool(
+                "generate_and_score_training",
+                common,
+            )
+            extra_resource_context = await client.call_tool(
+                "recommend_learning_and_job_resources",
+                {**common, "ability_gaps": ["caller override forbidden"]},
+            )
+            missing_resource_user = await client.call_tool(
+                "recommend_learning_and_job_resources",
+                {"session_id": "mcp-stage4-invalid"},
+            )
+            invalid_feedback_rating = await client.call_tool(
+                "save_growth_feedback",
+                {**common, "satisfaction": 6},
+            )
+            missing_feedback_rating = await client.call_tool(
+                "save_growth_feedback",
+                common,
+            )
+
+        for result in (
+            invalid_training_type,
+            missing_training_mode,
+            extra_resource_context,
+            missing_resource_user,
+            invalid_feedback_rating,
+            missing_feedback_rating,
+        ):
+            self.assertTrue(result.is_error, result)
+
+    async def test_stage4_handler_failures_return_safe_mcp_envelopes(self) -> None:
+        session_id = "mcp-stage4-prerequisite-failure"
+        common = {"session_id": session_id, "user_id": USER_ID}
+        async with Client(self.server, mode="legacy") as client:
+            missing_session = await client.call_tool(
+                "generate_and_score_training",
+                {
+                    "session_id": "mcp-stage4-missing-session",
+                    "user_id": USER_ID,
+                    "training_type": "remote_collaboration",
+                },
+            )
+            await client.call_tool(
+                "build_student_profile", {**common, **student_tool_arguments()}
+            )
+            await client.call_tool(
+                "analyze_target_job", {**common, **target_job_tool_arguments()}
+            )
+            training = await client.call_tool(
+                "generate_and_score_training",
+                {**common, "training_type": "remote_collaboration"},
+            )
+            resources = await client.call_tool(
+                "recommend_learning_and_job_resources", common
+            )
+            feedback = await client.call_tool(
+                "save_growth_feedback",
+                {
+                    **common,
+                    "satisfaction": 4,
+                    "comments": "请联系 private@example.com",
+                },
+            )
+
+        self.assertFalse(missing_session.is_error, missing_session)
+        self.assertFalse(missing_session.structured_content["success"])
+        self.assertEqual(
+            "SESSION_NOT_FOUND", missing_session.structured_content["error_code"]
+        )
+        self.assertFalse(training.is_error, training)
+        self.assertFalse(training.structured_content["success"])
+        self.assertEqual(
+            "TRAINING_PREREQUISITES_NOT_READY",
+            training.structured_content["error_code"],
+        )
+        self.assertFalse(resources.is_error, resources)
+        self.assertFalse(resources.structured_content["success"])
+        self.assertEqual(
+            "MATCH_RESULT_NOT_FOUND", resources.structured_content["error_code"]
+        )
+        self.assertFalse(feedback.is_error, feedback)
+        self.assertFalse(feedback.structured_content["success"])
+        self.assertEqual("FEEDBACK_FAILED", feedback.structured_content["error_code"])
+        self.assertNotIn("private@example.com", feedback.structured_content["message"])
 
     async def test_mcp_match_and_path_equal_existing_http_tools(self) -> None:
         mcp_session = "mcp-consistency-001"
@@ -300,7 +579,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             job_only = {"session_id": "mcp-job-only", "user_id": USER_ID}
             await client.call_tool(
                 "analyze_target_job",
-                {**job_only, "target_job_input": target_job_input()},
+                {**job_only, **target_job_tool_arguments()},
             )
             missing_profile = await client.call_tool(
                 "analyze_job_match", job_only
@@ -318,11 +597,11 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             common = {"session_id": "mcp-path-early", "user_id": USER_ID}
             await client.call_tool(
                 "build_student_profile",
-                {**common, "student_input": student_input()},
+                {**common, **student_tool_arguments()},
             )
             await client.call_tool(
                 "analyze_target_job",
-                {**common, "target_job_input": target_job_input()},
+                {**common, **target_job_tool_arguments()},
             )
             early_path = await client.call_tool("generate_career_path", common)
             early_body = early_path.structured_content
@@ -391,7 +670,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 async with Client(remote_transport, mode="legacy") as client:
                     self.assertIsNotNone(client.session.initialize_result)
                     listed = await client.list_tools()
-                    self.assertEqual(4, len(listed.tools))
+                    self.assertEqual(7, len(listed.tools))
                     result = await client.call_tool(
                         "analyze_job_match",
                         {"session_id": "remote-missing", "user_id": USER_ID},

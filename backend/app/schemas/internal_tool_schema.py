@@ -1,4 +1,4 @@
-"""Strict internal boundaries for the unregistered Stage 4 tool actions."""
+"""Strict Stage 4 boundaries shared by internal and MCP tool adapters."""
 
 from __future__ import annotations
 

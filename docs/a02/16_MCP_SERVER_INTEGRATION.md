@@ -5,14 +5,15 @@
 - SDK：官方 Model Context Protocol Python SDK `mcp==2.0.0`（固定稳定版，Python >=3.10）。
 - 传输：Streamable HTTP。
 - 默认端点：`/mcp`。
+- Server 能力版本：`stage4-mcp-v1`，当前 `tools/list` 返回 7 个工具。
 - 运行方式：挂载到现有 `app.main:app` FastAPI 应用，共用 CareerOrchestrator、
   CareerState、StateRepository、Agent、Service 和平台调用账本。
 - 鉴权：MCP 独立静态 Bearer Token；不复用或改变 HTTP Tool API 的
   `A02_TBOX_API_TOKEN`。
 - SSE：未实现。当前没有目标百宝箱租户只支持旧 SSE 的已验证证据，避免维护重复传输。
 
-MCP 适配层只处理协议、输入验证、session 前置、状态、鉴权和日志。匹配、能力缺口、路径
-生成与路径评分仍由现有 MatchService/PathService 确定性计算。
+MCP 适配层只处理协议参数到严格 Request Schema、session、状态、鉴权和日志。匹配、能力
+缺口、路径、训练评分、资源和成长快照仍由现有确定性 Service/Agent handler 负责。
 
 ## 2. 本地安装与启动
 
@@ -75,14 +76,18 @@ Token 缺失或不匹配返回 HTTP 401，响应不会回显 Token。MCP 鉴权�
 | `analyze_target_job` | JobAgent / `analyze_job_and_trend` | 无独立正式平台 operation | 写 `job_profile/trend_result` |
 | `analyze_job_match` | MatchAgent + MatchService / `calculate_job_match` | `analyze_job_match` | 只读已有画像/岗位，写 `match_result` |
 | `generate_career_path` | PathAgent + PathService / `recommend_career_path` | `generate_career_path` | 只读已有匹配，写路径结果 |
+| `generate_and_score_training` | TrainingAgent + TrainingService / 同名 handler | 无独立 HTTP operation | generate/score 合并，写 training_plan |
+| `recommend_learning_and_job_resources` | ResourceService / 同名 handler | 无独立 HTTP operation | 从 State 读 gaps/target job，写 resource_result |
+| `save_growth_feedback` | FeedbackAgent + FeedbackService / 同名 handler | 无独立 HTTP operation | 读 State 上下文，写 feedback_result |
 
-HTTP API 保持 `stage3-tool-v1` 契约不变。HTTP 匹配工具仍接收完整已验证 Profile；MCP 用四步
-session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得到的 MatchResult/PathResult
-已做逐字段一致性测试。
+HTTP API 保持 `stage3-tool-v1` 契约不变。HTTP 匹配工具仍接收完整已验证 Profile；MCP 的
+七工具共享 session 流程，匹配/路径/资源只接收 `session_id/user_id`。两种传输得到的
+MatchResult/PathResult 已做逐字段一致性测试。
 
 ## 6. 调用顺序与样例
 
-四步必须复用相同 `session_id` 和 `user_id`。`trace_id` 可省略由服务端生成；若由平台提供，
+七个工具必须复用相同 `session_id` 和 `user_id`。前四步形成画像→岗位→匹配→路径主链，
+后三个工具按需调用。`trace_id` 可省略由服务端生成；若由平台提供，
 每个逻辑调用使用唯一值。
 
 ### 6.1 build_student_profile
@@ -92,21 +97,19 @@ session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得�
   "session_id": "sess-example-001",
   "user_id": "user-example-001",
   "trace_id": "tool-example-profile-001",
-  "student_input": {
-    "form_fields": {
-      "education_level": "本科",
-      "major": "计算机科学",
-      "graduation_year": 2027,
-      "target_job": "后端开发工程师",
-      "target_industry": "企业服务/SaaS"
-    },
-    "parsed_data": {
-      "skills": ["Python", "SQL/数据库", "Git/版本控制"],
-      "projects": ["完成匿名课程后端项目"]
-    }
-  }
+  "resume_text": "匿名候选人完成课程后端项目，使用 Python、SQL 和 Git。",
+  "education_level": "本科",
+  "major": "计算机科学",
+  "graduation_year": 2027,
+  "target_job": "后端开发工程师",
+  "target_industry": "企业服务/SaaS",
+  "skills": ["Python", "SQL/数据库", "Git/版本控制"],
+  "projects": ["完成匿名课程后端项目"]
 }
 ```
+
+不要填写 `student_input` JSON 对象；上述字段必须直接放在工具参数顶层。除
+`session_id/user_id` 外，至少提供一个非空画像证据字段。
 
 成功状态：`PROFILE_COMPLETED`（即对外 PROFILE_READY 语义）。
 
@@ -117,14 +120,14 @@ session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得�
   "session_id": "sess-example-001",
   "user_id": "user-example-001",
   "trace_id": "tool-example-job-001",
-  "target_job_input": {
-    "job_id": 91003,
-    "job_title": "后端开发工程师",
-    "industry": "企业服务/SaaS",
-    "job_description": "匿名岗位描述"
-  }
+  "job_id": 91003,
+  "job_title": "后端开发工程师",
+  "industry": "企业服务/SaaS",
+  "job_description": "匿名岗位描述"
 }
 ```
+
+不要填写 `target_job_input` JSON 对象；`job_title` 及其他岗位字段直接放在工具参数顶层。
 
 成功状态：`JOB_COMPLETED`（即对外 JOB_READY 语义）。
 
@@ -152,6 +155,63 @@ session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得�
 
 不得传 match/path JSON、节点或分数。成功状态：`PATH_COMPLETED`。
 
+### 6.5 generate_and_score_training（合并工具）
+
+生成模式：
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-training-generate-001",
+  "training_type": "remote_collaboration"
+}
+```
+
+评分模式再次调用同名工具：
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-training-score-001",
+  "training_id": "training-...",
+  "user_answer": "匿名回答文本"
+}
+```
+
+不要传 score、coverage、criteria 或 ability updates。成功时 `data.mode` 分别为
+`generate/score`，且只返回 `training_task` 或 `training_score` 其中之一。
+
+### 6.6 recommend_learning_and_job_resources
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-resources-001"
+}
+```
+
+不要传 `ability_gaps` 或 `target_job`；服务从已保存匹配和岗位读取上下文。
+
+### 6.7 save_growth_feedback
+
+```json
+{
+  "session_id": "sess-example-001",
+  "user_id": "user-example-001",
+  "trace_id": "tool-example-feedback-001",
+  "satisfaction": 4,
+  "path_rating": 5,
+  "training_rating": 4,
+  "resource_rating": 4,
+  "comments": "希望继续提供结构化训练建议。"
+}
+```
+
+四个 rating 均必须为整数 1–5；只有 `satisfaction` 必填。成功状态：`FEEDBACK_COMPLETED`。
+
 ## 7. 统一结果与前置错误
 
 所有工具返回：`success/error_code/message/missing_fields/retryable/trace_id/session_id/status/data`。
@@ -165,6 +225,11 @@ session 流程，匹配/路径只接收 `session_id/user_id`。两种传输得�
 | `MATCH_NOT_COMPLETED` | `match_result` | 先成功调用匹配工具 |
 | `SESSION_USER_MISMATCH` | 空 | 使用 session 所属 user_id |
 | `MCP_TOOL_TIMEOUT` | 空 | 可按 `retryable=true` 重试新调用 |
+| `TRAINING_PREREQUISITES_NOT_READY` | 实际缺少的画像/岗位/匹配 | 先完成主链上下文 |
+| `TRAINING_NOT_FOUND` | `training_plan` | 使用同一 session 中已生成的 training_id |
+| `MATCH_RESULT_NOT_FOUND` | `match_result` | 先执行匹配再请求资源 |
+| `RESOURCE_SERVICE_ERROR` | 空 | 可按 `retryable=true` 使用新 trace 重试 |
+| `FEEDBACK_FAILED` | 空 | 检查评分/隐私输入；不假定反馈已保存 |
 
 异常堆栈、数据库地址、API Key 和完整简历不会进入 MCP 结果。Profile/Job 的 LLM 失败可使用
 现有验证过的规则/Demo fallback，结果中 `fallback_used=true`；Match/Path 的 Service 结果不被
@@ -179,8 +244,9 @@ python -m unittest tests.test_mcp_server -v
 python -m unittest tests.test_tbox_stage3_tools -v
 ```
 
-第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、四工具状态
-串联、Schema 拒绝、Bearer、Streamable HTTP、HTTP 结果一致性、fallback 和日志隐私。
+第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、7 工具同 session
+串联、Training 两模式、Schema 拒绝、安全业务失败、Bearer、Streamable HTTP、HTTP 结果一致性、
+fallback 和日志隐私。
 
 远程人工验证示例：
 
@@ -227,7 +293,7 @@ asyncio.run(main())
 | 传输 | Streamable HTTP |
 | Authentication | Bearer / Authorization Header |
 | Header | `Authorization: Bearer <deployment-secret>`（密钥字段） |
-| 工具发现 | 从 `tools/list` 读取四个工具 |
+| 工具发现 | 从 `tools/list` 读取 7 个工具 |
 | 超时 | 大于 CareerPulse 后端超时；平台上限待现场验证 |
 
 目前尚未验证目标百宝箱租户是否支持远程 Streamable HTTP MCP、其精确字段名、超时、返回

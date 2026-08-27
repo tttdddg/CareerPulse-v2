@@ -5,10 +5,12 @@
 > 工具名、参数名、类型、required 字段不得随意修改。
 > 百宝箱工具配置必须与本文件严格一致。
 
-> **阶段3运行状态（2026-08-24）**：当前标准 MCP Server 的 `tools/list` **只注册**
+> **阶段4仓库侧运行状态（2026-08-27）**：当前标准 MCP Server 的 `tools/list` 注册
 > `build_student_profile`、`analyze_target_job`、`analyze_job_match`、
-> `generate_career_path` 四个工具。下文第 1～8 节保留的是 D2 历史语义与规划参考，
-> 其中列出的旧名称均**尚未按该名称注册**，不得据此宣称已有 7 个可调用 MCP 工具。
+> `generate_career_path`、`generate_and_score_training`、
+> `recommend_learning_and_job_resources`、`save_growth_feedback`，共 7 个工具。
+> 第 1～4 节的旧名称仍仅为历史语义并映射到当前注册名；第 5～7 节是当前真实运行契约。
+> 这里的“已注册”只表示代码/协议可发现，不表示百宝箱现场已经配置或发布。
 
 ---
 
@@ -56,10 +58,10 @@
 - 号码脱敏：`138****1234`
 - 邮箱脱敏：`u***@example.com`
 
-### 0.5 阶段3远程 MCP 运行映射（2026-08-21 加法实现）
+### 0.5 阶段4远程 MCP 运行映射（2026-08-27 加法实现）
 
-历史目录中的 7 个名称继续保留为需求语义，不静默修改。本轮只注册仓库已经具备真实
-Agent/Service 的四个阶段3 MCP 工具；远程端点为 Streamable HTTP `/mcp`：
+阶段3四工具和阶段4三个工具均注册在同一个标准 MCP Server；远程端点为 Streamable HTTP
+`/mcp`：
 
 | 远程 MCP 工具名 | 历史目录/内部 Agent 工具名 | 正式 HTTP 对应 | 说明 |
 |---|---|---|---|
@@ -67,9 +69,12 @@ Agent/Service 的四个阶段3 MCP 工具；远程端点为 Streamable HTTP `/mc
 | `analyze_target_job` | `analyze_job_and_trend` | 无独立正式 HTTP 平台工具 | 真实 JobAgent，写 session 状态 |
 | `analyze_job_match` | `calculate_job_match` | `analyze_job_match` | MCP 从 session 读画像/岗位；HTTP 保留现有完整 profile 输入契约 |
 | `generate_career_path` | `recommend_career_path` | `generate_career_path` | 两者均从 session 读已完成匹配 |
+| `generate_and_score_training` | `TrainingAgent` / 同名内部 handler | 无独立 HTTP 平台 operation | 合并 generate/score；TrainingService 独占数值 |
+| `recommend_learning_and_job_resources` | `ResourceService` / 同名内部 handler | 无独立 HTTP 平台 operation | 从 State 读取 gaps/target job |
+| `save_growth_feedback` | `FeedbackAgent` / 同名内部 handler | 无独立 HTTP 平台 operation | 保存用户评分并更新成长快照 |
 
-MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配和路径工具不接受任何
-客户端计算结果字段。运行 Schema、统一错误、状态与 trace 规则以
+MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配、路径、训练和资源工具
+不接受任何客户端计算结果字段。运行 Schema、统一错误、状态与 trace 规则以
 `04_API_CONTRACTS.md §1.4` 为准；启动、鉴权和百宝箱填写说明见
 `16_MCP_SERVER_INTEGRATION.md`。
 
@@ -487,7 +492,7 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 
 ---
 
-## 5. generate_and_score_training（规划中，尚未注册）
+## 5. generate_and_score_training（已注册；generate/score 合并工具）
 
 **功能**：生成职场训练题 / 对用户回答进行评分
 
@@ -502,8 +507,8 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
   "type": "object",
   "properties": {
     "session_id": {"type": "string"},
-    "student_id": {"type": "integer"},
-    "job_id": {"type": "integer"},
+    "user_id": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]},
     "training_type": {
       "type": "string",
       "enum": ["remote_collaboration", "ai_office_task", "cross_role_communication"],
@@ -518,7 +523,23 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
       "description": "用户回答文本（评分模式时必须提供, 生成模式不传）"
     }
   },
-  "required": ["session_id", "student_id", "job_id", "training_type"]
+  "required": ["session_id", "user_id"]
+}
+```
+
+生成模式必须提供 `training_type`，且不提供 `training_id/user_answer`。评分模式必须提供
+`training_id + user_answer`；`training_type` 可省略，若提供则必须与 session 中已保存任务一致。
+调用方不得传分数、coverage、criteria 或 ability updates。
+
+统一响应 envelope 的 `data` 结构为：
+
+```json
+{
+  "tool_name": "generate_and_score_training",
+  "agent_run_id": "<session_id>:TrainingAgent",
+  "mode": "generate | score",
+  "training_task": "TrainingTask | null",
+  "training_score": "TrainingScore | null"
 }
 ```
 
@@ -586,7 +607,8 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
         },
         "required": ["tag", "level_change"]
       }
-    }
+    },
+    "data_quality_flags": {"type": "array", "items": {"type": "string"}}
   }
 }
 ```
@@ -597,9 +619,16 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 - 评分模式 → 展示评分结果，标注 `ability_updates`
 - 训练完成后 → 建议"查看推荐资源"或"再来一题"
 
+### 5.5 主要错误
+
+- `SESSION_NOT_FOUND` / `TRAINING_PREREQUISITES_NOT_READY`
+- `TRAINING_NOT_FOUND` / `TRAINING_TYPE_MISMATCH`
+- `TRAINING_FAILED` / `MCP_TOOL_TIMEOUT`
+- 非法模式组合、枚举、缺参或未知字段由 MCP Schema 直接拒绝
+
 ---
 
-## 6. recommend_learning_and_job_resources（规划中，尚未注册）
+## 6. recommend_learning_and_job_resources（已注册）
 
 **功能**：推荐学习资源和岗位资源
 
@@ -612,16 +641,14 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
   "type": "object",
   "properties": {
     "session_id": {"type": "string"},
-    "ability_gaps": {
-      "type": "array",
-      "items": {"type": "string"},
-      "description": "需要提升的能力标签列表"
-    },
-    "target_job": {"type": "string"}
+    "user_id": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]}
   },
-  "required": ["session_id"]
+  "required": ["session_id", "user_id"]
 }
 ```
+
+`ability_gaps` 和 `target_job` 由后端从 CareerState 读取，调用方不得传入或覆盖。
 
 ### 6.2 输出
 
@@ -629,44 +656,46 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 {
   "type": "object",
   "properties": {
-    "learning_resources": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": {"type": "string"},
-          "type": {"type": "string", "enum": ["course", "book", "practice", "certificate"]},
-          "url": {"type": "string"},
-          "target_ability": {"type": "string"},
-          "description": {"type": "string"}
+    "tool_name": {"const": "recommend_learning_and_job_resources"},
+    "service_name": {"const": "ResourceService"},
+    "resource_result": {
+      "type": "object",
+      "properties": {
+        "learning_resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {"type": "string"},
+              "type": {"type": "string", "enum": ["course", "book", "practice", "certificate"]},
+              "url": {"type": "string"},
+              "target_ability": {"type": "string"},
+              "description": {"type": "string"}
+            },
+            "required": ["title", "type", "target_ability"]
+          }
         },
-        "required": ["title", "type", "target_ability"]
-      }
-    },
-    "job_resources": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title": {"type": "string"},
-          "company": {"type": "string"},
-          "match_score": {"type": "number"},
-          "url": {"type": "string"}
+        "job_resources": {
+          "type": "array",
+          "maxItems": 0
         },
-        "required": ["title", "company"]
+        "certificate_suggestions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "data_quality_flags": {"type": "array", "items": {"type": "string"}}
       }
-    },
-    "certificate_suggestions": {
-      "type": "array",
-      "items": {"type": "string"}
     }
   }
 }
 ```
 
+主要错误：`SESSION_NOT_FOUND`、`MATCH_RESULT_NOT_FOUND`、`RESOURCE_SERVICE_ERROR`、
+`MCP_TOOL_TIMEOUT`；调用方传入 gaps/target job 等未知字段时由 MCP Schema 拒绝。
+
 ---
 
-## 7. save_growth_feedback（规划中，尚未注册）
+## 7. save_growth_feedback（已注册）
 
 **功能**：保存用户反馈，更新成长档案和学习优先级
 
@@ -680,6 +709,7 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
   "properties": {
     "session_id": {"type": "string"},
     "user_id": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]},
     "satisfaction": {
       "type": "integer",
       "minimum": 1,
@@ -706,6 +736,7 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
     },
     "comments": {
       "type": "string",
+      "maxLength": 10000,
       "description": "文字反馈 (可选)"
     }
   },
@@ -714,6 +745,9 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 ```
 
 ### 7.2 输出
+
+统一响应 envelope 的 `data` 包含 `tool_name=save_growth_feedback`、
+`agent_run_id=<session_id>:FeedbackAgent` 和以下 `feedback_result`：
 
 ```json
 {
@@ -742,24 +776,29 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
         "completed_phases": {"type": "integer"},
         "growth_trend": {"type": "string", "enum": ["improving", "stable", "declining"]}
       }
-    }
+    },
+    "data_quality_flags": {"type": "array", "items": {"type": "string"}},
+    "natural_language_summary": {"type": "string"}
   }
 }
 ```
 
+主要错误：`SESSION_NOT_FOUND`、`SESSION_USER_MISMATCH`、`FEEDBACK_FAILED`、
+`MCP_TOOL_TIMEOUT`；缺少 satisfaction、非整数或超出 1–5、未知字段由 MCP Schema 拒绝。
+
 ---
 
-## 8. 历史/规划工具清单总览（均非当前注册名）
+## 8. 工具清单总览
 
-| # | 历史/规划名称 | 当前状态 | 当前阶段3注册映射 |
+| # | 历史/规划名称 | 当前状态 | 当前注册映射 |
 |---|---|---|---|
 | 1 | `analyze_student_profile` | 历史语义参考；尚未按此名称注册 | `build_student_profile` |
 | 2 | `analyze_job_and_trend` | 历史语义参考；尚未按此名称注册 | `analyze_target_job` |
 | 3 | `calculate_job_match` | 历史语义参考；尚未按此名称注册 | `analyze_job_match` |
 | 4 | `recommend_career_path` | 历史语义参考；尚未按此名称注册 | `generate_career_path` |
-| 5 | `generate_and_score_training` | 规划中；尚未注册 | 无 |
-| 6 | `recommend_learning_and_job_resources` | 规划中；尚未注册 | 无 |
-| 7 | `save_growth_feedback` | 规划中；尚未注册 | 无 |
+| 5 | `generate_and_score_training` | 已注册 | 同名 |
+| 6 | `recommend_learning_and_job_resources` | 已注册 | 同名 |
+| 7 | `save_growth_feedback` | 已注册 | 同名 |
 
 ---
 
@@ -769,3 +808,4 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 |------|------|------|------|
 | 2026-08-04 | v1.0 | 初始冻结：7个工具完整输入输出Schema | 技术负责人 |
 | 2026-08-24 | v1.1 | 明确阶段3仅注册4个标准MCP工具；7个旧名称仅保留为历史/规划参考 | Codex |
+| 2026-08-27 | v1.2 | 注册阶段4三个真实工具并按当前严格 State 契约同步输入输出；总数为7 | Codex |
