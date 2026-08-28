@@ -663,4 +663,16 @@
 - 路径结果中的 `fallback_target` 是 PathService 对职业图未命中目标岗位时的可解释确定性降级；TrainingService 的 fallback 评分是 LLM 分析缺失/无效时的确定性文本覆盖算法；ResourceService 的 unknown-tag flag 是知识资源未命中标记。这些都是正常设计触发，本次未改逻辑。
 - 但 ProfileAgent/JobAgent 的 Agent-level fallback 在当前仓库还有具体主路异常原因：根目录对应 Prompt 资产缺失。这不是本次 MCP 参数兼容修复的回归，也不应在 Adapter 中掩盖。
 
+## 当前追加任务发现（2026-08-28）
+
+- 用户现场仍看到 skills=array-only 和 satisfaction=integer-only 错误；需将本地当前源码/运行时 Schema 与现场已发布 Schema 分开验证。
+- 前一轮 normalizer 已支持逗号字符串和真实 list，但尚未支持形如 `["Python", "Vue3"]` 的 JSON 数组字符串；这是本轮明确要求的新增兼容点。
+- 当前工作区 `server.py` 已将六个多值字段声明为 `str | list[str] | None`，四个评分字段声明为 `str | int [| None]`；适配函数也已调用统一 list/int normalizer。
+- 从 `D:\vue\CareerPulse-Pro\backend\app\mcp\server.py` 实际 import 并生成的本地运行时 Schema 显示：skills/projects/competitions 均含 string+array 分支，satisfaction/resource_rating 均含 string+integer 分支。
+- 因此用户现场引用的 array-only/integer-only 报错不可由当前工作区代码复现；高概率是运行中后端/MCP 仍为旧进程、未部署当前改动，或百宝箱仍缓存旧 tools/list。本轮仍需补足 JSON 数组字符串和明确回归。
+- `parse_optional_list` 现在对以 `[` 开头的字符串先做 JSON 解析；只接受数组且每项必须是字符串，保留 JSON 元素内部的逗号，无效 JSON/非字符串元素明确报错。
+- 六个 profile 多值字段共享同一 normalizer，因此 skills/projects/internships/work_experience/competitions/certificates 同步获得逗号文本、JSON 数组文本和真实 list 支持。
+- MCP Server 精确回归覆盖 skills 的分隔字符串、JSON 数组字符串和真实 list，以及 satisfaction/resource_rating 的数字字符串和原生整数，`19/19` 通过。
+- `backend/tests` 全量回归 `188/188` 通过；未发现另外五个 MCP 工具的行为回归。
+
 ---

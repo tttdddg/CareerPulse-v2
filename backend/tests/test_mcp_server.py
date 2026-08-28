@@ -214,6 +214,10 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             {"string", "array", "null"},
             {option["type"] for option in skills_options},
         )
+        self.assertIn(
+            "JSON array text",
+            profile_schema["properties"]["skills"]["description"],
+        )
         skills_array = next(
             option for option in skills_options if option["type"] == "array"
         )
@@ -261,6 +265,13 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 for option in feedback_schema["properties"]["satisfaction"]["anyOf"]
             },
         )
+        self.assertEqual(
+            {"string", "integer", "null"},
+            {
+                option["type"]
+                for option in feedback_schema["properties"]["resource_rating"]["anyOf"]
+            },
+        )
 
     async def test_build_student_profile_accepts_flat_tbox_json_arguments(self) -> None:
         session_id = "mcp-flat-profile-001"
@@ -294,6 +305,9 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_build_student_profile_normalizes_antbox_string_lists(self) -> None:
         cases = (
+            ({"skills": "Python, Vue3, FastAPI"}, "skills", ["Python", "Vue3", "FastAPI"]),
+            ({"skills": ["Python", "Vue3", "FastAPI"]}, "skills", ["Python", "Vue3", "FastAPI"]),
+            ({"skills": '["Python", "Vue3", "FastAPI"]'}, "skills", ["Python", "Vue3", "FastAPI"]),
             ({"skills": "Vue, Python, FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
             ({"skills": "Vue，Python，FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
             ({"skills": "Vue、Python、FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
@@ -308,6 +322,11 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             ),
             ({"projects": "AI 应用项目"}, "projects", ["AI 应用项目"]),
             ({"projects": None}, "projects", None),
+            (
+                {"competitions": '["挑战杯", "创新创业大赛"]'},
+                "competitions",
+                ["挑战杯", "创新创业大赛"],
+            ),
         )
         async with Client(self.server, mode="legacy") as client:
             for index, (field_value, field_name, expected) in enumerate(cases):
@@ -491,6 +510,37 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(state.resource_result)
         self.assertIsNotNone(state.feedback_result)
         self.assertNotIn(LONG_ANSWER, json.dumps(state.model_dump(), ensure_ascii=False))
+
+    async def test_feedback_ratings_accept_numeric_text_and_native_integers(
+        self,
+    ) -> None:
+        cases = (
+            ("3", "4"),
+            (3, 4),
+        )
+        async with Client(self.server, mode="legacy") as client:
+            for index, (satisfaction, resource_rating) in enumerate(cases):
+                session_id = f"mcp-feedback-normalize-{index:02d}"
+                common = {"session_id": session_id, "user_id": USER_ID}
+                profile = await client.call_tool(
+                    "build_student_profile",
+                    {
+                        **common,
+                        "resume_text": "匿名学生具备 Python 与 Vue3 项目经验。",
+                        "skills": "Python, Vue3, FastAPI",
+                    },
+                )
+                self.assertFalse(profile.is_error, profile)
+                feedback = await client.call_tool(
+                    "save_growth_feedback",
+                    {
+                        **common,
+                        "satisfaction": satisfaction,
+                        "resource_rating": resource_rating,
+                    },
+                )
+                self.assertFalse(feedback.is_error, feedback)
+                self.assertTrue(feedback.structured_content["success"])
 
     async def test_training_type_accepts_internal_values_and_explicit_chinese_aliases(
         self,

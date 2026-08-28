@@ -173,7 +173,8 @@ def create_career_mcp_server(
             "Build and store a student profile when the user provides resume, "
             "education, skills, project or experience evidence. Send flat fields, "
             "not a nested profile object. Multi-value fields accept either a "
-            "comma/Chinese-comma/dunhao/newline-delimited string or a string array. "
+            "comma/Chinese-comma/dunhao/newline-delimited string, JSON array text, "
+            "or a string array. "
             "Requires session_id and user_id and at least one evidence field; never "
             "include credentials or invent unsupported abilities."
         ),
@@ -216,27 +217,54 @@ def create_career_mcp_server(
         ] = None,
         skills: Annotated[
             str | list[str] | None,
-            Field(description="Skills as delimited text or a string array."),
+            Field(
+                description=(
+                    "Skills as delimited text, JSON array text, or a string array."
+                )
+            ),
         ] = None,
         projects: Annotated[
             str | list[str] | None,
-            Field(description="Projects as delimited text or a string array."),
+            Field(
+                description=(
+                    "Projects as delimited text, JSON array text, or a string array."
+                )
+            ),
         ] = None,
         internships: Annotated[
             str | list[str] | None,
-            Field(description="Internships as delimited text or a string array."),
+            Field(
+                description=(
+                    "Internships as delimited text, JSON array text, or a string array."
+                )
+            ),
         ] = None,
         work_experience: Annotated[
             str | list[str] | None,
-            Field(description="Work experience as delimited text or a string array."),
+            Field(
+                description=(
+                    "Work experience as delimited text, JSON array text, or a "
+                    "string array."
+                )
+            ),
         ] = None,
         competitions: Annotated[
             str | list[str] | None,
-            Field(description="Competitions as delimited text or a string array."),
+            Field(
+                description=(
+                    "Competitions as delimited text, JSON array text, or a "
+                    "string array."
+                )
+            ),
         ] = None,
         certificates: Annotated[
             str | list[str] | None,
-            Field(description="Certificates as delimited text or a string array."),
+            Field(
+                description=(
+                    "Certificates as delimited text, JSON array text, or a "
+                    "string array."
+                )
+            ),
         ] = None,
         supplementary_info: Annotated[
             str | None,

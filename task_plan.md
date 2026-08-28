@@ -315,4 +315,32 @@
 - 最终 MCP 定向 `18/18`、阶段3/4+服务 `104/104`、backend tests 全量 `187/187`、相关 Agent `60/60` 通过；编译、diff check、7 Tool 描述和无 `$ref/$defs` 检查通过。
 - 当前仓库根 `prompts/profile_agent/*` 和 `prompts/job_agent/*` 缺失；Profile/Job 主路会因 Prompt 加载异常进入设计内 fallback。本次按范围要求只报告，未扩大修复。
 
+## 当前追加任务：Profile/Feedback 外层 Arguments 兼容复核（2026-08-28）
+
+### 目标
+
+仅复核并修复 `build_student_profile` 多值字段和
+`save_growth_feedback` 评分字段的 MCP 外层兼容；新增 JSON 数组字符串支持，
+并确认本地运行时 Schema 是否已允许 string。不修改 Service、HTTP API、
+业务 Request Schema 或其他五个工具的业务行为。
+
+### 阶段
+
+1. **已完成** — 核对当前 `server.py`、normalization、运行时 tools/list 和部署缓存可能性。
+2. **已完成** — 补充 JSON 数组字符串解析，对六个同类多值字段统一生效。
+3. **已完成** — 补充 MCP Server 回归：字符串/真实 list、字符串/真实 int 和 resource_rating。
+4. **已完成** — 运行 MCP 定向与相关全量回归，复核修改边界和重新获取 Schema 要求。
+
+### 完成结论
+
+- MCP 定向回归 `19/19`、`backend/tests` 全量回归 `188/188` 通过，`git diff --check` 无 whitespace error。
+- 本地运行时 `tools/list` 已确认 profile 多值字段为 string/array，feedback 评分为 string/integer；现场仍出现旧类型错误时必须重启/重新部署 MCP 并让百宝箱刷新已发布工具 Schema。
+- 未修改 Service、HTTP API、内部业务 Request Schema 或另外五个工具的业务行为。
+
+### 约束
+
+- 保留前一轮未提交的 MCP Adapter/测试改动，不回退。
+- 内部 StudentProfileInput、SaveGrowthFeedbackRequest 和 strict Rating 不改。
+- 不修改另外五个工具的业务处理。
+
 ---

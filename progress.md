@@ -299,4 +299,15 @@
 - `compileall`、`git diff --check`、tools=7、全参数 description、无 `$ref/$defs` 最终检查通过。
 - 已完成 fallback 分类与修改边界复核，准备交付完整报告。
 
+## 当前追加任务进度（2026-08-28）
+
+- 已重新读取 `planning-with-files` 技能，使用现有规划文件和 Git 状态恢复上轮改动。
+- 已确认本轮只处理 profile 多值输入、feedback 评分输入和对应 MCP 测试。
+- 已核对源码和本地运行时 Schema；当前代码已接受 skills 字符串和 satisfaction 字符串，现场错误更符合旧进程/旧 Schema 缓存。
+- 已在统一 list normalizer 新增 JSON 数组字符串支持，并同步更新六个多值参数 description。
+- 已新增用户指定的精确 Server 层用例和同类字段用例；normalizer 单测 `3/3` 通过，编译通过。
+- MCP 定向组合回归 `19/19` 通过；`backend/tests` 全量回归 `188/188` 通过。
+- `git diff --check` 通过；变更边界复核确认未修改 Service、HTTP API、内部业务 Schema 或其业务逻辑。
+- 已完成本轮追加任务；现场更新后需重启/重新部署 MCP，并刷新百宝箱侧 tools/list，避免继续使用旧 Arguments Schema。
+
 ---

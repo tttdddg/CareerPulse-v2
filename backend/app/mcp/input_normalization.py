@@ -7,6 +7,7 @@ strict request models validate the internal business boundary.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from decimal import Decimal, InvalidOperation
@@ -29,7 +30,21 @@ def parse_optional_list(
     if value is None:
         return None
     if isinstance(value, str):
-        candidates = _LIST_SEPARATOR.split(value)
+        stripped_value = value.strip()
+        if stripped_value.startswith("["):
+            try:
+                decoded = json.loads(stripped_value)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"{field_name} JSON array text is invalid"
+                ) from exc
+            if not isinstance(decoded, list):
+                raise ValueError(
+                    f"{field_name} JSON text must contain an array"
+                )
+            candidates = decoded
+        else:
+            candidates = _LIST_SEPARATOR.split(value)
     elif isinstance(value, list):
         candidates = value
     else:

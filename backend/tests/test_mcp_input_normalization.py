@@ -24,6 +24,9 @@ class MCPInputNormalizationTests(unittest.TestCase):
             (None, None),
             ("AI 聊天助手，招聘匹配系统", ["AI 聊天助手", "招聘匹配系统"]),
             ("AI 应用项目", ["AI 应用项目"]),
+            ('["Python", "Vue3", "FastAPI"]', ["Python", "Vue3", "FastAPI"]),
+            ('["AI, 应用项目", "招聘匹配系统"]', ["AI, 应用项目", "招聘匹配系统"]),
+            ("[]", []),
             ([" Vue ", "", "Python"], ["Vue", "Python"]),
         )
         for raw, expected in cases:
@@ -32,6 +35,10 @@ class MCPInputNormalizationTests(unittest.TestCase):
                     expected,
                     parse_optional_list(raw, field_name="skills"),
                 )
+        for raw in ('["Python", 3]', '["Python",'):
+            with self.subTest(raw=raw):
+                with self.assertRaisesRegex(ValueError, "skills"):
+                    parse_optional_list(raw, field_name="skills")
 
     def test_optional_numbers_accept_strings_and_reject_invalid_values(self) -> None:
         self.assertEqual(4, parse_optional_int("4", field_name="satisfaction"))
