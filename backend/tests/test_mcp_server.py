@@ -185,6 +185,11 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(False, schema.get("additionalProperties"), name)
             self.assertTrue({"session_id", "user_id"}.issubset(schema["required"]))
             self.assertIn("trace_id", schema["properties"])
+            for field_name, field_schema in schema["properties"].items():
+                self.assertTrue(
+                    field_schema.get("description"),
+                    f"{name}.{field_name} is missing a parameter description",
+                )
         profile_schema = schemas["build_student_profile"]
         job_schema = schemas["analyze_target_job"]
         nested_schema_json = json.dumps(
@@ -204,10 +209,15 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 for item in profile_schema["properties"]["resume_text"]["anyOf"]
             },
         )
+        skills_options = profile_schema["properties"]["skills"]["anyOf"]
         self.assertEqual(
-            "string",
-            profile_schema["properties"]["skills"]["anyOf"][0]["items"]["type"],
+            {"string", "array", "null"},
+            {option["type"] for option in skills_options},
         )
+        skills_array = next(
+            option for option in skills_options if option["type"] == "array"
+        )
+        self.assertEqual("string", skills_array["items"]["type"])
         self.assertEqual("string", job_schema["properties"]["job_title"]["type"])
         self.assertNotIn("student_profile", schemas["analyze_job_match"]["properties"])
         self.assertNotIn("match_result", schemas["generate_career_path"]["properties"])
@@ -231,13 +241,11 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         )
         training_type_schema = training_schema["properties"]["training_type"]
         self.assertEqual(
-            {
-                "remote_collaboration",
-                "ai_office_task",
-                "cross_role_communication",
-            },
-            set(training_type_schema["anyOf"][0]["enum"]),
+            {"string", "null"},
+            {option["type"] for option in training_type_schema["anyOf"]},
         )
+        self.assertNotIn("enum", json.dumps(training_type_schema))
+        self.assertIn("remote_collaboration", training_type_schema["description"])
         self.assertEqual(
             {"session_id", "user_id", "trace_id"},
             set(resource_schema["properties"]),
@@ -247,10 +255,11 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             set(feedback_schema["required"]),
         )
         self.assertEqual(
-            1, feedback_schema["properties"]["satisfaction"]["minimum"]
-        )
-        self.assertEqual(
-            5, feedback_schema["properties"]["satisfaction"]["maximum"]
+            {"string", "integer"},
+            {
+                option["type"]
+                for option in feedback_schema["properties"]["satisfaction"]["anyOf"]
+            },
         )
 
     async def test_build_student_profile_accepts_flat_tbox_json_arguments(self) -> None:
@@ -282,6 +291,74 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             },
             state.student_input["form_fields"],
         )
+
+    async def test_build_student_profile_normalizes_antbox_string_lists(self) -> None:
+        cases = (
+            ({"skills": "Vue, Python, FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
+            ({"skills": "Vue，Python，FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
+            ({"skills": "Vue、Python、FastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
+            ({"skills": "Vue\nPython\nFastAPI"}, "skills", ["Vue", "Python", "FastAPI"]),
+            ({"skills": "Vue"}, "skills", ["Vue"]),
+            ({"skills": ""}, "skills", []),
+            ({"skills": None}, "skills", None),
+            (
+                {"projects": "AI 聊天助手，招聘匹配系统"},
+                "projects",
+                ["AI 聊天助手", "招聘匹配系统"],
+            ),
+            ({"projects": "AI 应用项目"}, "projects", ["AI 应用项目"]),
+            ({"projects": None}, "projects", None),
+        )
+        async with Client(self.server, mode="legacy") as client:
+            for index, (field_value, field_name, expected) in enumerate(cases):
+                session_id = f"mcp-profile-normalize-{index:02d}"
+                result = await client.call_tool(
+                    "build_student_profile",
+                    {
+                        "session_id": session_id,
+                        "user_id": USER_ID,
+                        "resume_text": "匿名计算机专业学生画像证据。",
+                        **field_value,
+                    },
+                )
+                self.assertFalse(result.is_error, result)
+                self.assertTrue(result.structured_content["success"])
+                state = self.orchestrator.get_session(session_id)
+                assert state is not None
+                self.assertEqual(expected, state.student_input.get(field_name))
+
+    async def test_profile_and_job_numeric_text_is_normalized_before_strict_models(
+        self,
+    ) -> None:
+        session_id = "mcp-numeric-text-001"
+        common = {"session_id": session_id, "user_id": USER_ID}
+        async with Client(self.server, mode="legacy") as client:
+            profile = await client.call_tool(
+                "build_student_profile",
+                {
+                    **common,
+                    "major": "计算机科学",
+                    "graduation_year": "2026",
+                    "years_of_experience": "0.5",
+                    "skills": "Vue, Python, FastAPI",
+                },
+            )
+            job = await client.call_tool(
+                "analyze_target_job",
+                {
+                    **common,
+                    "job_title": "AI 应用开发工程师",
+                    "job_id": "91001",
+                },
+            )
+
+        self.assertFalse(profile.is_error, profile)
+        self.assertFalse(job.is_error, job)
+        state = self.orchestrator.get_session(session_id)
+        assert state is not None
+        self.assertEqual(2026, state.student_input["form_fields"]["graduation_year"])
+        self.assertEqual(0.5, state.student_input["form_fields"]["years_of_experience"])
+        self.assertEqual(91001, state.target_job_input["job_id"])
 
     async def test_analyze_target_job_accepts_flat_tbox_json_arguments(self) -> None:
         session_id = "mcp-flat-job-001"
@@ -385,7 +462,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 {
                     **common,
                     "trace_id": "tool-stage4-feedback-001",
-                    "satisfaction": 4,
+                    "satisfaction": "4",
                     "path_rating": 5,
                     "training_rating": 4,
                     "resource_rating": 4,
@@ -415,6 +492,55 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(state.feedback_result)
         self.assertNotIn(LONG_ANSWER, json.dumps(state.model_dump(), ensure_ascii=False))
 
+    async def test_training_type_accepts_internal_values_and_explicit_chinese_aliases(
+        self,
+    ) -> None:
+        session_id = "mcp-training-aliases-001"
+        common = {"session_id": session_id, "user_id": USER_ID}
+        cases = (
+            ("remote_collaboration", "remote_collaboration"),
+            ("远程协作", "remote_collaboration"),
+            ("AI 办公任务", "ai_office_task"),
+            ("跨岗沟通", "cross_role_communication"),
+        )
+        async with Client(self.server, mode="legacy") as client:
+            await self._run_chain(client, session_id)
+            for index, (raw_type, expected_type) in enumerate(cases):
+                result = await client.call_tool(
+                    "generate_and_score_training",
+                    {
+                        **common,
+                        "trace_id": f"tool-training-alias-{index:02d}",
+                        "training_type": raw_type,
+                    },
+                )
+                self.assertFalse(result.is_error, result)
+                self.assertTrue(result.structured_content["success"])
+                self.assertEqual(
+                    expected_type,
+                    result.structured_content["data"]["training_task"]["type"],
+                )
+
+    async def test_training_type_rejects_unsupported_interview_request_clearly(
+        self,
+    ) -> None:
+        async with Client(self.server, mode="legacy") as client:
+            result = await client.call_tool(
+                "generate_and_score_training",
+                {
+                    "session_id": "mcp-unsupported-training",
+                    "user_id": USER_ID,
+                    "training_type": "AI 应用开发工程师面试自我介绍",
+                },
+            )
+
+        self.assertTrue(result.is_error, result)
+        error_text = " ".join(
+            getattr(item, "text", "") for item in result.content
+        )
+        self.assertIn("training_type is unsupported", error_text)
+        self.assertIn("当前不支持面试自我介绍类训练", error_text)
+
     async def test_stage4_schema_rejects_invalid_and_missing_arguments(self) -> None:
         common = {"session_id": "mcp-stage4-invalid", "user_id": USER_ID}
         async with Client(self.server, mode="legacy") as client:
@@ -438,6 +564,10 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 "save_growth_feedback",
                 {**common, "satisfaction": 6},
             )
+            invalid_feedback_text = await client.call_tool(
+                "save_growth_feedback",
+                {**common, "satisfaction": "four"},
+            )
             missing_feedback_rating = await client.call_tool(
                 "save_growth_feedback",
                 common,
@@ -449,9 +579,14 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             extra_resource_context,
             missing_resource_user,
             invalid_feedback_rating,
+            invalid_feedback_text,
             missing_feedback_rating,
         ):
             self.assertTrue(result.is_error, result)
+        numeric_error_text = " ".join(
+            getattr(item, "text", "") for item in invalid_feedback_text.content
+        )
+        self.assertIn("satisfaction must be an integer", numeric_error_text)
 
     async def test_stage4_handler_failures_return_safe_mcp_envelopes(self) -> None:
         session_id = "mcp-stage4-prerequisite-failure"

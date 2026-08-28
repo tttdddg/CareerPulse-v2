@@ -279,3 +279,24 @@
 - CareerPulse 侧 `stage3-tool-v1` 已具备两个正式工具、状态/结果查询、固定 Schema、Bearer、超时、稳定错误码、持久幂等、隐私安全调用日志和 AgentRunLog 关联。
 - OpenAPI 由主应用 `/openapi.json` 提供，只需在百宝箱选择 4 个阶段3 operation；完整配置字段、Mock 和未验证平台项已写入 `docs/a02/15_TBOX_STAGE3_MINIMAL_INTEGRATION.md`。
 - 未接入任何阶段4工具，未修改 MatchService、PathService、MatchAgent 或 PathAgent 的计算逻辑，未提交 Git。
+# 当前任务进度：MCP Tool Calling 兼容性（2026-08-28）
+
+- 已完整读取 `planning-with-files` 技能并建立本轮文件化计划。
+- 会话恢复脚本缺失，已记录且不再重试。
+- 已读取历史规划尾部和前序 MCP 任务结论，开始本轮 7 Tool 实现与测试审计。
+- 已定位唯一 MCP 注册层、共享 tool service、严格业务 Request Schema 和主 MCP 协议测试。
+- 已确认三类首要兼容风险：profile 多值 list、training Literal、feedback strict int。
+- 已对照 TrainingService 和真实任务数据确认“面试自我介绍”不属于当前三类训练能力，将采用有限别名+清晰拒绝，不做任意默认映射。
+- 修改前 MCP 基线测试 `11/11` 通过。
+- 已新增 MCP 专用 `input_normalization.py`，实现多分隔符 list、安全 int/float 和有限 enum 别名标准化。
+- 已修改 7 Tool 公开签名/描述，并在适配函数中重建未改动的严格 Request Model；新代码编译与运行时 Schema 生成通过。
+- 新增 normalizer 单测和 MCP 协议/集成测试后，定向组合回归 `18/18` 通过；覆盖全部指定分隔符、空值、原生 list、数字字符串、内部枚举、中文别名、未支持面试请求与 7 Tool 状态链。
+- 环境无 black/ruff，已记录；后续使用现有编译、测试、diff 和手工格式检查，不新增工具依赖。
+- 阶段3/4、平台工具与三个确定性 Service 联合回归 `104/104` 通过。
+- `backend/tests` 全量回归 `187/187` 通过。
+- Match/Path/Training/Feedback Agent 相关回归 `60/60` 通过。
+- 最终 MCP 定向在增加非法数字清晰错误断言后仍为 `18/18` 通过。
+- `compileall`、`git diff --check`、tools=7、全参数 description、无 `$ref/$defs` 最终检查通过。
+- 已完成 fallback 分类与修改边界复核，准备交付完整报告。
+
+---

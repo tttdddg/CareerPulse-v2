@@ -277,3 +277,42 @@
 | 跨 3 个文件的集成补丁未匹配 `main.py` 上下文 | 1 | 已读取精确上下文，拆分为逐文件小补丁。 |
 | 规划日志组合补丁使用了不完整行上下文 | 1 | 已读取文件尾部并用精确行重新应用，内容无丢失。 |
 | 最终组合检查从仓库根执行 backend 相对命令 | 1 | `compileall app/tests/scripts` 与 `scripts/init_a02_data.py` 路径错误；已确认不是代码失败，将从 `backend/` 精确重跑。 |
+# 当前任务：蚂蚁百宝箱 Tool Calling 兼容性统一修复（2026-08-28）
+
+## 目标
+
+在 `backend/app/mcp/` 及 MCP 专用测试内完成 7 个工具的对外 Schema/描述审计，建立可复用的宽输入标准化适配，修复 profile 多值字段、training_type 自然语言兼容和数字输入，保持内部 Pydantic 模型与业务层严格不变。
+
+## 阶段
+
+1. **已完成** — 审计 7 Tool 注册、JSON Schema、参数描述、适配路径、session/user 使用和现有测试。
+2. **已完成** — 设计统一标准化函数，决定 7 Tool 对外基础类型与 training_type 有限别名/错误策略。
+3. **已完成** — 仅修改 MCP Adapter/描述并新增兼容测试，不修改 Agent/Service/HTTP API/核心模型/算法。
+4. **已完成** — 运行 MCP 单测、7 Tool Schema/adapter 测试、阶段3/4回归与可行的全量回归，分析 fallback。
+5. **已完成** — 复核 diff/隐私/边界，整理 7 Tool 审计表和百宝箱重新联调步骤。
+
+## 约束
+
+- 保留用户已有未提交改动，不回退无关内容，不自动 commit。
+- 公开 Schema 如需调整必须核对 `API_CONTRACTS.md`，但优先保持修改范围在 MCP 专属路径。
+- 未知 training_type 不静默映射，非法数字不伪造默认值。
+- 不改 fallback 业务逻辑，仅根据实现与测试报告触发原因。
+
+## 错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 不存在 | 1 | 使用现有规划文件、Git 状态和当前源码恢复上下文，不再重试。 |
+| 首次 fallback 检索向 `rg` 传入 Windows 不支持的 `backend/app/llm*` 路径，并误读不存在的 `agents/base.py` | 1 | 不再使用该 glob；改读精确的 `agents/base_agent.py` 和 `core/llm_client.py`，已成功完成 fallback 审计。 |
+| 当前 Python 环境未安装 `black`，且 `ruff` 命令不存在 | 1 | 不为格式化额外安装依赖；使用手工行长检查、`py_compile`、测试和 `git diff --check` 验证。 |
+| 增强数字错误测试的首个组合补丁把 test 上下文误放到 `server.py` 段 | 1 | 未产生部分修改；拆成精确的 server/test 文件块后成功应用。 |
+| 最终 Schema 内联检查的 PowerShell/Python 引号导致 `SyntaxError` | 1 | 编译和 diff check 已执行；Schema 检查改用 `chr(36)` 构造 `$ref/$defs` 键后通过。 |
+| 首次检索最终行号的 `rg` 正则被 PowerShell 双引号截断 | 1 | 改用单引号原样正则后成功，未修改任何文件。 |
+
+## 完成结论
+
+- 修改仅限 MCP Adapter、MCP 专用测试与本轮规划记录；未修改 Agent、Service、CareerState、Orchestrator、HTTP API、核心 Request/Response 或算法。
+- 最终 MCP 定向 `18/18`、阶段3/4+服务 `104/104`、backend tests 全量 `187/187`、相关 Agent `60/60` 通过；编译、diff check、7 Tool 描述和无 `$ref/$defs` 检查通过。
+- 当前仓库根 `prompts/profile_agent/*` 和 `prompts/job_agent/*` 缺失；Profile/Job 主路会因 Prompt 加载异常进入设计内 fallback。本次按范围要求只报告，未扩大修复。
+
+---

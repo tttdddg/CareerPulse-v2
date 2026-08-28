@@ -639,3 +639,28 @@
 - 完整 Mock 采用最小匿名单能力数据，仍是由真实 MatchAgent/MatchService 接口输出并能通过冻结请求/响应 Pydantic Schema。
 - 最终代码复核后，前置条件阶段被拒绝的工具调用不再伪造 `agent_run_key`；只有实际存在 AgentRunLog 时才建立关联，超时则显式生成安全失败 AgentRunLog。
 - `schema_version` 现为真正必填的 const 字段，tool/agent run 标识也有固定长度与字符约束；status/result 两个查询均验证 tool_call_id。
+# 当前任务发现：MCP Tool Calling 兼容性（2026-08-28）
+
+- `planning-with-files` 的会话恢复脚本在当前安装目录不存在；已改用现有三份规划文件与 Git 状态恢复。
+- 现有规划文件包含历史 MCP/百宝箱任务记录；本次以新的“当前任务”章节追加，不覆盖历史证据。
+- Git 状态命令只返回 `backend/.pytest_cache/` 权限警告，尚需用更精确的 diff/status 命令核对已有改动。
+- `backend/app/mcp/server.py` 是 7 Tool 的唯一 MCP 注册/扁平适配层；它在函数内重建严格 Request Model，适合实现“外宽内严”。
+- 当前公开签名仍直接暴露 `list[str] | None`（profile 的 6 个多值字段）、`TrainingType | None` Literal，以及严格 `Rating` int，因此请求会在进入适配函数之前被 MCP SDK 动态 Pydantic 参数模型拒绝。
+- `analyze_job_match` / `generate_career_path` / resource 只对外暴露 `session_id` / `user_id` / 可选 `trace_id` 三个字符串，无复杂输入；状态通过 `CareerMCPToolService` 从 repository 按 session 读取。
+- 内部 `TrainingType` 为三值 Literal，`Rating` 为 `strict=True` 且 1..5 的 int；必须在 MCP 公开签名先接受基础类型并标准化，再构造两个严格内部 Request。
+- 历史计划显示 2026-08-27 已有一轮“百宝箱入参兼容修复”，但当前 `server.py` 的 skills/projects 已回到/仍是 list；需读取该历史章节与 Git diff 确认演变，不盲目重复方案。
+- 2026-08-27 历史结论声称 profile/job 公开 Schema 已基础类型化，当前 Git 对 `server.py` 无 diff，但现行基线测试明确断言 skills 为 array。本轮应以当前源码/运行 Schema/用户实测为准，不依赖历史结论。
+- `StudentProfileInput` 内部实际允许 skills 为 list 或 string，其他 profile 多值字段也允许 list/string；但用户要求的严格列表重建应在 MCP Adapter 完成，并将 list 传入不改动的内部 model。
+- `TrainingService` 和任务数据只有远程协作、AI 办公任务、跨角色沟通三类；任务数据无“面试自我介绍”。因此该自然语言不属于可安全映射的现有类型，必须返回清晰不支持错误，不能偷映射到“跨角色沟通”。
+- 现有 MCP 主测试会校验 training_type 对外 enum 和 satisfaction 整数范围；本轮需按新的 Adapter 边界更新这些 MCP 专用预期，同时保留内部 Request/Service 的 Literal 和 strict Rating 测试。
+- 修改前 MCP 基线主测试 `11/11` 通过；这说明当前错误是对外入参兼容性缺口，不是 MCP 连通或内部链路整体失效。
+- 运行时 `tools/list` 审计确认所有输入根 Schema 均 `additionalProperties=false`，且对外无嵌套 model / `$ref` / `$defs`；复杂风险集中在 array、Literal enum 和严格数字。
+- fallback 是明确设计：`BaseAgent` 在主执行的依赖、Prompt、外部 LLM、JSON/Schema 校验等任何异常后标记 `fallback_used=True`并运行 Agent 专属 fallback。MCP 测试主动使用永远失败的 `OfflineLLMClient`，所以 profile/job 的 fallback 标记是预期演示行为。
+- 真实环境中出现 fallback 表示 Agent 主路确实异常后自动降级（如模型未配置/请求失败、Prompt 资产缺失、模型输出校验失败），并非主逻辑“正常成功”的同义标记；但是当 fallback 产出经严格 Schema 验证时，工具仍可安全返回 partial/可用结果。
+- 新 Adapter Schema 已通过编译和运行时生成检查：profile 多值字段的 `anyOf` 以 string 为首选并保留 array；training_type 不再暴露 enum；feedback 评分接受 string/integer；所有对外参数已有 description，无 `$ref/$defs`。
+- 其他五工具中，match/path/resource 只有 session/user/trace 字符串；job 只有 `job_id` 的数字字符串风险；feedback 只有四个评分的数字字符串风险。对外无 bool/dict/嵌套 Model，因此未引入无用 bool/dict 转换。
+- session/user 在 7 Tool 中继续是必填基础字符串；`CareerMCPToolService._load_or_create/_load_required/_check_identity` 继续保证同 session 状态串联和 user 所有权，本次未改 session mapper。
+- 路径结果中的 `fallback_target` 是 PathService 对职业图未命中目标岗位时的可解释确定性降级；TrainingService 的 fallback 评分是 LLM 分析缺失/无效时的确定性文本覆盖算法；ResourceService 的 unknown-tag flag 是知识资源未命中标记。这些都是正常设计触发，本次未改逻辑。
+- 但 ProfileAgent/JobAgent 的 Agent-level fallback 在当前仓库还有具体主路异常原因：根目录对应 Prompt 资产缺失。这不是本次 MCP 参数兼容修复的回归，也不应在 Adapter 中掩盖。
+
+---
