@@ -9,78 +9,149 @@
       @close="errorMessage = ''"
     />
 
+    <section class="page-head">
+      <h2>成长档案</h2>
+      <p>沉淀画像、匹配、学习、训练与反馈产生的长期成长记录。</p>
+    </section>
+
+    <section class="overview-grid" aria-label="成长档案概览">
+      <el-card v-for="item in overviewItems" :key="item.label" class="panel overview-card" v-loading="loading">
+        <span>{{ item.label }}</span>
+        <strong>{{ item.value }}</strong>
+      </el-card>
+    </section>
+
     <section class="profile-layout">
       <el-card class="panel profile-card" v-loading="loading">
         <div class="avatar-ring"></div>
-        <h2>{{ userStore.profile?.name || 'John Doe' }}</h2>
+        <h2>{{ userStore.profile?.name || '未设置用户名' }}</h2>
 
         <div class="info-list">
           <div class="info-row">
-            <span>Email</span>
-            <strong>{{ profileEmail }}</strong>
+            <span>用户标识</span>
+            <strong>{{ userStore.profile?.id || '暂无' }}</strong>
           </div>
           <div class="info-row">
-            <span>Member since</span>
-            <strong>{{ memberSince }}</strong>
+            <span>账号角色</span>
+            <strong>{{ userStore.profile?.role || '暂无' }}</strong>
           </div>
           <div class="info-row">
-            <span>Level</span>
-            <strong>Premium</strong>
+            <span>最近记录</span>
+            <strong>{{ latestRecordDate }}</strong>
           </div>
           <div class="info-row">
-            <span>Profile status</span>
-            <strong class="status"><i></i>Online</strong>
+            <span>历史记录</span>
+            <strong>{{ historyLoaded ? `${visibleReports.length} 条` : '暂无' }}</strong>
           </div>
         </div>
       </el-card>
 
       <section class="right-col">
-        <el-card class="panel report-panel" v-loading="loading">
-          <div class="report-title">历史报告</div>
-          <el-empty v-if="!historyStore.reports.length" description="暂无历史报告，先去数据输入中心发起分析" />
-          <article
-            v-for="report in historyStore.reports"
-            :key="report.id"
-            class="report-item"
-            role="button"
-            tabindex="0"
-            @click="openReportDetail(report.id)"
-            @keyup.enter="openReportDetail(report.id)"
-          >
-            <h3>岗位: {{ formatReportRole(report.title) }}</h3>
-            <p>日期: {{ report.createdAt }}</p>
-            <p>Match Score: {{ report.score }}% (匹配分)</p>
-            <div class="score-bar">
-              <span :style="{ width: `${report.score}%` }"></span>
+        <el-card class="panel curve-panel" v-loading="loading">
+          <div class="section-head">
+            <div>
+              <h3>能力变化</h3>
+              <p>当前接口可展示历史匹配分变化；其他能力维度有真实数据后再补充。</p>
             </div>
-            <div class="report-item-actions">
-              <el-button type="primary" text @click.stop="openReportDetail(report.id)">查看详情</el-button>
-              <el-button
-                type="danger"
-                text
-                :loading="deletingReportId === report.id"
-                @click.stop="handleDeleteReport(report.id)"
-              >
-                删除
-              </el-button>
-            </div>
-          </article>
-        </el-card>
-
-        <el-card class="panel curve-panel">
-          <h3>能力成长曲线</h3>
-          <growth-chart :series="growthSeries" :height="300" :show-legend="false" />
+          </div>
+          <growth-chart
+            v-if="historyLoaded && growthSeries.length"
+            :series="growthSeries"
+            :height="300"
+            :show-legend="false"
+          />
+          <el-empty v-else-if="historyLoaded" description="暂无真实成长数据" />
+          <el-empty v-else-if="!loading" description="历史成长数据暂不可用" />
         </el-card>
       </section>
     </section>
 
-    <el-dialog v-model="detailVisible" title="历史报告详情" width="560px">
+    <section class="record-grid">
+      <el-card class="panel record-panel">
+        <div class="section-head">
+          <div>
+            <h3>学习记录</h3>
+            <p>记录学习主题、资源、状态与时间。</p>
+          </div>
+        </div>
+        <el-empty description="暂无真实学习行为记录" />
+      </el-card>
+
+      <el-card class="panel record-panel">
+        <div class="section-head">
+          <div>
+            <h3>训练记录</h3>
+            <p>记录训练类型、评分与核心反馈。</p>
+          </div>
+        </div>
+        <el-empty description="训练历史接口尚未接入" />
+      </el-card>
+
+      <el-card class="panel record-panel">
+        <div class="section-head">
+          <div>
+            <h3>成长反馈</h3>
+            <p>记录满意度、用户反馈与相关能力。</p>
+          </div>
+        </div>
+        <el-empty description="成长反馈查询接口尚未接入" />
+      </el-card>
+    </section>
+
+    <el-card class="panel report-panel" v-loading="loading">
+      <div class="section-head">
+        <div>
+          <h3>历史分析</h3>
+          <p>继续使用现有历史列表与服务端快照查看能力。</p>
+        </div>
+      </div>
+      <el-empty v-if="!loading && !historyLoaded" description="历史分析数据暂不可用" />
+      <el-empty
+        v-else-if="historyLoaded && !visibleReports.length"
+        description="暂无真实历史记录，先去数据输入中心发起分析"
+      />
+      <div v-else-if="historyLoaded" class="report-grid">
+        <article
+          v-for="report in visibleReports"
+          :key="report.id"
+          class="report-item"
+          role="button"
+          tabindex="0"
+          @click="openReportDetail(report.id)"
+          @keyup.enter="openReportDetail(report.id)"
+        >
+          <h3>岗位: {{ formatReportRole(report.title) }}</h3>
+          <p>日期: {{ report.createdAt }}</p>
+          <p>匹配分: {{ report.score === null ? '暂无' : `${report.score}%` }}</p>
+          <div v-if="report.score !== null" class="score-bar">
+            <span :style="{ width: `${report.score}%` }"></span>
+          </div>
+          <div class="report-item-actions">
+            <el-button type="primary" text @click.stop="openReportDetail(report.id)">查看详情</el-button>
+          </div>
+        </article>
+      </div>
+    </el-card>
+
+    <el-dialog v-model="detailVisible" title="历史报告详情" width="min(560px, calc(100vw - 32px))">
       <div v-loading="detailLoading" class="detail-body">
+        <el-alert
+          v-if="detailErrorMessage"
+          type="error"
+          :title="detailErrorMessage"
+          :closable="false"
+          show-icon
+          class="detail-error"
+        />
         <template v-if="activeReport">
           <h4 class="detail-role">岗位: {{ formatReportRole(activeReport.title) }}</h4>
           <p><strong>报告编号:</strong> {{ activeReport.id }}</p>
           <p><strong>生成日期:</strong> {{ activeReport.createdAt }}</p>
-          <p><strong>匹配分:</strong> {{ activeReport.score }}%</p>
+          <p><strong>匹配分:</strong> {{ activeReport.score === null ? '暂无' : `${activeReport.score}%` }}</p>
+          <div v-if="activeReport.content" class="detail-content">
+            <strong>报告内容:</strong>
+            <p>{{ activeReport.content }}</p>
+          </div>
           <div class="detail-tags">
             <strong>标签:</strong>
             <el-tag v-for="tag in activeReport.tags" :key="tag" size="small" effect="plain" class="tag-item">{{ tag }}</el-tag>
@@ -95,14 +166,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
-import { fetchUserHistories } from '../../api/modules/career'
-import { deleteHistoryReport, fetchGrowthSeries, fetchHistorySummary, fetchReportDetail } from '../../api/modules/history'
-import { ApiError } from '../../api/request'
+import { fetchHistorySnapshot, fetchUserHistories } from '../../api/modules/career'
+import { getUserFacingErrorMessage } from '../../api/request'
 import type { ReportSummary } from '../../stores/history'
 
 const userStore = useUserStore()
@@ -111,140 +180,94 @@ const analysisStore = useAnalysisStore()
 
 const loading = ref(false)
 const errorMessage = ref('')
+const historyLoaded = ref(false)
 const detailVisible = ref(false)
 const detailLoading = ref(false)
+const detailErrorMessage = ref('')
 const activeReport = ref<ReportSummary | null>(null)
-const deletingReportId = ref<string | null>(null)
 
-const profileEmail = computed(() => {
-  const name = userStore.profile?.name?.trim() || 'user'
-  return `${name.toLowerCase()}@example.com`
+const visibleReports = computed(() => (historyLoaded.value ? historyStore.reports : []))
+const latestRecordDate = computed(() => visibleReports.value[0]?.createdAt ?? '暂无')
+
+function formatReportRole(title: string): string {
+  return title.replace('匹配报告', '').trim()
+}
+
+const currentTargetRole = computed(() => {
+  const selectedJob = analysisStore.candidateJobs.find((job) => job.id === analysisStore.jobId)
+  if (selectedJob?.name) {
+    return selectedJob.name
+  }
+  if (analysisStore.targetKeyword) {
+    return analysisStore.targetKeyword
+  }
+  const latestTitle = visibleReports.value[0]?.title
+  return latestTitle ? formatReportRole(latestTitle) : '暂无'
 })
 
-const memberSince = computed(() => historyStore.reports[0]?.createdAt ?? new Date().toISOString().slice(0, 10))
+const latestMatchScore = computed(() => {
+  const historyScore = visibleReports.value[0]?.score
+  if (historyScore !== null && historyScore !== undefined) {
+    return `${historyScore}%`
+  }
+  return analysisStore.hasMatchResult ? `${analysisStore.matchScore}%` : '暂无'
+})
+
+const overviewItems = computed(() => [
+  { label: '当前目标岗位', value: currentTargetRole.value },
+  { label: '最近一次匹配分', value: latestMatchScore.value },
+  { label: '历史分析次数', value: historyLoaded.value ? `${visibleReports.value.length} 次` : '暂无' },
+  { label: '最近成长记录时间', value: latestRecordDate.value }
+])
 
 const normalizeGrowthInput = (
   points: { date: string; value: number; label?: string }[]
 ): { date: string; value: number; label?: string }[] =>
   points.filter((point) => typeof point.date === 'string' && point.date.trim().length > 0 && Number.isFinite(point.value))
 
-const growthSeries = computed(() => [
-  {
-    name: '成长评分',
-    data: historyStore.growthSeries.length
-      ? historyStore.growthSeries
-      : [
-          { date: '01-01', value: 68 },
-          { date: '02-01', value: 74 },
-          { date: '03-01', value: 78 },
-          { date: '04-01', value: analysisStore.matchScore || 82 }
-        ]
-  }
-])
-
-const mergeReports = (localReports: ReportSummary[], remoteReports: ReportSummary[]): ReportSummary[] => {
-  const reportMap = new Map<string, ReportSummary>()
-  const mergedReports = [...localReports, ...remoteReports]
-
-  mergedReports.forEach((report) => {
-    reportMap.set(report.id, report)
-  })
-
-  return Array.from(reportMap.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-}
-
-const formatReportRole = (title: string): string => title.replace('匹配报告', '').trim()
-const isServerReportId = (id: string): boolean => /^[1-9]\d*$/.test(id)
-
-const handleDeleteReport = async (reportId: string): Promise<void> => {
-  const target = historyStore.reports.find((report) => report.id === reportId)
-  const roleName = target ? formatReportRole(target.title) : reportId
-  try {
-    await ElMessageBox.confirm(`确认删除「${roleName}」历史报告吗？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '删除',
-      cancelButtonText: '取消'
-    })
-  } catch {
-    return
-  }
-
-  deletingReportId.value = reportId
-  try {
-    if (isServerReportId(reportId)) {
-      await deleteHistoryReport(reportId)
-    }
-    historyStore.removeReport(reportId)
-    if (activeReport.value?.id === reportId) {
-      activeReport.value = null
-      detailVisible.value = false
-    }
-    ElMessage.success(isServerReportId(reportId) ? '历史报告已删除' : '本地临时报告已删除')
-  } catch (error) {
-    const status = error instanceof ApiError ? error.status : undefined
-    if (status === 404 || status === 405) {
-      historyStore.removeReport(reportId)
-      if (activeReport.value?.id === reportId) {
-        activeReport.value = null
-        detailVisible.value = false
-      }
-      ElMessage.warning('后端暂未提供删除接口，已从当前设备隐藏该报告')
-      return
-    }
-    ElMessage.error(error instanceof Error ? error.message : '删除失败，请稍后重试')
-  } finally {
-    deletingReportId.value = null
-  }
-}
+const growthSeries = computed(() =>
+  historyStore.growthSeries.length
+    ? [{ name: '匹配分', data: historyStore.growthSeries }]
+    : []
+)
 
 const openReportDetail = async (reportId: string): Promise<void> => {
   detailVisible.value = true
   detailLoading.value = true
+  detailErrorMessage.value = ''
   historyStore.setLastViewedReport(reportId)
 
   const localReport = historyStore.reports.find((report) => report.id === reportId) ?? null
   activeReport.value = localReport
 
+  const historyId = Number(reportId)
+  if (!Number.isInteger(historyId) || historyId <= 0) {
+    detailErrorMessage.value = '该记录没有可用的服务端历史编号'
+    detailLoading.value = false
+    return
+  }
+
   try {
-    const detail = await fetchReportDetail(reportId)
+    const detail = await fetchHistorySnapshot(historyId)
     activeReport.value = detail
-  } catch {
-    // 静默降级到本地缓存数据，避免打断阅读体验
+  } catch (error) {
+    detailErrorMessage.value = getUserFacingErrorMessage(error, '历史详情加载失败，请稍后重试')
   } finally {
     detailLoading.value = false
   }
 }
 
 onMounted(async () => {
-  const localReports = [...historyStore.reports]
-
-  const applyHistoryData = (reports: ReportSummary[], growth: { date: string; value: number; label?: string }[]): void => {
-    historyStore.setReports(mergeReports(localReports, reports))
-    historyStore.setGrowthSeries(normalizeGrowthInput(growth))
-  }
-
   try {
     loading.value = true
-    // 优先从后端加载用户历史报告
+    errorMessage.value = ''
     const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
-    const hasRemoteData = result.reports.length > 0 || result.growth.length > 0
-    if (hasRemoteData) {
-      applyHistoryData(result.reports, result.growth)
-      return
-    }
-
-    // 如果后端没有数据，尝试从备用接口加载
-    const [summary, growthSeries] = await Promise.all([fetchHistorySummary(), fetchGrowthSeries()])
-    applyHistoryData(summary.reports, growthSeries.length ? growthSeries : summary.growth)
+    historyStore.setReports(result.reports)
+    historyStore.setGrowthSeries(normalizeGrowthInput(result.growth))
+    historyLoaded.value = true
   } catch (error) {
-    console.error('加载远程历史数据失败:', error)
-    // 降级处理：使用本地缓存数据
-    if (localReports.length > 0) {
-      historyStore.setReports(localReports)
-      errorMessage.value = ''
-    } else {
-      errorMessage.value = '加载历史数据失败，请检查网络连接'
-    }
+    historyLoaded.value = false
+    errorMessage.value = getUserFacingErrorMessage(error, '历史数据加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -256,6 +279,46 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.page-head h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #1f2b3d;
+}
+
+.page-head p,
+.section-head p {
+  margin: 0;
+  color: #667089;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-card :deep(.el-card__body) {
+  min-height: 104px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+}
+
+.overview-card span {
+  color: #6a748c;
+  font-size: 13px;
+}
+
+.overview-card strong {
+  color: #243047;
+  font-size: 20px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .profile-layout {
@@ -329,21 +392,49 @@ onMounted(async () => {
   gap: 14px;
 }
 
-.report-title {
-  margin-bottom: 12px;
-  padding: 10px;
-  border-radius: 10px;
-  background: #e9effa;
-  text-align: center;
-  color: #63708e;
-  font-weight: 700;
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.section-head h3 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  color: #1f2a3f;
+}
+
+.curve-panel {
+  height: 100%;
+}
+
+.record-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.record-panel :deep(.el-card__body) {
+  height: 100%;
+}
+
+.record-panel :deep(.el-empty) {
+  padding-block: 18px;
+}
+
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
 }
 
 .report-item {
   border: 1px solid #dce3ef;
   border-radius: 12px;
   padding: 14px;
-  margin-bottom: 12px;
+  margin-bottom: 0;
   cursor: pointer;
   transition: all 0.2s ease;
 }
@@ -416,18 +507,69 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-.curve-panel h3 {
-  margin: 0 0 8px;
-  font-size: 22px;
+.detail-content p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .error-alert {
   margin-bottom: 4px;
 }
 
-@media (max-width: 1150px) {
+@media (max-width: 1199px) {
+  .overview-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .profile-layout {
     grid-template-columns: 1fr;
+  }
+
+  .record-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .profile-page {
+    gap: 14px;
+  }
+
+  .page-head h2 {
+    font-size: 24px;
+  }
+
+  .overview-grid,
+  .report-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .section-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .profile-card {
+    padding: 18px 12px;
+  }
+
+  .avatar-ring {
+    width: 112px;
+    height: 112px;
+  }
+
+  .info-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .info-row strong,
+  .report-item h3,
+  .report-item p,
+  .detail-body {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 }
 </style>

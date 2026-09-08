@@ -229,6 +229,79 @@ session 已保存 `student_profile` 和 `job_profile`；路径要求已保存 `m
 语义的正式状态名，不新增第二套状态枚举。规则 fallback 产生的结构化 Profile/Job 仍通过
 固定 Schema 验证并保留 `fallback_used=true` AgentRunLog。
 
+### 1.5 CareerPulse → 百宝箱智能体 Chat API（`tbox-chat-v1`）
+
+这是与 §1.3/§1.4 相反方向的加法接口：Vue 调用 CareerPulse，CareerPulse 再使用服务端凭据
+调用百宝箱正式智能体。浏览器请求不得包含百宝箱 API Key/Token。
+
+| 方法 | 路径 | operationId | 请求 | 普通响应 |
+|---|---|---|---|---|
+| POST | `/api/tbox/chat` | `chat_with_tbox_agent` | `TBoxChatRequest` | `TBoxChatResponse` |
+
+固定请求：
+
+```json
+{
+  "session_id": "career-session-001",
+  "user_id": "anonymous-user-001",
+  "message": "请分析我的职业方向",
+  "stream": false
+}
+```
+
+`session_id/user_id` 只允许 1–128 字符的标识符字符集；`message` 为 1–20000 字符；请求模型
+`extra=forbid`。`user_id` 用于校验 session 归属，不是登录鉴权凭证；适配层使用仅服务端持有的
+HMAC secret 将其转换成稳定匿名值后再填写百宝箱 `userId`，不发送本地明文 user_id。
+
+普通成功响应：
+
+```json
+{
+  "code": 0,
+  "message": "success",
+  "request_id": "chat-<uuid>",
+  "data": {
+    "session_id": "career-session-001",
+    "conversation_id": "百宝箱 conversationId",
+    "message_id": "百宝箱 messageId 或 null",
+    "upstream_request_id": "百宝箱 requestId 或 null",
+    "content": "智能体文本回复"
+  },
+  "error": null
+}
+```
+
+`stream=true` 时 HTTP Content-Type 为 `text/event-stream`，每个 `data` 仍是严格 JSON。事件顺序：
+
+```text
+event: session  # request_id/session_id/conversation_id
+event: delta    # 文本增量 content，可重复
+event: done     # message_id/upstream_request_id，正常结束
+event: error    # 任意阶段失败后的安全 error；出现后不再有 done
+```
+
+上游 `thinking`、`meta` 和原始错误正文不进入这些事件。流已经建立后的平台失败使用
+`event:error` 表达，因此 HTTP 状态仍可能是 200；调用方必须以 `done` 或 `error` 判断终态。
+
+首次调用不传百宝箱 `conversationId`。适配层从 header/chunk/普通响应取得 conversationId 后
+写入同一 `CareerState.platform_session_id`，后续调用自动带回。一个 CareerPulse session 只能
+属于一个 user_id 和一个百宝箱 conversationId，冲突返回 HTTP 409。
+
+错误 envelope 仍为 `code/message/request_id/data/error`：
+
+| code | HTTP | 典型错误 | retryable |
+|---:|---:|---|---|
+| -1 | 500/503 | 网关内部错误或未配置正式智能体 | false |
+| -2 | 422 | 请求 Schema 不匹配 | false |
+| -3 | 409 | session 用户或 conversation 映射冲突 | false |
+| -4 | 504 | 百宝箱响应超时 | true |
+| -5 | 503 | CareerState/调用日志持久化失败 | true |
+| -6 | 502 | 百宝箱连接、限流、5xx 或响应协议错误 | 看 `error.retryable` |
+
+每次实际出站调用写入 `platform_tool_calls`，`tool_name=tbox_agent_chat`。只保存 SHA-256 请求
+指纹、哈希 user_id、session/conversation 标识、状态、耗时和 `json/stream` 模式；不保存
+message、reply、上游错误体或任何授权值。聊天不自动重试，也不回退到旧 Mock。
+
 ---
 
 ## 2. 学生画像（StudentProfile）

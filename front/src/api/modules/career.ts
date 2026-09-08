@@ -37,6 +37,23 @@ const toOptionalNumber = (value: unknown): number | undefined => {
 const toStringSafe = (value: unknown, fallback = ''): string =>
   typeof value === 'string' ? value : fallback
 
+const toDisplayText = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value)
+  }
+  if (Array.isArray(value)) {
+    return value.map(toDisplayText).filter(Boolean).join('；')
+  }
+  if (!isRecord(value)) {
+    return ''
+  }
+
+  return [...new Set(Object.values(value).map(toDisplayText).filter(Boolean))].join('；')
+}
+
 const pickRecordList = (source: unknown, keys: string[]): UnknownRecord[] => {
   if (Array.isArray(source)) {
     return source.filter(isRecord)
@@ -143,9 +160,14 @@ export interface StudentUploadProfilePayload {
 export interface StudentUploadProfileResult {
   studentId: number | null
   name: string
+  education: string
+  major: string
   skills: string
   certificates: string
+  projects: string
   internships: string
+  workExperience: string
+  targetJob: string
   selfEvaluation: string
 }
 
@@ -171,7 +193,16 @@ export interface MatchingAnalyzeResult {
   radarSeries: RadarSeries[]
   strengths: string[]
   gaps: string[]
+  gapDetails: MatchingGap[]
+  historyId: number | null
   reportId: number | null
+}
+
+export interface MatchingGap {
+  name: string
+  status?: string
+  suggestion?: string
+  priority?: string
 }
 
 export interface PathGraphNode {
@@ -233,8 +264,9 @@ export interface ReportItem {
   id: string
   title: string
   createdAt: string
-  score: number
+  score: number | null
   tags: string[]
+  content?: string
 }
 
 export interface GrowthPoint {
@@ -259,6 +291,15 @@ export interface ReportDocument {
   reportId: number | null
   content: string
   status?: string
+}
+
+export interface LearningResource {
+  title: string
+  type: string
+  targetAbility?: string
+  reason?: string
+  url?: string
+  source?: string
 }
 
 const extractContent = (source: unknown): string => {
@@ -364,6 +405,51 @@ const normalizeJob = (input: UnknownRecord): JobItem => {
   }
 }
 
+const normalizeStudentUploadResponse = (
+  source: unknown,
+  submittedProfile?: StudentUploadProfilePayload
+): StudentUploadProfileResult => {
+  const envelope = isRecord(source) ? source : {}
+  const profileValue = getByKeys(envelope, ['profile'])
+  const profile = isRecord(profileValue) ? profileValue : {}
+  const educationValue = getByKeys(profile, ['education', 'education_background', 'educationBackground'])
+  const educationRecords = (Array.isArray(educationValue) ? educationValue : [educationValue]).filter(isRecord)
+  const nestedMajor = educationRecords
+    .map((item) => getByKeys(item, ['major', 'specialty', 'field_of_study', 'fieldOfStudy', 'program']))
+    .map(toDisplayText)
+    .find(Boolean)
+
+  const studentId = toOptionalNumber(getByKeys(envelope, ['student_id', 'studentId'])) ?? null
+  if (!studentId) {
+    throw new Error('学生画像接口未返回有效 student_id')
+  }
+
+  return {
+    studentId,
+    name:
+      toDisplayText(getByKeys(profile, ['name', 'student_name', 'studentName'])) ||
+      toDisplayText(getByKeys(envelope, ['student_name', 'studentName'])) ||
+      submittedProfile?.name?.trim() ||
+      '',
+    education: toDisplayText(educationValue),
+    major:
+      toDisplayText(getByKeys(profile, ['major', 'major_name', 'majorName', 'profession'])) || nestedMajor || '',
+    skills: toDisplayText(getByKeys(profile, ['skills', 'professional_skills', 'professionalSkills'])),
+    certificates: toDisplayText(getByKeys(profile, ['certificates', 'certs', 'qualifications'])),
+    projects: toDisplayText(getByKeys(profile, ['projects', 'project_experience', 'projectExperience'])),
+    internships: toDisplayText(getByKeys(profile, ['internships', 'internship_experience', 'internshipExperience'])),
+    workExperience: toDisplayText(
+      getByKeys(profile, ['work_experience', 'workExperience', 'employment', 'employment_history'])
+    ),
+    targetJob: toDisplayText(
+      getByKeys(profile, ['target_job', 'targetJob', 'target_role', 'targetRole', 'desired_position'])
+    ),
+    selfEvaluation: toDisplayText(
+      getByKeys(profile, ['self_evaluation', 'selfEvaluation', 'summary', 'objective'])
+    )
+  }
+}
+
 const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
   const record = pickPayloadRecord(source)
   const nested = pickPayloadRecord(record)
@@ -372,19 +458,29 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
   const strengths = toStringArray(getByKeys(payload, ['strengths', 'advantages', 'highlights']))
   const gaps = toStringArray(getByKeys(payload, ['gaps', 'weaknesses', 'deficiencies']))
 
-  const gapAnalysis = asArray(getByKeys(payload, ['gap_analysis', 'gapAnalysis']))
+  const gapDetails: MatchingGap[] = asArray(getByKeys(payload, ['gap_analysis', 'gapAnalysis']))
     .map((item) => {
       if (!isRecord(item)) {
-        return ''
+        return null
       }
-      return toStringSafe(getByKeys(item, ['item', 'name', 'title']), '')
+      const name = toStringSafe(getByKeys(item, ['item', 'name', 'title']), '').trim()
+      if (!name) {
+        return null
+      }
+      const gap: MatchingGap = {
+        name,
+        status: toStringSafe(getByKeys(item, ['status']), '') || undefined,
+        suggestion: toStringSafe(getByKeys(item, ['suggestion', 'description', 'desc']), '') || undefined,
+        priority: toStringSafe(getByKeys(item, ['priority', 'priority_label', 'priorityLabel']), '') || undefined
+      }
+      return gap
     })
-    .filter(Boolean)
-  const normalizedGaps = gaps.length > 0 ? gaps : gapAnalysis
+    .filter((item): item is MatchingGap => item !== null)
+  const normalizedGaps = gaps.length > 0 ? gaps : gapDetails.map((item) => item.name)
+  const normalizedGapDetails: MatchingGap[] =
+    gapDetails.length > 0 ? gapDetails : normalizedGaps.map((name) => ({ name }))
 
-  const radarIndicatorsSource = asArray(
-    getByKeys(payload, ['radar_indicators', 'radarIndicators', 'indicators', 'dimensions'])
-  )
+  const radarIndicatorsSource = asArray(getByKeys(payload, ['radar_indicators', 'radarIndicators', 'indicators']))
   const radarIndicators = radarIndicatorsSource
     .map((item) => {
       if (!isRecord(item)) {
@@ -407,14 +503,13 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
       if (!isRecord(item)) {
         return null
       }
-      const valuesSource = asArray(getByKeys(item, ['values', 'data']))
-      const values = valuesSource.map((value) => toNumber(value, 0))
-      if (!values.length) {
+      const values = asArray(getByKeys(item, ['values', 'data'])).map(toOptionalNumber)
+      if (!values.length || values.some((value) => value === undefined)) {
         return null
       }
       return {
         name: toStringSafe(getByKeys(item, ['name', 'label']), 'Capability'),
-        values
+        values: values.filter((value): value is number => value !== undefined)
       }
     })
     .filter((item): item is RadarSeries => item !== null)
@@ -425,13 +520,15 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
         return null
       }
       const name = toStringSafe(getByKeys(item, ['name', 'label']), '')
-      if (!name) {
+      const candidate = toOptionalNumber(getByKeys(item, ['student_score', 'studentScore', 'score']))
+      const target = toOptionalNumber(getByKeys(item, ['job_required', 'jobRequired', 'required']))
+      if (!name || candidate === undefined || target === undefined) {
         return null
       }
       return {
         name,
-        candidate: toNumber(getByKeys(item, ['student_score', 'studentScore', 'score']), 0),
-        target: toNumber(getByKeys(item, ['job_required', 'jobRequired', 'required']), 0)
+        candidate,
+        target
       }
     })
     .filter((item): item is { name: string; candidate: number; target: number } => item !== null)
@@ -457,40 +554,28 @@ const normalizeAnalysis = (source: unknown): MatchingAnalyzeResult => {
         ]
       : []
 
-  const fallbackNames = normalizedGaps.length
-    ? normalizedGaps
-    : ['Business Understanding', 'Data Skill', 'Role Competency', 'Communication', 'Execution']
-  const fallbackIndicators =
-    radarIndicators.length > 0
-      ? radarIndicators
-      : derivedIndicators.length > 0
-        ? derivedIndicators
-      : fallbackNames.map((name) => ({
-          name,
-          max: 100
-        }))
-  const fallbackSeries =
-    radarSeries.length > 0
-      ? radarSeries
-      : derivedSeries.length > 0
-        ? derivedSeries
-      : [
-          {
-            name: 'Candidate',
-            values: fallbackIndicators.map(() => 65)
-          },
-          {
-            name: 'Target Role',
-            values: fallbackIndicators.map(() => 80)
-          }
-        ]
+  const matchScore = toOptionalNumber(
+    getByKeys(payload, ['match_score', 'matchScore', 'score', 'overall_score', 'match'])
+  )
+  if (matchScore === undefined) {
+    throw new Error('匹配分析接口未返回有效总分')
+  }
+
+  const normalizedIndicators = radarIndicators.length > 0 ? radarIndicators : derivedIndicators
+  const normalizedSeries = radarSeries.length > 0 ? radarSeries : derivedSeries
+  const hasCompleteRadar =
+    normalizedIndicators.length > 0 &&
+    normalizedSeries.length > 0 &&
+    normalizedSeries.every((series) => series.values.length === normalizedIndicators.length)
 
   return {
-    matchScore: toNumber(getByKeys(payload, ['match_score', 'matchScore', 'score', 'overall_score', 'match']), 0),
-    radarIndicators: fallbackIndicators,
-    radarSeries: fallbackSeries,
+    matchScore,
+    radarIndicators: hasCompleteRadar ? normalizedIndicators : [],
+    radarSeries: hasCompleteRadar ? normalizedSeries : [],
     strengths,
     gaps: normalizedGaps,
+    gapDetails: normalizedGapDetails,
+    historyId: toOptionalNumber(getByKeys(payload, ['history_id', 'historyId'])) ?? null,
     reportId: toOptionalNumber(getByKeys(payload, ['report_id', 'reportId'])) ?? null
   }
 }
@@ -505,8 +590,8 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
 
   if (hasCenterStylePayload) {
     const center = isRecord(centerRaw) ? centerRaw : {}
-    const centerId = toStringSafe(getByKeys(center, ['id', 'job_id']), 'center')
-    const centerLabel = toStringSafe(getByKeys(center, ['name', 'label', 'title']), '目标岗位')
+    const centerId = toDisplayText(getByKeys(center, ['id', 'job_id']))
+    const centerLabel = toStringSafe(getByKeys(center, ['name', 'label', 'title']), '').trim()
 
     const centerNode: PathGraphNode = {
       id: centerId,
@@ -515,7 +600,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
       y: 280,
       type: 'target',
       relation: toStringSafe(getByKeys(center, ['relation']), ''),
-      relationStrength: toNumber(getByKeys(center, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
+      relationStrength: toOptionalNumber(getByKeys(center, ['relation_strength', 'relationStrength', 'strength', 'score'])),
       jobDescription: toStringSafe(getByKeys(center, ['job_description', 'description', 'desc']), ''),
       coreSkills: toStringArray(getByKeys(center, ['core_skills', 'required_skills', 'skills'])),
       salaryRange: toStringSafe(getByKeys(center, ['salary_range', 'salaryRange']), '')
@@ -524,13 +609,13 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     const verticalNodes = verticalRaw
       .filter(isRecord)
       .map((item, index) => ({
-        id: toStringSafe(getByKeys(item, ['id', 'job_id']), `vertical-${index}`),
-        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `纵向岗位 ${index + 1}`),
+        id: toDisplayText(getByKeys(item, ['id', 'job_id'])),
+        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), '').trim(),
         x: 80,
         y: 80 + index * 100,
         type: 'vertical' as const,
         relation: toStringSafe(getByKeys(item, ['relation']), ''),
-        relationStrength: toNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
+        relationStrength: toOptionalNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score'])),
         jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
         coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
         salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
@@ -539,13 +624,13 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     const lateralNodes = lateralRaw
       .filter(isRecord)
       .map((item, index) => ({
-        id: toStringSafe(getByKeys(item, ['id', 'job_id']), `lateral-${index}`),
-        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), `横向岗位 ${index + 1}`),
+        id: toDisplayText(getByKeys(item, ['id', 'job_id'])),
+        label: toStringSafe(getByKeys(item, ['name', 'label', 'title']), '').trim(),
         x: 320,
         y: 180 + index * 100,
         type: 'horizontal' as const,
         relation: toStringSafe(getByKeys(item, ['relation']), ''),
-        relationStrength: toNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
+        relationStrength: toOptionalNumber(getByKeys(item, ['relation_strength', 'relationStrength', 'strength', 'score'])),
         jobDescription: toStringSafe(getByKeys(item, ['job_description', 'description', 'desc']), ''),
         coreSkills: toStringArray(getByKeys(item, ['core_skills', 'required_skills', 'skills'])),
         salaryRange: toStringSafe(getByKeys(item, ['salary_range', 'salaryRange']), '')
@@ -556,30 +641,11 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
       target: toStringSafe(getByKeys(edge, ['target', 'to', 'end']), ''),
       label: toStringSafe(getByKeys(edge, ['label', 'name', 'relation']), '') || undefined,
       type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type'],
-      weight: toNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']), 1)
+      weight: toOptionalNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']))
     }))
 
     const allNodes = [centerNode, ...verticalNodes, ...lateralNodes]
-    const fallbackEdges: PathGraphEdge[] = [
-      ...verticalNodes.map((node) => ({
-        source: node.id,
-        target: centerNode.id,
-        label: node.relation || '晋升',
-        type: 'vertical' as const,
-        weight: Math.max(node.relationStrength ?? 0, 1)
-      })),
-      ...lateralNodes.map((node) => ({
-        source: centerNode.id,
-        target: node.id,
-        label: node.relation || '换岗',
-        type: 'horizontal' as const,
-        weight: Math.max(node.relationStrength ?? 0, 1)
-      }))
-    ]
-    const edges =
-      relationEdges.length > 0
-        ? relationEdges.filter((item) => item.source && item.target)
-        : fallbackEdges
+    const edges = relationEdges.filter((item) => item.source && item.target)
 
     return {
       nodes: allNodes.filter((item) => item.id && item.label),
@@ -590,14 +656,14 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
   const nodeCandidates = pickRecordList(record, ['nodes', 'vertexes', 'vertices', 'data', 'positions', 'jobs'])
   const edgeCandidates = pickRecordList(record, ['edges', 'links', 'relations', 'connections', 'paths'])
 
-  const nodes = nodeCandidates.map((node, index) => ({
-    id: toStringSafe(getByKeys(node, ['id', 'node_id']), `node-${index}`),
-    label: toStringSafe(getByKeys(node, ['label', 'name', 'title']), `Node ${index + 1}`),
+  const nodes = nodeCandidates.map((node) => ({
+    id: toDisplayText(getByKeys(node, ['id', 'node_id'])),
+    label: toStringSafe(getByKeys(node, ['label', 'name', 'title']), '').trim(),
     x: toOptionalNumber(getByKeys(node, ['x', 'posX'])),
     y: toOptionalNumber(getByKeys(node, ['y', 'posY'])),
     type: toStringSafe(getByKeys(node, ['type']), '') as PathGraphNode['type'],
     relation: toStringSafe(getByKeys(node, ['relation']), ''),
-    relationStrength: toNumber(getByKeys(node, ['relation_strength', 'relationStrength', 'strength', 'score']), 0),
+    relationStrength: toOptionalNumber(getByKeys(node, ['relation_strength', 'relationStrength', 'strength', 'score'])),
     jobDescription: toStringSafe(getByKeys(node, ['job_description', 'description', 'desc']), ''),
     coreSkills: toStringArray(getByKeys(node, ['core_skills', 'required_skills', 'skills'])),
     salaryRange: toStringSafe(getByKeys(node, ['salary_range', 'salaryRange']), '')
@@ -608,7 +674,7 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
     target: toStringSafe(getByKeys(edge, ['target', 'to', 'end', 'to_id', 'target_id']), ''),
     label: toStringSafe(getByKeys(edge, ['label', 'name']), '') || undefined,
     type: toStringSafe(getByKeys(edge, ['type']), '') as PathGraphEdge['type'],
-    weight: toNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']), 1)
+    weight: toOptionalNumber(getByKeys(edge, ['weight', 'strength', 'relation_strength', 'score']))
   }))
 
   if (nodes.length === 0 && edges.length > 0) {
@@ -635,17 +701,18 @@ const normalizeGraph = (source: unknown): PathGraphResult => {
 
 const normalizeReport = (source: unknown): ReportItem | null => {
   const record = isRecord(source) ? source : {}
-  const reportId = toStringSafe(getByKeys(record, ['report_id', 'reportId', 'id']), '').trim()
-  const title = toStringSafe(getByKeys(record, ['title', 'report_title', 'job_name']), '').trim()
-  const createdAt = toStringSafe(
-    getByKeys(record, ['created_at', 'createdAt', 'date']),
-    new Date().toISOString().slice(0, 10)
-  )
-  const score = toNumber(getByKeys(record, ['score', 'match_score', 'matchScore']), 0)
+  const reportId = toDisplayText(getByKeys(record, ['history_id', 'historyId', 'report_id', 'reportId', 'id']))
+  const rawTitle = toStringSafe(
+    getByKeys(record, ['title', 'report_title', 'job_title', 'job_name']),
+    ''
+  ).trim()
+  const title = rawTitle && !/匹配(报告|记录)$/.test(rawTitle) ? `${rawTitle} 匹配报告` : rawTitle
+  const createdAt = toStringSafe(getByKeys(record, ['created_at', 'createdAt', 'date']), '').trim()
+  const score = toOptionalNumber(getByKeys(record, ['score', 'overall_score', 'match_score', 'matchScore'])) ?? null
   const tags = asArray(getByKeys(record, ['tags', 'labels'])).map((item) => toStringSafe(item)).filter(Boolean)
 
   // 后端返回空对象/占位对象时，不生成默认假报告，避免登录后重复出现 "Career Report"。
-  if (!reportId || !title) {
+  if (!reportId || !title || !createdAt) {
     return null
   }
 
@@ -658,64 +725,56 @@ const normalizeReport = (source: unknown): ReportItem | null => {
   }
 }
 
-const normalizeGrowth = (source: unknown): GrowthPoint[] => {
-  const list = pickRecordList(source, ['growth', 'growth_series', 'series', 'points'])
-  return list.map((item) => ({
-    date: toStringSafe(getByKeys(item, ['date', 'x', 'month']), ''),
-    value: toNumber(getByKeys(item, ['value', 'score', 'y']), 0),
-    label: toStringSafe(getByKeys(item, ['label']), '') || undefined
-  }))
+const buildGrowthFromReports = (reports: ReportItem[]): GrowthPoint[] => {
+  return reports
+    .filter((report): report is ReportItem & { score: number } => report.score !== null)
+    .map((report) => ({
+      date: report.createdAt,
+      value: report.score,
+      label: report.title
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date))
+}
+
+const normalizeHistorySnapshot = (source: unknown): ReportItem => {
+  const record = isRecord(source) ? source : {}
+  const jobProfileValue = getByKeys(record, ['job_profile', 'jobProfile'])
+  const jobProfile = isRecord(jobProfileValue) ? jobProfileValue : {}
+  const historyId = toDisplayText(getByKeys(record, ['history_id', 'historyId', 'id']))
+  const jobTitle = toStringSafe(getByKeys(jobProfile, ['title', 'job_title', 'name']), '').trim()
+  const createdAt = toStringSafe(getByKeys(record, ['created_at', 'createdAt']), '').trim()
+  const score = toOptionalNumber(getByKeys(record, ['overall_score', 'match_score', 'matchScore'])) ?? null
+
+  if (!historyId || !jobTitle || !createdAt) {
+    throw new Error('历史快照接口返回结构不完整')
+  }
+
+  return {
+    id: historyId,
+    title: `${jobTitle} 匹配报告`,
+    createdAt: createdAt.slice(0, 10),
+    score,
+    tags: [],
+    content: extractContent(getByKeys(record, ['report']))
+  }
 }
 
 export const fetchJobs = async (params: FetchJobsParams): Promise<JobItem[]> => {
   const query = {
     keyword: params.keyword,
-    q: params.keyword,
-    target_role: params.keyword,
-    job_name: params.keyword,
     page: params.page ?? 1,
-    size: params.size ?? 20,
-    limit: params.size ?? 20
+    size: params.size ?? 20
   }
 
-  const runAndNormalize = async (url: string): Promise<JobItem[]> => {
-    const response = await request<unknown>({
-      url,
-      method: 'GET',
-      params: query
-    })
+  const response = await request<unknown>({
+    url: '/jobs',
+    method: 'GET',
+    params: query
+  })
 
-    const items = pickRecordList(response, ['jobs', 'items', 'list', 'data'])
-    if (items.length > 0) {
-      return items.map(normalizeJob).filter((job) => job.id > 0)
-    }
-
-    if (Array.isArray(response)) {
-      return response.filter(isRecord).map(normalizeJob).filter((job) => job.id > 0)
-    }
-
-    return []
-  }
-
-  try {
-    const jobs = await runAndNormalize('/jobs')
-    if (jobs.length > 0) {
-      return jobs
-    }
-  } catch (error) {
-    const status = (error as { status?: number })?.status
-    if (status !== 404 && status !== 405) {
-      throw error
-    }
-  }
-
-  try {
-    return await runAndNormalize('/jobs/search')
-  } catch (error) {
-    const status = (error as { status?: number })?.status
-    if (status !== 404 && status !== 405) {
-      throw error
-    }
+  const items = pickRecordList(response, ['jobs'])
+  if (items.length > 0) {
+    return items.map(normalizeJob).filter((job) => job.id > 0)
   }
 
   return []
@@ -746,15 +805,7 @@ export const uploadStudentResume = async (formData: FormData): Promise<StudentUp
     skipAuth: true
   })
 
-  const record = pickPayloadRecord(response)
-  return {
-    studentId: toOptionalNumber(getByKeys(record, ['student_id', 'studentId'])) ?? null,
-    name: toStringSafe(getByKeys(record, ['name']), ''),
-    skills: toStringSafe(getByKeys(record, ['skills']), ''),
-    certificates: toStringSafe(getByKeys(record, ['certificates']), ''),
-    internships: toStringSafe(getByKeys(record, ['internships', 'experience']), ''),
-    selfEvaluation: toStringSafe(getByKeys(record, ['self_evaluation', 'selfEvaluation']), '')
-  }
+  return normalizeStudentUploadResponse(response)
 }
 
 export const uploadStudentProfile = async (
@@ -773,18 +824,7 @@ export const uploadStudentProfile = async (
     }
   })
 
-  const record = pickPayloadRecord(response)
-  return {
-    studentId: toOptionalNumber(getByKeys(record, ['student_id', 'studentId'])) ?? null,
-    name: toStringSafe(getByKeys(record, ['name']), payload.name ?? ''),
-    skills: toStringSafe(getByKeys(record, ['skills']), payload.skills),
-    certificates: toStringSafe(getByKeys(record, ['certificates']), payload.certificates),
-    internships: toStringSafe(getByKeys(record, ['internships']), payload.internships),
-    selfEvaluation: toStringSafe(
-      getByKeys(record, ['self_evaluation', 'selfEvaluation']),
-      payload.selfEvaluation
-    )
-  }
+  return normalizeStudentUploadResponse(response, payload)
 }
 
 export const matchingAnalyze = async (payload: MatchingAnalyzePayload): Promise<MatchingAnalyzeResult> => {
@@ -826,59 +866,18 @@ export const generateReport = async (payload: ReportGeneratePayload): Promise<Re
 }
 
 export const fetchReport = async (reportId: number): Promise<ReportDocument> => {
-  const attempts = [
-    () =>
-      request<unknown>({
-        url: `/reports/${reportId}`,
-        method: 'GET',
-        skipAuth: true,
-        timeout: 30000
-      }),
-    () =>
-      request<unknown>({
-        url: `/history/reports/${reportId}`,
-        method: 'GET',
-        skipAuth: true,
-        timeout: 30000
-      }),
-    () =>
-      request<unknown>({
-        url: '/reports',
-        method: 'GET',
-        skipAuth: true,
-        timeout: 30000,
-        params: { report_id: reportId }
-      }),
-    () =>
-      request<unknown>({
-        url: '/history/reports',
-        method: 'GET',
-        skipAuth: true,
-        timeout: 30000,
-        params: { report_id: reportId }
-      })
-  ]
-
-  let lastError: unknown = null
-  for (const run of attempts) {
-    try {
-      const response = await run()
-      const record = pickPayloadRecord(response)
-      return {
-        reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
-        content: extractContent(record),
-        status: toStringSafe(getByKeys(record, ['status']), '') || undefined
-      }
-    } catch (error) {
-      const status = (error as { status?: number })?.status
-      if (status !== 404 && status !== 405) {
-        throw error
-      }
-      lastError = error
-    }
+  const response = await request<unknown>({
+    url: `/reports/${reportId}`,
+    method: 'GET',
+    skipAuth: true,
+    timeout: 30000
+  })
+  const record = pickPayloadRecord(response)
+  return {
+    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
+    content: extractContent(record),
+    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
   }
-
-  throw lastError ?? new Error('报告不存在或后端报告查询接口不可用')
 }
 
 export const polishReport = async (
@@ -898,60 +897,21 @@ export const polishReport = async (
     return response
   }
   if (isRecord(response)) {
-    return toStringSafe(getByKeys(response, ['content', 'text', 'result']), payload.text)
+    const polished = toStringSafe(getByKeys(response, ['polished_text', 'polishedText']), '').trim()
+    if (polished) {
+      return polished
+    }
   }
-  return payload.text
+  throw new Error('报告润色接口未返回 polished_text')
 }
 
 export const exportReport = async (reportId: number, format: 'pdf' | 'word' = 'pdf'): Promise<Blob> => {
-  try {
-    return await request<Blob>({
-      url: `/reports/${reportId}/export`,
-      method: 'GET',
-      params: { format },
-      responseType: 'blob'
-    })
-  } catch (error) {
-    const status = (error as { status?: number })?.status
-    if (status !== 404 && status !== 405) {
-      throw error
-    }
-
-    const fallbackRequests = [
-      () =>
-        request<Blob>({
-          url: `/history/reports/${reportId}/export`,
-          method: 'GET',
-          params: { format },
-          responseType: 'blob'
-        }),
-      () =>
-        request<Blob>({
-          url: `/reports/${reportId}/export`,
-          method: 'POST',
-          data: { format },
-          responseType: 'blob'
-        }),
-      () =>
-        request<Blob>({
-          url: `/history/reports/${reportId}/export`,
-          method: 'POST',
-          data: { format },
-          responseType: 'blob'
-        })
-    ]
-
-    let lastError: unknown = error
-    for (const run of fallbackRequests) {
-      try {
-        return await run()
-      } catch (fallbackError) {
-        lastError = fallbackError
-      }
-    }
-
-    throw lastError
-  }
+  return request<Blob>({
+    url: `/reports/${reportId}/export`,
+    method: 'GET',
+    params: { format: format === 'word' ? 'docx' : 'pdf' },
+    responseType: 'blob'
+  })
 }
 
 export const fetchUserHistories = async (userId: string): Promise<UserHistoriesResult> => {
@@ -963,20 +923,49 @@ export const fetchUserHistories = async (userId: string): Promise<UserHistoriesR
   const reports = pickRecordList(response, ['reports', 'histories', 'items', 'list'])
     .map(normalizeReport)
     .filter((item): item is ReportItem => item !== null)
-  const growth = normalizeGrowth(response)
+  const growth = buildGrowthFromReports(reports)
 
   return { reports, growth }
 }
 
-export const fetchHistorySnapshot = async (historyId: number): Promise<GrowthPoint[]> => {
+export const fetchHistorySnapshot = async (historyId: number): Promise<ReportItem> => {
   const response = await request<unknown>({
     url: `/histories/${historyId}/snapshot`,
     method: 'GET'
   })
-  return normalizeGrowth(response)
+  return normalizeHistorySnapshot(response)
 }
 
-export const fetchRecommendations = async (gap = ''): Promise<string[]> => {
+const normalizeLearningResource = (value: unknown): LearningResource | null => {
+  if (typeof value === 'string') {
+    const title = value.trim()
+    return title ? { title, type: '' } : null
+  }
+  if (!isRecord(value)) {
+    return null
+  }
+
+  const title = toStringSafe(getByKeys(value, ['title', 'name', 'item']), '').trim()
+  if (!title) {
+    return null
+  }
+
+  return {
+    title,
+    type: toStringSafe(getByKeys(value, ['type', 'resource_type', 'resourceType']), '').trim(),
+    targetAbility:
+      toStringSafe(getByKeys(value, ['target_ability', 'targetAbility', 'ability', 'skill']), '').trim() || undefined,
+    reason:
+      toStringSafe(
+        getByKeys(value, ['recommendation_reason', 'recommendationReason', 'reason', 'suggestion', 'desc', 'description']),
+        ''
+      ).trim() || undefined,
+    url: toStringSafe(getByKeys(value, ['url', 'link']), '').trim() || undefined,
+    source: toStringSafe(getByKeys(value, ['source', 'provider', 'platform']), '').trim() || undefined
+  }
+}
+
+export const fetchRecommendations = async (gap = ''): Promise<LearningResource[]> => {
   const response = await request<unknown>({
     url: '/recommendations',
     method: 'GET',
@@ -985,28 +974,14 @@ export const fetchRecommendations = async (gap = ''): Promise<string[]> => {
 
   if (Array.isArray(response)) {
     return response
-      .map((item) => {
-        if (typeof item === 'string') {
-          return item
-        }
-        if (!isRecord(item)) {
-          return ''
-        }
-        const title = toStringSafe(getByKeys(item, ['title', 'name', 'item']), '')
-        const url = toStringSafe(getByKeys(item, ['url', 'link']), '')
-        const suggestion = toStringSafe(getByKeys(item, ['suggestion', 'desc', 'description']), '')
-        if (title && url) {
-          return `${title}：${url}`
-        }
-        return title || suggestion
-      })
-      .filter(Boolean)
+      .map(normalizeLearningResource)
+      .filter((item): item is LearningResource => item !== null)
   }
 
   if (isRecord(response)) {
     return asArray(getByKeys(response, ['recommendations', 'items', 'tips']))
-      .map((item) => toStringSafe(item))
-      .filter(Boolean)
+      .map(normalizeLearningResource)
+      .filter((item): item is LearningResource => item !== null)
   }
 
   return []

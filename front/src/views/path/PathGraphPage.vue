@@ -164,6 +164,7 @@ import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import PathGraph, { type PathNode } from '../../components/business/PathGraph.vue'
 import { fetchJobGraph, fetchJobProfile } from '../../api/modules/career'
+import { getUserFacingErrorMessage } from '../../api/request'
 
 interface GraphNode {
   id: string
@@ -628,7 +629,7 @@ const loadSelectedGraph = async (jobId: number): Promise<void> => {
     selectedJobId.value = jobId
     selectedJobLabel.value = targetNode.label || `岗位 ${jobId}`
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '岗位路径加载失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '岗位路径加载失败，请稍后重试')
   } finally {
     selectedLoading.value = false
   }
@@ -675,7 +676,7 @@ const reloadGraph = async (): Promise<void> => {
       await loadSelectedGraph(defaultJobId)
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '图谱加载失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '图谱加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -1010,7 +1011,7 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1199px) {
   .path-layout {
     grid-template-columns: 1fr;
   }
@@ -1024,8 +1025,9 @@ onMounted(async () => {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .path-page {
+    gap: 14px;
     padding: 4px;
   }
 
@@ -1044,6 +1046,43 @@ onMounted(async () => {
   .panel-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .panel-actions {
+    width: 100%;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .panel-actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .legend-list {
+    gap: 10px 12px;
+  }
+
+  .graph-panel :deep(.path-graph) {
+    height: 520px !important;
+    min-width: 0;
+  }
+
+  .split-graph-col {
+    min-width: 0;
+    padding: 8px;
+  }
+
+  .split-graph-head,
+  .detail-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .info-card p,
+  .desc,
+  .detail-head h3 {
+    overflow-wrap: anywhere;
   }
 }
 </style>

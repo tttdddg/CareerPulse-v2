@@ -725,11 +725,26 @@ const renderGraph = (): void => {
     })
   })
 
-  graph.centerContent({ padding: 20 })
+  const compactViewport = graphEl.value.clientWidth < 480
+  if (compactViewport) {
+    graph.zoomToFit({ padding: 16, minScale: 0.45, maxScale: 1 })
+  } else {
+    graph.centerContent({ padding: 20 })
+  }
 }
 
 const resizeObserver = new ResizeObserver(() => {
-  graph?.resize(graphEl.value?.clientWidth ?? 0, graphEl.value?.clientHeight ?? 0)
+  const width = graphEl.value?.clientWidth ?? 0
+  const height = graphEl.value?.clientHeight ?? 0
+  if (!graph || width <= 0 || height <= 0) {
+    return
+  }
+  graph.resize(width, height)
+  if (width < 480) {
+    graph.zoomToFit({ padding: 16, minScale: 0.45, maxScale: 1 })
+  } else {
+    graph.centerContent({ padding: 20 })
+  }
 })
 
 onMounted(() => {

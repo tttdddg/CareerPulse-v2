@@ -1,14 +1,26 @@
-﻿*
-*::before
+﻿*,
+*::before,
 *::after {
   box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  min-width: 0;
   font-family: 'Noto Sans SC', 'Manrope', sans-serif;
   color: var(--cp-text);
   background: var(--cp-surface);
+}
+
+html,
+body,
+#app {
+  width: 100%;
+  min-height: 100%;
+}
+
+#app {
+  min-width: 0;
 }
 
 h1,
@@ -32,4 +44,33 @@ h4 {
 
 .el-table th {
   background: var(--cp-surface-subtle);
+}
+
+@media (max-width: 767px) {
+  .main-area .el-card__body {
+    padding: 16px;
+  }
+
+  .el-dialog {
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+    margin-top: 6vh !important;
+  }
+
+  .el-dialog__header {
+    padding: 16px 16px 10px;
+    padding-right: 42px;
+  }
+
+  .el-dialog__body {
+    max-height: calc(88vh - 72px);
+    padding: 14px 16px 18px;
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+
+  .el-message-box {
+    width: calc(100vw - 24px);
+    max-width: 420px;
+  }
 }

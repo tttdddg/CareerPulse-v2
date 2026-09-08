@@ -47,26 +47,30 @@ const containerStyle = computed(() => ({
 
 const buildOption = (): EChartsOption => {
   const categories = props.series[0]?.data.map((point) => point.label ?? point.date) ?? []
+  const compact = (chartEl.value?.clientWidth ?? 999) < 480
 
   return {
     tooltip: { trigger: 'axis' },
     legend: {
       show: props.showLegend,
+      type: 'scroll',
       top: 0,
-      textStyle: { color: '#475569', fontSize: 12 }
+      left: compact ? 4 : 'center',
+      right: compact ? 4 : 'auto',
+      textStyle: { color: '#475569', fontSize: compact ? 11 : 12 }
     },
-    grid: { left: 24, right: 24, top: 36, bottom: 24, containLabel: true },
+    grid: { left: compact ? 8 : 24, right: compact ? 8 : 24, top: 36, bottom: compact ? 34 : 24, containLabel: true },
     xAxis: {
       type: 'category',
       data: categories,
       axisLine: { lineStyle: { color: '#E2E8F0' } },
-      axisLabel: { color: '#64748B' },
+      axisLabel: { color: '#64748B', hideOverlap: true, rotate: compact ? 28 : 0 },
       axisTick: { show: false }
     },
     yAxis: {
       type: 'value',
       axisLine: { show: false },
-      axisLabel: { color: '#64748B' },
+      axisLabel: { color: '#64748B', fontSize: compact ? 10 : 12 },
       splitLine: { lineStyle: { color: '#E2E8F0' } }
     },
     series: props.series.map((item, index) => {
@@ -97,17 +101,20 @@ const renderChart = (): void => {
   chart.setOption(buildOption(), true)
 }
 
-const handleResize = (): void => {
+const resizeObserver = new ResizeObserver(() => {
   chart?.resize()
-}
+  chart?.setOption(buildOption(), true)
+})
 
 onMounted(() => {
   renderChart()
-  window.addEventListener('resize', handleResize)
+  if (chartEl.value) {
+    resizeObserver.observe(chartEl.value)
+  }
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
+  resizeObserver.disconnect()
   chart?.dispose()
   chart = null
 })

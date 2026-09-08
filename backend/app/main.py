@@ -13,6 +13,17 @@ from .api.platform_tool_api import (
     platform_tool_exception_handler,
 )
 from .orchestrator import CareerOrchestrator
+from .platform.tbox import (
+    TBoxChatException,
+    TBoxChatService,
+    TBoxClient,
+    TBoxClientConfig,
+    TBoxSessionMapper,
+)
+from .platform.tbox.router import (
+    tbox_chat_exception_handler,
+    tbox_chat_request_validation_exception_handler,
+)
 from .routers import router
 
 # Handle browser preflight (OPTIONS) for cross-origin frontend calls.
@@ -42,9 +53,20 @@ def _env_csv(name: str) -> list[str] | None:
         return None
     return [item.strip() for item in value.split(",") if item.strip()]
 
+
+async def _request_validation_exception_handler(
+    request: Request,
+    exc: RequestValidationError,
+):
+    if request.url.path.startswith("/api/tbox/chat"):
+        return await tbox_chat_request_validation_exception_handler(request, exc)
+    return await platform_request_validation_exception_handler(request, exc)
+
+
 def create_app(
     orchestrator: CareerOrchestrator | None = None,
     *,
+    tbox_chat_service: TBoxChatService | None = None,
     tbox_api_token: str | None = None,
     tbox_tool_timeout_seconds: float | None = None,
     mcp_enabled: bool | None = None,
@@ -60,6 +82,11 @@ def create_app(
     """Create a fresh application instance for runtime and persistence tests."""
 
     career_orchestrator = orchestrator or CareerOrchestrator()
+    configured_tbox_chat_service = tbox_chat_service or TBoxChatService(
+        TBoxClient(TBoxClientConfig.from_env()),
+        TBoxSessionMapper(career_orchestrator),
+        career_orchestrator,
+    )
     configured_mcp_enabled = (
         _env_bool("MCP_ENABLED", False) if mcp_enabled is None else mcp_enabled
     )
@@ -139,12 +166,13 @@ def create_app(
         title="CareerPulse A02 API",
         version="stage3-tool-v1",
         description=(
-            "CareerPulse APIs including the authenticated Ant TBox minimal "
-            "stage-3 HTTP tool contract and optional remote MCP server."
+            "CareerPulse APIs including the Ant TBox agent chat gateway, "
+            "authenticated stage-3 HTTP tools, and optional remote MCP server."
         ),
         lifespan=lifespan,
     )
     application.state.career_orchestrator = career_orchestrator
+    application.state.tbox_chat_service = configured_tbox_chat_service
     application.state.tbox_api_token = (
         os.getenv("A02_TBOX_API_TOKEN", "")
         if tbox_api_token is None
@@ -162,7 +190,10 @@ def create_app(
         PlatformToolException, platform_tool_exception_handler
     )
     application.add_exception_handler(
-        RequestValidationError, platform_request_validation_exception_handler
+        TBoxChatException, tbox_chat_exception_handler
+    )
+    application.add_exception_handler(
+        RequestValidationError, _request_validation_exception_handler
     )
     application.add_middleware(
         CORSMiddleware,

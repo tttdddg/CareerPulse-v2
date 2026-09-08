@@ -519,11 +519,17 @@ form.sign-in-form {
   margin-top: 5px;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 767px) {
   .signin-signup {
+    top: 0;
+    bottom: 0;
+    height: 100%;
     width: 100%;
     left: 50%;
     padding: 0 18px;
+    overflow: hidden;
+    transform: translateX(-50%);
+    transition: none;
   }
 
   .container::before {
@@ -535,14 +541,79 @@ form.sign-in-form {
     transform: translateX(-50%);
   }
 
-  .panels-container { display: none; }
+  .panels-container {
+    display: none;
+  }
 
   form {
-    padding: 0 1rem;
+    align-self: center;
+    height: 100%;
+    min-height: 0;
+    padding: 24px 1rem;
+    overflow-y: auto;
+    transition: none;
+  }
+
+  form.sign-in-form {
+    justify-content: center;
+  }
+
+  form.sign-up-form {
+    justify-content: flex-start;
+    padding-top: 32px;
+    padding-bottom: 24px;
+  }
+
+  .container::before,
+  .panel .content {
+    transition: none;
   }
 
   .container.sign-up-mode .signin-signup {
     left: 50%;
+  }
+}
+
+@media (max-width: 480px) {
+  .signin-signup {
+    padding: 0 12px;
+  }
+
+  form {
+    padding: 20px 0;
+  }
+
+  .title {
+    font-size: 1.9rem;
+  }
+
+  .input-field {
+    height: 52px;
+    margin: 7px 0;
+  }
+
+  .input-field :deep(.el-icon) {
+    line-height: 52px;
+  }
+
+  .input-field :deep(.account-icon) {
+    margin-top: 15px;
+  }
+
+  .sms-row {
+    flex-direction: column;
+    align-items: stretch;
+    margin: 4px 0;
+  }
+
+  .sms-field,
+  .sms-btn {
+    width: 100%;
+  }
+
+  .sms-btn {
+    height: 46px;
+    min-width: 0;
   }
 }
 </style>

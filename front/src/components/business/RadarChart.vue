@@ -45,27 +45,35 @@ const containerStyle = computed(() => ({
 }))
 
 const buildOption = (): EChartsOption => ({
-  // 基础交互
-  tooltip: { trigger: 'item' },
-  legend: {
-    show: props.showLegend,
-    top: 0,
-    textStyle: { color: '#475569', fontSize: 12 }
-  },
-  // 雷达坐标系
-  radar: {
-    indicator: props.indicators,
-    radius: '65%',
-    splitNumber: 4,
-    axisName: { color: '#475569', fontSize: 12 },
-    axisLine: { lineStyle: { color: '#E2E8F0' } },
-    splitLine: { lineStyle: { color: ['#E2E8F0'] } },
-    splitArea: {
-      areaStyle: {
-        color: ['rgba(99, 102, 241, 0.04)', 'rgba(139, 92, 246, 0.03)']
+  ...(() => {
+    const compact = (chartEl.value?.clientWidth ?? 999) < 480
+    return {
+      legend: {
+        show: props.showLegend,
+        type: 'scroll' as const,
+        top: 0,
+        left: compact ? 4 : 'center',
+        right: compact ? 4 : 'auto',
+        textStyle: { color: '#475569', fontSize: compact ? 11 : 12 }
+      },
+      radar: {
+        indicator: props.indicators,
+        center: ['50%', compact ? '58%' : '54%'],
+        radius: compact ? '54%' : '65%',
+        splitNumber: 4,
+        axisName: { color: '#475569', fontSize: compact ? 10 : 12 },
+        axisLine: { lineStyle: { color: '#E2E8F0' } },
+        splitLine: { lineStyle: { color: ['#E2E8F0'] } },
+        splitArea: {
+          areaStyle: {
+            color: ['rgba(99, 102, 241, 0.04)', 'rgba(139, 92, 246, 0.03)']
+          }
+        }
       }
     }
-  },
+  })(),
+  // 基础交互
+  tooltip: { trigger: 'item' },
   // 数据序列
   series: [
     {
@@ -98,17 +106,20 @@ const renderChart = (): void => {
   chart.setOption(buildOption(), true)
 }
 
-const handleResize = (): void => {
+const resizeObserver = new ResizeObserver(() => {
   chart?.resize()
-}
+  chart?.setOption(buildOption(), true)
+})
 
 onMounted(() => {
   renderChart()
-  window.addEventListener('resize', handleResize)
+  if (chartEl.value) {
+    resizeObserver.observe(chartEl.value)
+  }
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
+  resizeObserver.disconnect()
   chart?.dispose()
   chart = null
 })

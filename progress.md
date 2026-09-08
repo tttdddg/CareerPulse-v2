@@ -311,3 +311,96 @@
 - 已完成本轮追加任务；现场更新后需重启/重新部署 MCP，并刷新百宝箱侧 tools/list，避免继续使用旧 Arguments Schema。
 
 ---
+# 2026-09-03 百宝箱对话适配层执行日志
+
+- 已读取 `planning-with-files` 技能并启用文件化计划。
+- session catchup 脚本不存在；已记录错误并改用现有规划文件与 Git 状态恢复。
+- 已确认本轮不修改 Vue，且开始时 `backend/` 无未提交差异。
+- 正在审查 FastAPI 应用结构、配置、既有 MCP/平台适配和测试约定。
+- 已确认主应用的依赖注入和异常处理模式可复用，但出站智能体 Token 必须与现有入站工具 Token 隔离。
+- 已确认旧 TBox adapter 是未挂载 Mock；新实现将放入独立 `platform/tbox/` 包并通过主路由挂载。
+- 已检索官方资料：确认 SDK 鉴权前缀与 `appId/query/userId` 以及流式调用模式；官方 OpenAPI 语雀正文当前不可直接访问，正在转向官方 SDK 源码核验底层协议。
+- 已确认公开 SDK 为 `tbox-nodejs-sdk@0.0.19`，支持 `chat`/`chatSync`；下一步将只读检查该包的已发布产物以冻结底层 HTTP 契约。
+- SDK tarball 因环境网络代理不可达未能下载；已记录并停止重复。实现将 fail closed：未配置官方企业租户实际 endpoint 时返回配置错误，不使用演示代理 URL。
+- 已从百宝箱开放平台文档转载页核实正式 `/api/chat` 请求、conversationId 续聊、SSE 双层 JSON 和非流式结果结构；协议冻结所需信息已具备。
+- 已核对本机后端依赖版本，确认 `httpx` 可用于异步普通/流式 HTTP 适配；未升级任何依赖。
+- 已复核主应用挂载、异常处理和 CORS 结构；开始按仓库实际路径读取持久化层与环境配置。
+- 已冻结实现方案：复用 CareerState 会话字段与平台调用账本，新增独立出站配置，普通/流式均由后端归一化，不保存对话正文。
+- 已确认 README 本身也要求两个方向的接口和鉴权分开；下一步开始新增 `platform/tbox` 包、路由与依赖注入。
+- 已新增 chat Schema、TBox async client、session mapper、chat service、FastAPI router 和应用工厂注入；主应用 OpenAPI 已出现 `/api/tbox/chat`。
+- 已补充独立出站环境变量与显式 httpx 运行依赖；没有写入真实 Token，也没有修改 Vue。
+- 新增 `tests.test_tbox_chat` 首轮 5/5 通过：普通/直接响应、会话续接、SSE、thinking 隔离、timeout、5xx、安全错误、配置、identity 和 OpenAPI 均已覆盖。
+- `python -m compileall -q app tests` 与 `git diff --check` 通过；仅有仓库既有 Windows LF/CRLF 提示，无 whitespace error。
+- 实现级复核补充了 Pydantic 上游响应错误归一、等待锁取消清理和流式累计文本上限。
+- 新增流式损坏协议安全失败测试后，`tests.test_tbox_chat` 为 6/6 通过；上游原始事件不会出现在浏览器错误中，账本状态为 failed。
+- 已新增 ADR-004，记录双向接口隔离、会话映射、SSE、日志、无自动重试和当前多 worker 约束。
+- 已在冻结 API 契约增加 `tbox-chat-v1`，并新增 `18_TBOX_CHAT_GATEWAY.md` 配置/普通/流式/安全联调说明；文档明确未做真实租户在线调用。
+- 隐私复核新增独立 HMAC secret：发送给百宝箱的 userId 是稳定匿名值，明文 CareerPulse user_id 不离开适配层。
+- HMAC 调整后 chat + 现有阶段3平台工具联合回归仍为 11/11，通过 compileall 与 diff check。
+- 首次全量 discovery 命令中 175 项通过，3 个既有模块因 `-s tests` 顶层导入方式导致 relative import 加载错误；已确认是命令参数问题，准备以 `-t .` 重跑，不计为通过。
+- 使用正确的 `python -m unittest discover -s tests -t .` 后，backend 主测试集 194/194 全部通过。
+- 旧独立 `app.platform.tests.test_mock_career_flow` 为 5/7，通过项外的 2 个失败与既有基线一致：旧 Mock 全链因真实 fallback 返回 partial/-4，旧断言仍要求 success/0；新 chat gateway 不经过该 Mock。
+- OpenAPI 200 响应已同时声明 JSON/SSE；流式配置缺失会在建立 SSE 前返回 HTTP 503，SSE data 会省略 null 字段。对应 chat 测试仍为 6/6。
+- 最终 `scripts/init_a02_data.py --check` 通过；Chat+阶段3定向 11/11，compileall、OpenAPI JSON/SSE 与凭据缺失断言、生产代码消息/Token 日志扫描、`git diff --check` 均通过。
+- 本轮实现完成。没有真实企业租户凭据，未执行付费/线上 API 调用；下一步仅需部署环境配置后做真实 agent smoke test，Vue 仍未接入。
+
+---
+
+# 2026-09-06 CareerPulse Vue 成长闭环执行日志
+
+- 已读取 `planning-with-files`、`Typescript Standards` 和 `frontend-design` 技能；视觉方向服从用户指定的“严格继承现有 CareerPulse UI”。
+- session catchup 脚本不存在；已读取 Git 状态与历史规划记录恢复上下文，并记录错误。
+- 已确认当前工作区包含前序前端真实数据整改与后端百宝箱适配改动，本轮不回退、不覆盖无关成果。
+- 正在审查六个真实业务页面、主布局、共享组件、全局样式、Router、Store/API 以及 Training HTTP 可用性。
+- 已完成主壳层、Router、主题样式、现有 GrowthPlan/Profile 的第一轮读取并写入 UI 基线发现。
+- 已审查 DataInput、JobLibrary、AnalysisBoard 与 PathGraph 的页面标题、卡片、Tag、Button、Empty/Loading、图表容器和响应式语言，完成第二轮 UI 基线记录。
+- 已审查 career API Adapter、request 层、Analysis/History/User stores 及 Radar/GrowthChart、编辑器、导出按钮、Drawer 等共享组件，确定继续采用现有 unknown-normalize-store-view 数据链路。
+- 已检查阶段4后端符号与当前前端 diff，确认前序“去 Mock/真实历史”改动是必须保留的基线；继续精确核对 HTTP Router 与 Schema。
+- 已完成 HTTP Router、recommendations 实现、ResourceService 与 Training/GrowthArchive 冻结 Schema 的精确审计，确认 Training/Feedback/阶段4档案没有 Vue 可直接调用的 HTTP API。
+- 阶段1 UI/组件/数据契约审查完成，并已向用户输出 UI 继承策略；进入 GrowthPlan 增量改造。
+- 已将 recommendations Adapter 从压扁字符串升级为结构化 `LearningResource`，保留 title/type/url 真实字段并兼容未来 ability/reason/source；未为缺失字段造值。
+- 已完成 GrowthPlan 模板结构增量改造，保留原 RichTextEditor/ExportButton；正在补齐严格类型、生成行为与 CSS。
+- GrowthPlan 严格类型、真实资源 Adapter、显式报告生成、布局样式和响应式收口完成；首轮 typecheck 的联合类型错误已修复，重跑通过。
+- 阶段2完成，进入 Training 页面与 unavailable API Adapter。
+- 已新增 Training API Adapter 契约和职场训练页面；三种能力、任务输入、结果维度和完整状态 UI 均已就位，当前明确为服务接入中。
+- Training 页面 typecheck 通过；阶段3完成，进入 Profile 成长档案改造。
+- Profile 成长档案改造完成并通过 typecheck；历史列表/详情和真实曲线保留，新增长期记录面板均为明确 empty/unavailable。
+- 阶段4完成，进入 Router/Sidebar 与导航语言收口。
+- Router/Sidebar 已完成：新增 `/app/training`，补回岗位入口，统一职业路径/成长计划/成长档案命名；主布局结构和样式未变。
+- 导航改动后 typecheck 通过；进入 production build、diff/mock 审计与视觉检查。
+- 最终 typecheck 通过，`git diff --check` 通过；production build 在并发声明写锁失败后顺序重跑成功。
+- 已完成代码级 Mock 审计；正在用本机 headless 浏览器进行三页 desktop/窄屏视觉一致性与横向溢出检查。
+- Headless Chrome 已完成三页 1440px 渲染与 760px 横向溢出检查；视觉语言与现有 Sidebar、Header、卡片、字体、按钮、Tag、Empty 保持一致。
+- Profile error 场景补齐能力曲线和历史分析的 unavailable empty 后，最终 typecheck、production build、diff check 再次通过。
+- Mock 审计无命中：本轮未加入固定评分、固定进度、假训练结果、假成长数据或自动 Mock fallback。
+- 阶段1–6全部完成；未修改后端、MCP、算法、Dashboard、全局主题或认证结构，也未自动提交 Git。
+
+---
+
+# 2026-09-06 CareerPulse Vue 全站响应式适配执行日志
+
+- 已重新读取 `planning-with-files`、`Typescript Standards`、`frontend-design` 技能；视觉实现继续服从用户指定的“PC 保持现状，手机自适应”。
+- 已读取现有规划记录和 Git 状态恢复上下文；前序确认缺失的 session catchup 脚本不再重复调用。
+- 已建立本轮六阶段响应式计划，正在扫描真实路由、Layout、全局样式、页面和共享组件中的固定宽度与溢出源。
+
+- 已审查 Landing、登录/注册、DataInput、AnalysisBoard、JobLibrary 的模板与响应式样式，确认主要风险为 tablet 可用宽度、280px 卡片最小宽度、手机按钮/标题动作行以及登录注册的短屏高度。
+
+- 已完成 PathGraph/Page、GrowthPlan、Training、Profile 和共享 AI Drawer、RichTextEditor、ResumeUpload、Radar/GrowthChart 审查；X6 当前版本可直接使用 zoomToFit，图表将以 ResizeObserver 补齐容器级 resize。
+
+- 全站路由与尺寸审查完成；已将主 Layout 改为 768px 以上保留 240px Sidebar、低于 768px 使用同一导航数据的 Element Plus Drawer/Hamburger，并统一 tablet/mobile 主内容 padding。
+- 已增加手机 Dialog/MessageBox 宽度、Dialog 内容滚动和移动端卡片 body padding公共规则；Layout 改动后 `npm run typecheck` 通过。
+
+- 第一轮 8 视口浏览器脚本发现预览服务参数被 PTY 错误解析，Chrome 实际显示连接错误页，因此全部结果作废且未计入验收；已切换为显式 Vite CLI/127.0.0.1，准备重跑。
+
+- 第二轮真实浏览器矩阵已成功加载应用：核心业务页在 1280/1024/768/430/390/375/320 均无 body 横向溢出，移动 Sidebar/Hamburger 断点正确；发现并修正全局 box-sizing 逗号缺失造成的登录表单隐藏式越界。
+
+- 最终 8 尺寸/62 组合浏览器矩阵通过，invalid/overflow/layout failure 全为 0；375/320 全路由补跑同样通过。
+- Drawer 已实测 7 个入口、打开/选择后关闭和路由切换；AI 面板 375px 下左右各 12px。320px 登录/注册最终截图完成复核，短屏注册表单不再与登录表单重叠。
+- 页面与共享图表阶段完成，进入最终 typecheck、production build、diff check 与变更边界审计。
+
+- 最终 `npm run typecheck` 通过；`npm run build` 通过（2612 modules，保留既有单 chunk >500k 警告）；`git diff --check` 通过，仅有仓库既有 LF/CRLF 提示。
+- package.json 仅有 dev/build/preview/typecheck，无其他前端测试脚本；响应式新增行的 Mock/fallback 关键词审计无命中。
+- 临时 CDP 脚本、Vite 服务、Chrome debug 进程与本轮 `tmp/chrome-responsive` 配置目录均已清理；验收截图保留在 Codex visualization 输出目录。
+- 六阶段全部完成，未修改 API、Store 业务逻辑、后端、MCP、Agent、算法、数据契约或 Mock 策略。
+
+---

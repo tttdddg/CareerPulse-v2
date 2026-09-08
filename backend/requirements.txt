@@ -10,3 +10,4 @@ Pillow
 pandas
 python-multipart
 mcp==2.0.0
+httpx==0.28.1

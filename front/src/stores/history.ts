@@ -5,8 +5,9 @@ export interface ReportSummary {
   id: string
   title: string
   createdAt: string
-  score: number
+  score: number | null
   tags: string[]
+  content?: string
 }
 
 // 成长曲线节点
@@ -20,14 +21,12 @@ export interface HistoryState {
   reports: ReportSummary[]
   growthSeries: GrowthPoint[]
   lastViewedReportId: string | null
-  deletedReportIds: string[]
 }
 
 interface PersistedHistoryState {
   reports: ReportSummary[]
   growthSeries: GrowthPoint[]
   lastViewedReportId: string | null
-  deletedReportIds: string[]
 }
 
 const STORAGE_KEY = 'career-pulse:history'
@@ -51,6 +50,11 @@ const toNumberSafe = (value: unknown, fallback = 0): number => {
   return fallback
 }
 
+const toOptionalNumber = (value: unknown): number | null => {
+  const parsed = toNumberSafe(value, Number.NaN)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
 const isPlaceholderReportTitle = (title: string): boolean => title.trim().toLowerCase() === 'career report'
 
 const sanitizeReports = (reports: ReportSummary[]): ReportSummary[] => {
@@ -71,7 +75,8 @@ const parseReport = (value: unknown): ReportSummary | null => {
 
   const id = toStringSafe(value.id, '').trim()
   const title = toStringSafe(value.title, '').trim()
-  if (!id || !title) {
+  const createdAt = toStringSafe(value.createdAt, '').trim().slice(0, 10)
+  if (!id || !title || !createdAt) {
     return null
   }
 
@@ -81,9 +86,10 @@ const parseReport = (value: unknown): ReportSummary | null => {
   return {
     id,
     title,
-    createdAt: toStringSafe(value.createdAt, new Date().toISOString().slice(0, 10)).slice(0, 10),
-    score: Math.max(0, Math.min(100, toNumberSafe(value.score, 0))),
-    tags
+    createdAt,
+    score: toOptionalNumber(value.score),
+    tags,
+    content: toStringSafe(value.content, '') || undefined
   }
 }
 
@@ -92,12 +98,13 @@ const parseGrowth = (value: unknown): GrowthPoint | null => {
     return null
   }
   const date = toStringSafe(value.date, '').trim()
-  if (!date) {
+  const score = toOptionalNumber(value.value)
+  if (!date || score === null) {
     return null
   }
   return {
     date,
-    value: toNumberSafe(value.value, 0),
+    value: score,
     label: toStringSafe(value.label, '') || undefined
   }
 }
@@ -134,15 +141,10 @@ const loadPersistedState = (): PersistedHistoryState | null => {
       .map(parseGrowth)
       .filter((item): item is GrowthPoint => item !== null)
     const lastViewedReportId = typeof parsed.lastViewedReportId === 'string' ? parsed.lastViewedReportId : null
-    const deletedReportIds = (Array.isArray(parsed.deletedReportIds) ? parsed.deletedReportIds : [])
-      .map((item) => toStringSafe(item, '').trim())
-      .filter(Boolean)
-
     return {
       reports,
       growthSeries,
-      lastViewedReportId,
-      deletedReportIds
+      lastViewedReportId
     }
   } catch {
     return null
@@ -153,8 +155,7 @@ export const useHistoryStore = defineStore('history', {
   state: (): HistoryState => ({
     reports: [],
     growthSeries: [],
-    lastViewedReportId: null,
-    deletedReportIds: []
+    lastViewedReportId: null
   }),
   getters: {
     latestReport: (state): ReportSummary | null => state.reports[0] ?? null
@@ -169,7 +170,6 @@ export const useHistoryStore = defineStore('history', {
 
       this.reports = sanitizeReports(persisted.reports)
       this.growthSeries = persisted.growthSeries
-      this.deletedReportIds = persisted.deletedReportIds
       this.lastViewedReportId =
         persisted.lastViewedReportId && this.reports.some((report) => report.id === persisted.lastViewedReportId)
           ? persisted.lastViewedReportId
@@ -181,30 +181,15 @@ export const useHistoryStore = defineStore('history', {
       persistState({
         reports: this.reports,
         growthSeries: this.growthSeries,
-        lastViewedReportId: this.lastViewedReportId,
-        deletedReportIds: this.deletedReportIds
+        lastViewedReportId: this.lastViewedReportId
       })
     },
 
     // 设置历史报告列表
     setReports(reports: ReportSummary[]): void {
-      const nextReports = sanitizeReports(reports).filter((report) => !this.deletedReportIds.includes(report.id))
+      const nextReports = sanitizeReports(reports)
       this.reports = nextReports
       this.lastViewedReportId = nextReports[0]?.id ?? null
-      this.persist()
-    },
-
-    // 追加单条报告
-    addReport(report: ReportSummary): void {
-      if (this.deletedReportIds.includes(report.id)) {
-        return
-      }
-      if (isPlaceholderReportTitle(report.title)) {
-        return
-      }
-      const filtered = this.reports.filter((item) => item.id !== report.id)
-      this.reports = sanitizeReports([report, ...filtered])
-      this.lastViewedReportId = this.reports[0]?.id ?? null
       this.persist()
     },
 
@@ -220,23 +205,10 @@ export const useHistoryStore = defineStore('history', {
       this.persist()
     },
 
-    // 删除单条历史报告
-    removeReport(reportId: string): void {
-      if (!this.deletedReportIds.includes(reportId)) {
-        this.deletedReportIds = [...this.deletedReportIds, reportId]
-      }
-      this.reports = this.reports.filter((report) => report.id !== reportId)
-      if (this.lastViewedReportId === reportId) {
-        this.lastViewedReportId = this.reports[0]?.id ?? null
-      }
-      this.persist()
-    },
-
     clearLocalHistory(): void {
       this.reports = []
       this.growthSeries = []
       this.lastViewedReportId = null
-      this.deletedReportIds = []
       this.persist()
     }
   }

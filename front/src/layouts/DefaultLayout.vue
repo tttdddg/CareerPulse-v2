@@ -1,34 +1,27 @@
 ﻿<template>
   <el-container class="app-shell">
-    <el-aside width="240px" class="sidebar">
+    <el-aside width="240px" class="sidebar desktop-sidebar">
       <div class="brand">
         <img :src="brandLogo" alt="Logo" class="brand-logo" />
       </div>
       <el-menu :default-active="activeMenu" router class="nav-menu">
-        <el-menu-item index="/app/input">
-          <el-icon><EditPen /></el-icon>
-          <span>数据输入</span>
-        </el-menu-item>
-        <el-menu-item index="/app/analysis">
-          <el-icon><TrendCharts /></el-icon>
-          <span>岗位匹配</span>
-        </el-menu-item>
-        <el-menu-item index="/app/path" :disabled="pathMenuDisabled">
-          <el-icon><Share /></el-icon>
-          <span>职业分析</span>
-        </el-menu-item>
-        <el-menu-item index="/app/plan">
-          <el-icon><DocumentChecked /></el-icon>
-          <span>成长规划</span>
-        </el-menu-item>
-        <el-menu-item index="/app/profile">
-          <el-icon><User /></el-icon>
-          <span>历史记录</span>
+        <el-menu-item
+          v-for="item in navigationItems"
+          :key="item.index"
+          :index="item.index"
+          :disabled="item.index === '/app/path' && pathMenuDisabled"
+        >
+          <el-icon><component :is="item.icon" /></el-icon>
+          <span>{{ item.label }}</span>
         </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container class="shell-main">
       <el-header class="topbar">
+        <el-button text class="menu-button" aria-label="打开导航菜单" @click="mobileMenuOpen = true">
+          <el-icon><Expand /></el-icon>
+        </el-button>
+        <span class="mobile-page-title">{{ route.meta.title || 'CareerPulse' }}</span>
         <div class="topbar-spacer"></div>
         <el-button text class="logout-button" @click="handleLogout">
           <el-icon><SwitchButton /></el-icon>
@@ -39,11 +32,37 @@
         <router-view />
       </el-main>
     </el-container>
+
+    <el-drawer
+      v-model="mobileMenuOpen"
+      class="mobile-nav-drawer"
+      direction="ltr"
+      size="min(82vw, 300px)"
+      :with-header="false"
+      append-to-body
+    >
+      <nav class="mobile-sidebar" aria-label="主导航">
+        <div class="brand">
+          <img :src="brandLogo" alt="Logo" class="brand-logo" />
+        </div>
+        <el-menu :default-active="activeMenu" router class="nav-menu" @select="closeMobileMenu">
+          <el-menu-item
+            v-for="item in navigationItems"
+            :key="item.index"
+            :index="item.index"
+            :disabled="item.index === '/app/path' && pathMenuDisabled"
+          >
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.label }}</span>
+          </el-menu-item>
+        </el-menu>
+      </nav>
+    </el-drawer>
   </el-container>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useAnalysisStore } from '../stores/analysis'
@@ -52,15 +71,35 @@ import {
   EditPen,
   TrendCharts,
   Share,
+  Briefcase,
   DocumentChecked,
+  ChatLineSquare,
   User,
-  SwitchButton
+  SwitchButton,
+  Expand
 } from '@element-plus/icons-vue'
+
+interface NavigationItem {
+  index: string
+  label: string
+  icon: Component
+}
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const analysisStore = useAnalysisStore()
+const mobileMenuOpen = ref(false)
+
+const navigationItems: NavigationItem[] = [
+  { index: '/app/input', label: '数据输入', icon: EditPen },
+  { index: '/app/analysis', label: '岗位匹配', icon: TrendCharts },
+  { index: '/app/jobs', label: '岗位', icon: Briefcase },
+  { index: '/app/path', label: '职业路径', icon: Share },
+  { index: '/app/plan', label: '成长计划', icon: DocumentChecked },
+  { index: '/app/training', label: '职场训练', icon: ChatLineSquare },
+  { index: '/app/profile', label: '成长档案', icon: User }
+]
 
 const handleLogout = (): void => {
   userStore.logout()
@@ -69,6 +108,15 @@ const handleLogout = (): void => {
 
 const activeMenu = computed(() => route.path)
 const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
+
+const closeMobileMenu = (): void => {
+  mobileMenuOpen.value = false
+}
+
+watch(
+  () => route.fullPath,
+  () => closeMobileMenu()
+)
 </script>
 
 <style scoped>
@@ -82,6 +130,11 @@ const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
   background: #f6f7fb;
   border-right: 1px solid #dde2ec;
   padding-bottom: 8px;
+}
+
+.mobile-sidebar {
+  min-height: 100%;
+  background: #f6f7fb;
 }
 
 .brand {
@@ -164,6 +217,11 @@ const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
   flex: 1;
 }
 
+.menu-button,
+.mobile-page-title {
+  display: none;
+}
+
 .logout-button {
   color: #606a7d;
   font-size: 17px;
@@ -174,36 +232,63 @@ const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
 }
 
 .main-area {
+  min-width: 0;
   padding: 26px 30px 32px;
   background: #f2f4f8;
 }
 
-@media (max-width: 1024px) {
-  .brand-text {
-    font-size: 28px;
-  }
-
-  :deep(.el-menu-item) {
-    font-size: 15px;
+@media (max-width: 1199px) {
+  .main-area {
+    padding: 22px 20px 28px;
   }
 }
 
-@media (max-width: 900px) {
-  .app-shell {
-    display: block;
-  }
-
-  .sidebar {
-    width: 100%;
+@media (max-width: 767px) {
+  .desktop-sidebar {
+    display: none;
   }
 
   .topbar {
-    height: 68px;
+    height: 60px;
+    padding: 0 12px;
   }
 
-  :deep(.el-menu-item) {
+  .menu-button {
+    display: inline-flex;
+    margin-right: 4px;
+    color: #556078;
+    font-size: 21px;
+  }
+
+  .mobile-page-title {
+    display: block;
+    min-width: 0;
+    max-width: calc(100vw - 150px);
+    overflow: hidden;
+    color: #344057;
+    font-size: 15px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .logout-button {
+    flex: none;
     font-size: 14px;
-    height: 46px;
+    gap: 5px;
+  }
+
+  .main-area {
+    width: 100%;
+    padding: 16px 12px 24px;
+  }
+
+  :global(.mobile-nav-drawer) {
+    background: #f6f7fb;
+  }
+
+  :global(.mobile-nav-drawer .el-drawer__body) {
+    padding: 0;
   }
 }
 </style>

@@ -1,5 +1,5 @@
 ﻿import { defineStore } from 'pinia'
-import type { JobItem } from '../api/modules/career'
+import type { JobItem, MatchingGap } from '../api/modules/career'
 
 // 雷达图维度定义
 export interface RadarIndicator {
@@ -15,10 +15,12 @@ export interface RadarSeries {
 
 export interface AnalysisState {
   matchScore: number
+  hasMatchResult: boolean
   radarIndicators: RadarIndicator[]
   radarSeries: RadarSeries[]
   strengths: string[]
   gaps: string[]
+  gapDetails: MatchingGap[]
   targetKeyword: string
   candidateJobs: JobItem[]
   studentId: number | null
@@ -31,10 +33,12 @@ export interface AnalysisState {
 export const useAnalysisStore = defineStore('analysis', {
   state: (): AnalysisState => ({
     matchScore: 0,
+    hasMatchResult: false,
     radarIndicators: [],
     radarSeries: [],
     strengths: [],
     gaps: [],
+    gapDetails: [],
     targetKeyword: '',
     candidateJobs: [],
     studentId: null,
@@ -53,6 +57,7 @@ export const useAnalysisStore = defineStore('analysis', {
     setMatchScore(score: number): void {
       const clamped = Math.min(Math.max(score, 0), 100)
       this.matchScore = clamped
+      this.hasMatchResult = true
       this.updatedAt = new Date().toISOString()
     },
 
@@ -64,9 +69,10 @@ export const useAnalysisStore = defineStore('analysis', {
     },
 
     // 写入优势与差距维度
-    setInsights(strengths: string[], gaps: string[]): void {
+    setInsights(strengths: string[], gaps: string[], gapDetails: MatchingGap[] = []): void {
       this.strengths = strengths
       this.gaps = gaps
+      this.gapDetails = gapDetails
       this.updatedAt = new Date().toISOString()
     },
 
@@ -106,10 +112,12 @@ export const useAnalysisStore = defineStore('analysis', {
     // 重置分析数据
     reset(): void {
       this.matchScore = 0
+      this.hasMatchResult = false
       this.radarIndicators = []
       this.radarSeries = []
       this.strengths = []
       this.gaps = []
+      this.gapDetails = []
       this.targetKeyword = ''
       this.candidateJobs = []
       this.studentId = null

@@ -676,3 +676,120 @@
 - `backend/tests` 全量回归 `188/188` 通过；未发现另外五个 MCP 工具的行为回归。
 
 ---
+# 2026-09-03 百宝箱对话适配层发现
+
+- 工作区当前仅有上一轮前端真实数据整改和两份用户开发日志未提交；`backend/` 开始时无差异。
+- 仓库已有标准 MCP Server、`CareerMCPToolService`、平台工具 HTTP API 和旧 `platform/tbox_adapter.py` Mock；新对话适配不能复用旧 Mock 冒充正式智能体 API。
+- 当前规划技能的 session catchup 脚本缺失，已按既有记录改用规划文件和 Git 状态恢复。
+- `create_app()` 已集中注入运行配置并支持测试参数覆盖；适配层应继续走 `application.state`/依赖注入，避免模块级读取密钥。
+- 现有 `A02_TBOX_API_TOKEN` 是“百宝箱调用 CareerPulse 工具”的入站 Bearer，不应复用于“CareerPulse 调用百宝箱智能体”的出站凭据；需新增语义独立的配置名。
+- 旧 `platform/tbox_adapter.py` 只是独立 Mock 全链端点，没有挂到主应用；不能作为新 `/api/tbox/chat` 的实现。
+- 现有项目未直接声明 `httpx`；实现出站普通/流式 HTTP 前需核对环境依赖与可锁定版本。
+- 平台工具异常处理仅覆盖 `/api/platform/v1/tools` 的校验错误；新 chat 入口应有独立安全错误模型/处理，不改变已有工具错误契约。
+- 可公开核验的官方 Ant Design X TBox 集成文档确认：Node SDK 以 `authorization: 'Tbox-...'` 初始化；`client.chat()` 的稳定示例入参至少包含 `appId`、`query`、`userId`，返回事件流并提供 data/end/error 事件。
+- 官方页面链接到百宝箱开放平台、授权管理和 OpenAPI 语雀文档，但当前浏览器无法直接打开这些语雀/开放平台 URL；尚未从官方公开页核实底层 HTTP endpoint、原始请求字段、会话字段和 SSE 事件结构。
+- 因此不能根据第三方博客或演示代理端点写死生产 URL/协议；下一步应检查官方 SDK 包的元数据/源码，或让底层 endpoint 可配置并在缺配置时 fail closed。
+- npm 当前公开的 `tbox-nodejs-sdk` 最新可见版本为 `0.0.19`，README 同时确认 `chat()` 流式与 `chatSync()` 非流式两种调用；SDK README 标注的 GitHub 仓库当前返回 404。
+- PyPI 存在非官方/来源待核验的 `tboxsdk`，不能仅凭同名包作为企业版正式协议依据。
+- 官方 SDK 的 CDN/registry 详情不能通过网页读取；可在受控临时目录下载 npm tarball，检查其实际 URL、headers、payload 和事件解析，不向项目添加 Node 运行时依赖。
+- 本机 npm 被配置为只读缓存且无该包缓存，registry 下载又被不可用代理阻断，无法从 tarball 补充核验底层 endpoint。
+- 当前可证明的正式公共契约只到 SDK 层：`TBox-...` authorization、`appId/query/userId`、流式 `chat` 与同步 `chatSync`。后端适配应将上游 URL 作为必填部署配置，并把 body/header 字段限制在这些已核验字段；会话延续字段需保持可配置/按真实响应提取，不能猜固定平台字段。
+- 阿里云开发者社区转载的百宝箱开放平台文档给出正式 OpenAPI：`POST https://api.tbox.cn/api/chat`，请求头 `Authorization`、`Content-Type: application/json`，流式使用 `Accept: text/event-stream`。
+- 请求字段：`appId/query/userId` 必填，`conversationId/files/searchEngine/stream` 可选；`stream` 默认 true。多轮应把前次返回的 `conversationId` 传回。
+- 流式是标准 SSE：`id/event/data`；`data` JSON 中 `type=header|chunk|meta|thinking|end`，其 `payload` 又是 JSONString。header payload 的 `sessionId` 即 conversationId；chunk payload 包含 `text/conversationId/messageId`；结束事件为 `event:end`、`data:{"type":"end"}`。
+- 非流式成功体外层为 `errorCode/errorMsg/data/traceId`，文档示例也可能直接展示单个 ChatResponse；ChatResponse 具有 `requestId/conversationId/messageId/result[]`，文本答案位于 `result[].mediaType=text` 的 `chunk`。
+- 本轮前端统一响应应只暴露普通文本、CareerPulse session id、TBox conversation/message/request id；不向 Vue 透传 thinking/meta 原始节点数据，避免内部工作流和潜在敏感内容泄露。
+- 当前运行环境已安装 Python 3.11.15、FastAPI 0.133.1、Pydantic 2.13.4 和 httpx 0.28.1；实现无需升级现有依赖，但应把直接运行依赖 `httpx` 写入 requirements。
+- `backend/app/main.py` 已将 `A02_TBOX_API_TOKEN` 用作“百宝箱调用 CareerPulse 工具”的入站 Bearer；正式智能体出站 Token 必须使用独立配置名，不能复用。
+- 仓库实际持久化模块是 `backend/app/db_state.py`，环境样例也不在 `backend/.env.example`；后续只按 `rg --files` 的实际结果定位。
+- `CareerState.platform_session_id` 已是冻结契约中的百宝箱会话字段，StateRepository 会将其同时写入状态 JSON 和列；本轮无需新增映射表或数据库迁移。
+- session mapper 将复用 CareerOrchestrator 持久化，并对同一 CareerPulse session 的对话调用做进程内串行化；首次上游返回的 conversationId 持久化后，后续请求必须带回。
+- `platform_tool_calls` 可复用为出站对话调用的隐私安全账本：每次生成独立 `chat-*` 调用 ID，request fingerprint 只存 SHA-256，result_data 只存模式/是否映射等元数据，不保存 prompt 或 answer。
+- 新浏览器契约采用严格 `session_id/user_id/message/stream` 请求；普通响应为固定 envelope，流式统一成 `session/delta/done/error` SSE。上游 `thinking/meta` 不透传。
+- 自动重试可能导致非幂等聊天重复执行；本轮对超时/5xx采取显式可重试错误，不在适配器内盲目重试。
+- 出站百宝箱 `userId` 不使用 CareerPulse 明文 user_id；适配层用独立 `TBOX_USER_ID_SECRET` 做 HMAC-SHA256，发送稳定的 `cp_<digest>`，密钥缺失时同样 fail closed。
+
+---
+
+# 2026-09-06 CareerPulse Vue 成长闭环发现
+
+- 当前前端相关页面和 API/Store 已有大量未提交改动，必须先按 diff 区分既有成果，再做最小增量，不回退任何已有真实数据整改。
+- 根目录与 `front/` 均存在历史规划文件；本轮沿用根目录规划记录，不覆盖前序任务内容。
+- `planning-with-files` 安装目录只有 `SKILL.md`，会话恢复脚本缺失；已改用 Git 状态和现有规划文件恢复。
+- 主布局固定为 240px 浅灰 Sidebar、74px Header、`#f2f4f8` 主背景和 26/30px 内容边距；Sidebar 菜单是扁平 54px 行高、无圆角、靛青 active 背景，不能另造后台壳层。
+- 全局设计变量以 `#6366f1` 为 primary、`#8b5cf6` 为 secondary，正文 `#0f172a`、弱文案 `#475569`、边框 `#e2e8f0`；字体为 Noto Sans SC + Manrope，Element Plus base radius 10px。
+- 现有业务页通常以白色、1px 浅边框、16px 圆角、无全局卡片阴影的 `el-card` 作为 panel；局部强调区域使用现有淡靛青背景/渐变，不应引入玻璃拟态或新渐变体系。
+- `GrowthPlan.vue` 当前只有报告编辑器和简化学习建议侧栏；其资源项将 `/recommendations` 的字符串映射为“学习建议 N”，丢失了潜在结构化字段，需要先审查 API 契约再决定真实展示字段。
+- `Profile.vue` 已真实调用 histories/snapshot，保留历史卡片、详情 Dialog 与 `GrowthChart`；当前 growth 数据完全来自历史接口，不能用静态点补齐。
+- 现有小屏基础只在约 900/1150/1200px 将壳层或双栏改为单栏；本轮延续 CSS Grid 自动换行和流式 Dialog 宽度，不进行全站移动端重构。
+- 六个业务页的稳定页面结构是：页面级 flex column + 16/18px gap、`.page-head` 标题/说明、`.panel` `el-card`、面板内 `.panel-head`、真实加载 `v-loading`、错误 `el-alert`、无数据 `el-empty`；新页面应直接复刻这套节奏。
+- 数据输入页主标题为 28px，常规页多用 22px 左右 section heading；正文/元信息集中在 13–14px，颜色约 `#5d6780`/`#667089`，卡片内边框项用 12–14px 圆角。
+- 岗位库的资源型卡片最适合作为新学习资源/训练类型卡片基准：`repeat(auto-fill,minmax(280px,1fr))`、1px `#dde4ef` 边框、12px 圆角、12px padding、10px 内部 gap，按钮沿用 Element Plus primary/plain。
+- 分析页统一使用 `el-tag` 表达分类/状态、内联空值显示“待补充/待分析”，图表仅在真实数据存在时渲染；成长页将沿用同样的数据诚实性与状态词汇。
+- Path 页面局部比其他页面更强的 20px 圆角/阴影属于图谱语境，不适合作为三项新能力的默认；本轮以 GrowthPlan/Profile/JobLibrary 的 16px panel 与 12px content card 为主。
+- 现有页面标题语言偏直接业务名 + 一行解释；训练页可按指定标题与说明直接置于 `.page-head`，不增加 hero、游戏化计分或独立视觉壳。
+- 前端 API 目前集中在单一 `career.ts`，采用 `unknown` 入参 + 类型守卫/normalizer + 明确错误的 Adapter 方式；新增 Training Adapter 应保持同一层次与严格类型，不让 View 解析后端原始结构。
+- 当前 Analysis store 只保留当前 session 内真实匹配上下文（目标关键词、岗位、分数、gaps、student/job/report id）；可用于成长计划顶部概览，但刷新丢失时必须显示“暂无”，不能补默认岗位或分数。
+- History store 的本地存储只是服务端真实 histories 的缓存；Profile onMounted 会以 `/users/{userId}/histories` 覆盖，因此成长概览可使用其 `reports/growthSeries`，不能把本地缓存当成新学习/训练事实来源。
+- `career.ts` 的 `/recommendations` Adapter 当前把结构化响应压扁成 `string[]`，甚至拼为“标题：URL”；为了展示资源类型、能力、理由、链接、来源，需要把 Adapter 返回类型增量升级为结构化 `LearningResource[]`，同时兼容字符串响应但不推断缺失字段。
+- 共享图表组件均在 mount/watch 渲染并监听 `window.resize`、unmount dispose，满足新增档案页 resize 要求；无需新增图表实现。
+- `RichTextEditor` 与 `ExportButton` 已承载原报告的润色/检查/导出交互，GrowthPlan 必须继续复用，不能以新卡片替换或删除。
+- 后端阶段4 Training/Resource/Feedback 的正式实现目前集中在 Agent/Service/MCP tool service；首次路由检索未发现对应 Vue HTTP Router，Training 页面应先按“服务接入中” unavailable 交付，除非后续精确路由审计发现现有 HTTP 入口。
+- 当前工作区 diff 证明前序前端任务已经主动删除了默认报告、本地导出 fallback、固定学习资源、假 growth 曲线、假用户名/邮箱/会员等级和 API 失败后的本地历史成功展示；本轮必须保住这些数据诚实性整改。
+- GrowthPlan/Profile 是未提交前序成果，后续修改采用整页增量但必须保留现有真实 API、错误处理与 empty 路径；不得恢复 diff 中已删除的 Mock/fallback。
+- 精确路由清单确认 Vue 当前只有 jobs/students/matching/reports/histories/recommendations 等业务 HTTP API；没有 Training、ResourceService 阶段4或 Feedback 的专用 HTTP API。`/api/career-agent/run` 是整条 Agent 输入入口，不是可安全复用的训练生成/评分接口，且当前前端没有其 session id，因此本轮 Training 保持 unavailable。
+- `/recommendations` 当前真实 HTTP 返回规则型资源对象：至少含 `type/title/url`；它调用旧 `recommendation_service`，不是阶段4 `ResourceService`，不返回 `target_ability/description/source/job_resources`。前端应保留其真实字段，缺失字段显示“暂无/未提供”，岗位资源展示 empty。
+- 后端阶段4正式 Training schema 已核验：任务包含 id/type/title/scenario/task_description/evaluation_criteria/target_abilities/reference_answer；评分包含 total、dimension scores、overall comment、improvement suggestions、ability updates。前端 Adapter 可按该冻结契约定义类型，但不能发起不存在的 HTTP 请求。
+- 三种 TrainingType 严格为 `remote_collaboration`、`ai_office_task`、`cross_role_communication`；前端只展示对应的远程协作、AI 办公任务、跨角色沟通，不扩展面试、群面、薪资谈判等能力。
+- 成长档案的后端 `GrowthArchive` 契约存在于阶段4 Agent/MCP，但 Vue HTTP 无查询入口；学习记录、训练记录、Feedback 面板只能保留正式 empty/unavailable 结构，不能从其他字段臆造。
+- histories Adapter 实际把真实历史报告的非空分数按日期构造成 GrowthChart 数据，因此档案页应将该图明确命名为“匹配分变化”，避免把匹配分误称成全能力成长分。
+- Vite 开发代理会将 `/api/*` 重写到后端根路由；career Adapter 中 `url: '/recommendations'` 是现有正确调用方式。生产仍通过 `VITE_API_BASE_URL` 或 `/api`，本轮不改请求基础设施。
+- 前端 TypeScript 为 strict + isolatedModules；新增 Adapter/页面需要避免不受控 `any`，保持所有后端结果经 `unknown` 和 normalizer 进入 View。
+- GrowthPlan 新结构已按现有组件语言落入：页面标题、四项概览、基于真实 gap 的学习任务、真实 recommendations 资源、岗位资源 empty、原报告编辑/导出区域；下一步完成 computed/API 类型与现有样式收口。
+- GrowthPlan 顶部阶段/完成数因 HTTP 无持久字段明确显示“暂无”；学习任务 topic/gap/objective/status 只来自 Analysis store 的真实 gap/gapDetails，建议动作和预计投入缺失时明确显示暂无。
+- 资源链接只允许 http/https 后再渲染，类型仅做确定性中文标签转换；target ability/reason/source 没有 API 字段时显示未提供，不从 gap 或域名推断。
+- Training Adapter 已定义与后端冻结 Schema 对齐的 task/score/type/lifecycle 类型，但 capability 固定为 unavailable 且方法只会抛明确错误；View 会在实际调用前检查 capability，不发送假请求。
+- Training 页面完整承载 idle/generating/ready/scoring/completed/error/unavailable 分支，当前用户选择三种真实训练类型后进入 unavailable，不会显示任务、评分或历史假数据。
+- Profile 已转为成长档案结构：真实概览、用户信息、真实历史匹配分曲线、学习/训练/Feedback empty 面板、原历史分析列表与 snapshot Dialog；原 histories/snapshot 调用保持不变。
+- 档案概览优先显示当前 Analysis store 的真实目标岗位，缺失时退到最新服务端历史标题；最近匹配分优先最新历史，缺失时才使用当前会话真实 matchScore，不生成零分。
+- Sidebar 保持单层结构，只新增现有岗位页与职场训练两个入口，并将已有“职业分析/成长规划/历史记录”统一为“职业路径/成长计划/成长档案”；没有新增分组、折叠菜单或壳层。
+- Router 延续 `/app/{noun}` 命名，以 `/app/training` 新增职场训练；`/app/plan`、`/app/profile` 路径完全复用，只更新页面标题 metadata。
+- 最终 typecheck 与 diff check 已通过；首次并行 build 只因 `components.d.ts` 并发写锁失败，顺序重跑 production build 成功。
+- build 仍有项目既有单 chunk >500k 警告（主 JS 约 3.49MB、gzip 约 1.15MB）；本轮禁止大规模架构/路由懒加载重构，记录为已知非阻断风险。
+- Mock 关键词审计在本轮页面/Adapter 未发现固定评分、固定进度、假成长数据或自动成功 fallback；命中仅为 `career.ts` 的通用转换函数 fallback 参数，不是 UI Mock。
+- 本机 Chrome/Edge 可用，但 node_repl 的预装 Playwright 包当前无法导入；准备使用 headless Chrome CDP 注入临时视觉检查登录态并截取页面，不改应用认证代码。
+- Headless Chrome 最终实测三页 1440px desktop 均成功渲染正确 title/heading，首个 panel 均为 16px radius + 1px border；760px 复核时 `bodyWidth === viewportWidth`，无明显横向溢出。
+- 视觉检查中的 Profile 因本地 histories API 不可用显示全局 error 与“历史数据暂不可用”，符合 error 状态要求；GrowthPlan 的 `/recommendations` 正常返回两项真实资源，缺失 reason/source/ability 明确显示未提供。
+- 临时视觉脚本、Vite 服务与 Chrome debug 进程均已清理；仅保留三张视觉验收截图在 Codex visualization 输出目录。
+
+---
+
+# 2026-09-06 CareerPulse Vue 全站响应式适配发现
+
+- 本轮继承前一轮已完成的成长计划、职场训练和成长档案页面，不回退其真实 API/empty/unavailable 数据原则。
+- Router 当前真实页面为 Landing、Login、Register、DataInput、AnalysisBoard、JobLibrary、PathGraph、GrowthPlan、TrainingPage、Profile；`/app/recommend` 仅重定向，不单独适配已删除原型页。
+- 已知主壳层当前以 240px 固定 Sidebar + 74px Header 为 Desktop 基准，但既有 900px 规则把 Sidebar 直接变为整行宽度，无法作为合格手机导航；需改成保持 PC Sidebar、手机 Drawer/Hamburger。
+- 前序视觉检查只覆盖成长计划/训练/档案的 1440px 与 760px，不足以证明全站 375/320px 可用；本轮必须重做完整视口矩阵。
+
+- Landing 在 1100px 已降为单列，但没有 `<768px` 规则；手机下仍保留 520px hero visual、四项 metrics 两列、64px/46px 标题过渡与较大的图文间距，320px 高度和密度不理想。
+- 当前登录/注册页在 700px 隐藏品牌 panel 并将表单居中，基础方向正确；但短信验证码行的 118px 按钮和输入会在 320px 挤压，需要 <=480px 纵向或更紧凑布局，且表单垂直居中时注册内容在 568px 高度可能越界。
+- DataInput 在 1200px 即把双栏字段降为单列、900px 将底部操作降单列；需把 tablet 保留双栏到 768px、手机统一按钮宽度，并让 `el-descriptions` 在手机降为单列（需要响应式 `column` 属性而不只是 CSS）。
+- AnalysisBoard 的 summary 两栏直到 720px 才切换，导致 768–900px 在扣除 240px Sidebar 后内容宽度不足；应在 tablet 阶段提前单列。岗位卡 `minmax(240px)`、标题动作栏、rank 标题、目标岗位 pill 和 560px 词云都需手机收口。
+- JobLibrary 查询栏在 980px 已单列，岗位 grid 的 `minmax(280px)` 在 320px 主内容扣除 padding/card body 后会产生溢出；手机应显式单列 `minmax(0,1fr)`，卡片头和操作按钮允许换行/纵向。
+
+- PathGraph 页面在 1200px 已把详情与左右路径图降单列，手机指标也会单列；但 Panel header actions 未纵向收口，X6 在 ResizeObserver 中只 resize 画布而不重新 fit，且 auto layout 将安全宽度强制至少 360px，320px 内容区可能裁切节点。当前 X6 版本明确支持 `zoomToFit({ padding, minScale, maxScale })`，可用最小改动实现手机 fit view，并保留 pan/ctrl+wheel。
+- GrowthPlan 的任务/资源 grid 在 720px 已单列，但与统一 `<768px` 断点不一致，且报告编辑器工具栏与富文本内图片/表格没有手机溢出处理；需在共享 RichTextEditor 统一修正。
+- Training 在 1100px 过早把三类训练卡改成单列；应按 `768–1199px` 两列、`<768px` 单列，并在手机让开始/提交按钮可占满、评分头和长反馈安全换行。
+- Profile 固定 Dialog 已使用 `min(560px, calc(100vw - 32px))`，基础宽度安全；仍需统一手机 margin/body max-height、单列 `minmax(0,1fr)`、信息行/历史标题换行以及 chart 容器观察尺寸变化。
+- RadarChart/GrowthChart 目前只监听 window resize；Layout 宽度、Drawer 或卡片重排未必触发正确时机，应改为 ResizeObserver，并在窄容器调整 legend/grid/axis label。Analysis 内嵌 gauge/wordcloud 同样只有 window resize，需要观察自身容器。
+- AI Assistant 当前宽度 `min(420px, 100vw - 20px)` 基本安全，但手机应贴近 12px 边距、限制短屏高度，并为 header 长标题、消息/Markdown/链接等 slot 内容统一 `overflow-wrap` 和横向滚动边界。
+
+- 有效浏览器矩阵发现全局 `box-sizing` 选择器原本缺少逗号，导致登录表单的 `width:100% + padding` 实际超出容器；虽然 Login 自身 `overflow:hidden` 遮住了 body 横滚，元素仍越过视口。已修正为标准的 `*, *::before, *::after`，解决真实宽度源而非继续遮盖。
+- 有效矩阵的全部核心业务路由在 1280、1024、768、430、390、375、320 下 `body/root scrollWidth <= viewport`；手机 Sidebar 为 none、Hamburger 为 flex，768px 边界保持 PC Sidebar。需在修正 box-sizing 后再跑终验，并补跑因 Vite首次预热而空白的 1440 截图。
+
+- 最终浏览器矩阵共检查 62 个主组合，覆盖 1440×900、1280×800、1024×768、768×1024、430×932、390×844、375×812、320×568；另对 375 和 320 各补跑全部 10 个真实路由。最终 invalid、overflow、layout failure 均为 0。
+- 移动导航实测包含 7 个核心入口，Drawer 打开正常，点击“岗位”后自动关闭并切换到 `#/app/jobs`；AI 职业伙伴面板在 375px 下为 351px 宽，左右各 12px，未超屏。
+- 320×568 注册页首次截图暴露移动切换动画期间登录/注册表单重叠；手机端已关闭该桌面切换延迟，并让登录表单垂直居中、注册表单在自身容器滚动。复测截图显示注册字段与按钮正确单列，无横向越界。
+- PathGraph 的真实接口在本地检查环境返回 unavailable，因此浏览器检查覆盖了正式错误/空图状态；X6 有数据时的 `zoomToFit` 与 ResizeObserver 由代码路径和类型检查覆盖，未注入假图谱到页面结果。
+
+---

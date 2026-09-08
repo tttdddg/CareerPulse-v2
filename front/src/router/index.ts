@@ -6,6 +6,7 @@ import DataInputView from '../views/input/DataInput.vue'
 import AnalysisBoardView from '../views/analysis/AnalysisBoard.vue'
 import PathGraphPageView from '../views/path/PathGraphPage.vue'
 import GrowthPlanView from '../views/plan/GrowthPlan.vue'
+import TrainingPageView from '../views/training/TrainingPage.vue'
 import ProfileView from '../views/profile/Profile.vue'
 import JobLibraryPageView from '../views/jobs/JobLibraryPage.vue'
 import { useAnalysisStore } from '../stores/analysis'
@@ -86,13 +87,19 @@ const routes: RouteRecordRaw[] = [
         path: 'plan',
         name: 'plan',
         component: GrowthPlanView,
-        meta: { title: '个性化成长计划' }
+        meta: { title: '成长计划 / 学习资源' }
+      },
+      {
+        path: 'training',
+        name: 'training',
+        component: TrainingPageView,
+        meta: { title: '职场训练' }
       },
       {
         path: 'profile',
         name: 'profile',
         component: ProfileView,
-        meta: { title: '个人中心 / 历史记录' }
+        meta: { title: '成长档案' }
       }
     ]
   },

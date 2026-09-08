@@ -344,3 +344,138 @@
 - 不修改另外五个工具的业务处理。
 
 ---
+# CareerPulse 百宝箱对话适配层（2026-09-03）
+
+## 当前目标
+
+审查现有 FastAPI、MCP 与平台配置，依据可核验的蚂蚁百宝箱企业版正式智能体 API，实现 `backend/app/platform/tbox/` 适配层和 `POST /api/tbox/chat`。入口负责服务端凭据、CareerPulse session 到百宝箱会话映射、普通/流式响应归一、超时与安全错误；不修改 Vue、MCP、阶段3/4算法或现有 Service。
+
+## 当前阶段
+
+1. **已完成** — 审查应用工厂、配置、既有平台/MCP实现、测试模式和工作区差异。
+2. **已完成** — 核对百宝箱企业版实际 API 文档，冻结请求、会话与流式协议。
+3. **已完成** — 实现配置、Schema、session mapper、client、chat service 和 FastAPI 路由。
+4. **已完成** — 增加成功、失败、超时、会话映射、流式协议和凭据隐私测试。
+5. **已完成** — 运行定向/全量回归、编译、OpenAPI、Token 与差异检查并交付。
+
+## 本轮约束
+
+- 不把百宝箱 API Key、Token 或上游内部错误暴露给浏览器或日志。
+- 不虚构百宝箱能力、URL、字段或流式事件；实际文档无法核实时必须显式配置/阻断。
+- 公开 Schema 若新增需同步 `docs/a02/04_API_CONTRACTS.md`。
+- 测试使用传输 double，不调用真实付费 API，不写真实凭据。
+- 保留当前未提交的前端整改和用户开发日志，不自动提交 Git。
+
+## 本轮错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 不存在 | 1 | 已读取现有三份规划文件和 Git 状态恢复上下文；不再重复。 |
+| `npm view tbox-nodejs-sdk` 受 only-if-cached 策略拒绝 | 1 | 未获得包内容；改用官方 registry tarball URL，不重复 npm view。 |
+| `curl` 访问 registry.npmjs.org 被本机代理拒绝 | 1 | 不重复同一下载；使用网页可访问的 npm README/官方 Ant Design X 文档作为已核验边界，HTTP endpoint 改为强制环境配置而非猜测。 |
+| 按先前摘要中的 `backend/app/orchestrator/db_state.py` 与 `backend/.env.example` 路径读取失败 | 1 | 未修改文件；改用 `rg --files` 定位仓库实际文件，不重复错误路径。 |
+| Windows 下 `python -m py_compile backend\\app\\platform\\tbox\\*.py` 不展开通配符 | 1 | 路由导入/OpenAPI 已成功；后续使用 `compileall` 或显式文件列表，不重复该命令。 |
+| `python -m unittest discover -s tests -v` 将 tests 当顶层目录，3 个既有相对 import 模块加载失败 | 1 | 其余 175 项通过；改用 package-aware `-s tests -t .` 或显式 `tests.*` 模块，不修改测试导入。 |
+| 最终 SSE 小补丁使用了损坏的 patch 文本且上下文未匹配 | 1 | 工具未修改文件；读取精确代码后确认目标逻辑（exclude_none、流前配置校验和测试）已在当前文件中，不重复该补丁。 |
+
+## 已知既有测试失败
+
+- `app.platform.tests.test_mock_career_flow` 当前 7 项中 2 项失败：旧全链 Mock 预期 `success/0`，现有 Agent fallback 实际为 `partial/-4`。该失败在本任务开始前的历史回归中已记录，本轮正式 chat 路由不调用旧 Mock，因此不扩大范围修改。
+
+## 完成结论
+
+- 正式 `POST /api/tbox/chat` 已挂载主 FastAPI，支持普通 JSON 与规范化 SSE、持久会话映射、总超时、安全错误、HMAC 匿名 userId 和隐私安全调用账本。
+- `backend/tests` package-aware 全量回归 194/194；Chat 定向 6/6，Chat+既有阶段3平台工具 11/11；compileall、迁移/数据 check、OpenAPI 双 content-type、凭据扫描与 diff check 通过。
+- 未修改 Vue、MCP、Agent、Service、评分算法或数据库 Schema；未配置/调用真实百宝箱租户，因此交付状态是“后端协议与传输联调完成，待部署凭据进行线上 smoke test”。
+
+---
+
+# 当前任务：CareerPulse Vue 成长闭环前端（2026-09-06）
+
+## 目标
+
+严格继承现有 CareerPulse 前端的布局、卡片、字体、色彩、间距、图表与交互语言，增量完成学习计划/资源推荐、职场训练、成长档案三项能力；所有页面只显示真实 API 数据或明确的 loading/empty/unavailable/error，不以 Mock 冒充成功。
+
+## 阶段
+
+1. **已完成** — 审查现有真实页面、布局、导航、组件、全局样式、API/Store 与后端 Training HTTP 能力，输出 UI 继承策略。
+2. **已完成** — 改造现有 `GrowthPlan.vue`，加入结构化任务、学习资源、岗位资源并保留报告功能。
+3. **已完成** — 新增 Training 页面与前端 API Adapter，覆盖完整页面状态且不伪造训练结果。
+4. **已完成** — 增量改造 `Profile.vue` 为成长档案，保留真实历史快照与成长曲线。
+5. **已完成** — 更新 Router/Sidebar，补充必要组件与响应式约束。
+6. **已完成** — 运行 typecheck、现有测试、production build、diff check，并进行浏览器视觉一致性检查。
+
+## 约束与决定
+
+- 不改全局主题、Sidebar/Header 结构或现有路由体系，不引入新 UI 框架。
+- 不修改后端、MCP、Match/Path/Training 算法或 Dashboard。
+- 保留工作区既有未提交改动，只对本轮前端相关文件做增量修改。
+- 不创建固定评分、固定进度、假资源、假历史、假成长曲线或自动 Mock fallback。
+- 公共字段保持不变；如发现现有公开契约不足，优先做前端 unavailable/empty，不扩大后端范围。
+
+## 错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 不存在 | 1 | 已使用 Git 状态与现有三份规划文件恢复上下文，不再重试。 |
+| 首次向三份规划文件追加记录时 `findings.md` 上下文不匹配 | 1 | 补丁未落盘；改为按各文件真实尾部逐一追加，不重复组合补丁。 |
+| 使用 `backend/app/**/*.py` 做 PowerShell 路由检索时报 Windows 路径语法错误 | 1 | 同一命令的 `rg backend/app` 已返回完整路由；后续只用目录参数，不再传 shell glob。 |
+| GrowthPlan 首个超大模板补丁未匹配文件上下文 | 1 | 补丁未落盘；已拆成页面头、任务/资源、报告区等小块并成功应用，不重复整段替换。 |
+| GrowthPlan 首轮 typecheck 报联合类型中不存在 `suggestion/status` | 1 | 将 fallback gap 列表显式标注为 `MatchingGap[]` 后重跑，typecheck 通过。 |
+| Profile overview 一次补丁文本包含无效 hunk 标记 | 1 | 补丁被完整拒绝、未落盘；立即使用纯净小补丁重新应用。 |
+| Profile 首轮 typecheck 发现三个 overview computed 重复声明 | 1 | 读取精确区段后删除重复块，保留函数声明后的单一实现；重跑 typecheck 通过。 |
+| 并行执行 typecheck/build 时 Vite 与 vue-tsc 同时写 `components.d.ts`，build 报 `UNKNOWN open` | 1 | 判定为生成声明文件并发锁冲突；typecheck 已结束后单独重跑 build 成功，不修改代码规避。 |
+| node_repl 中导入 `playwright`/`playwright-core` 报包导出错误 | 1 | 未取得浏览器实例；停止重复同一导入，改用本机 Chrome/Edge headless CDP 路径进行视觉检查。 |
+| 首次 Vite 视觉预览命令把 `127.0.0.1` 误解释为项目 root，页面返回 404 | 1 | 停止错误服务，改用 Vite CLI 显式 `--host 127.0.0.1`；CDP 二次渲染成功。 |
+
+## 完成结论
+
+- GrowthPlan 已形成“真实概览 → Gap 学习任务 → `/recommendations` 学习资源 → 岗位资源 empty → 原成长报告”结构，未补假进度或假资源。
+- Training 新页面与 Adapter 已覆盖三种真实类型和完整生命周期；因无专用 HTTP API，当前明确 unavailable，不返回任何假任务或评分。
+- Profile 已升级为成长档案，保留 histories/snapshot 与真实匹配分曲线；学习、训练、反馈记录均为明确 empty/unavailable。
+- Router/Sidebar 保持原壳层和单层结构，新增 `/app/training` 与岗位入口并统一导航名称。
+- 最终 `npm run typecheck`、`npm run build`、`git diff --check` 通过；package.json 无其他前端测试脚本。
+- Headless Chrome 以 1440px 渲染三页并以 760px 复核，三页均无横向溢出，panel 圆角/边框为现有 16px/1px 语言。
+
+---
+
+# 当前任务：CareerPulse Vue 全站响应式适配（2026-09-06）
+
+## 目标
+
+在不改变 CareerPulse 既有视觉、业务结构、数据链路和交互语言的前提下，使全部当前注册路由在 Desktop、Tablet/Small Desktop、Mobile 和 320px 极小屏正常使用；重点消除非预期横向溢出，补全移动导航、弹窗和图表 resize，并以真实浏览器视口验证。
+
+## 阶段
+
+1. **已完成** — 审查全部当前注册路由、主布局、共享组件、图表、弹窗与固定尺寸，建立响应式问题清单。
+2. **已完成** — 完善 Layout 的 PC 保持、Tablet 收窄和 Mobile Drawer 导航。
+3. **已完成** — 适配 Landing、认证页与全部真实业务页的 Grid/Flex/Form/Button/长文本。
+4. **已完成** — 适配 Radar/ECharts/Growth/PathGraph、RichText、Dialog/Drawer 和 AI 职业伙伴。
+5. **已完成** — 运行 typecheck、build、diff check 与已有相关测试，复核不改业务/Mock/API。
+6. **已完成** — 使用真实浏览器按 8 组指定尺寸检查核心路由并修复回归。
+
+## 约束与决定
+
+- 断点优先统一为 `>=1200px` Desktop、`768–1199px` Tablet、`<768px` Mobile、`<=480px` Small Mobile；仅在 320px 确有问题时增加极小屏规则。
+- PC Sidebar/Header/页面结构和现有主题保持不变；移动端仅增加轻量菜单开关与 Element Plus Drawer。
+- 不修改 API、Store 业务逻辑、后端、MCP、Agent、算法、Mock 策略或数据契约。
+- 不用 `body { overflow-x: hidden }` 掩盖问题；逐一修复宽度、min-width、nowrap、图表与弹窗溢出源。
+- 只适配 Router 当前真实挂载页面及其共享组件，不处理未挂载旧原型。
+
+## 错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 在前序任务中已确认不存在 | 1（历史） | 本轮直接读取现有规划文件与 Git 状态恢复上下文，不重复执行缺失脚本。 |
+| 首次浏览器矩阵中 `npm run dev -- --host 127.0.0.1` 的参数被当前 PTY 解析为 Vite root | 1 | 结果全为浏览器错误页，未计入验收；已停止该服务，改用 Vite CLI 显式 `--host 127.0.0.1` 并将审计 URL 固定为回环 IP。 |
+
+## 完成结论
+
+- Desktop 保持 240px Sidebar、74px Header 和原页面视觉；Tablet 收窄内容 padding 并按页面降为双列/单列；Mobile 使用同一导航数据的 Drawer/Hamburger、12px 主内容边距和单列业务内容。
+- Landing、Login/Register 及 7 个核心 app 路由均完成 Grid/Flex/Form/Button/长文本适配；没有复制页面或引入新 UI 框架。
+- Radar、Growth、Analysis ECharts 改为容器级 ResizeObserver；PathGraph 在窄容器使用 X6 zoomToFit；富文本、AI 面板和 Dialog 均有明确的窄屏滚动/换行边界。
+- 8 个指定视口共 62 个主组合通过，375/320 全 10 路由补跑通过；横向溢出、无效页面、Layout 断点失败均为 0。
+- `npm run typecheck`、`npm run build`、`git diff --check` 全部通过；build 仅保留既有的大 chunk 警告，package.json 无额外测试脚本。
+- 本轮未修改 Router、API、Store 业务逻辑、后端、MCP、Agent、算法或 Mock 策略；仅 DataInput 增加 descriptions 响应列数状态，Layout 增加移动菜单状态。
+
+---

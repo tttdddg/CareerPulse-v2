@@ -1,5 +1,5 @@
 ﻿<template>
-  <div class="analysis-board">
+  <div ref="boardEl" class="analysis-board">
     <el-alert
       v-if="errorMessage"
       type="error"
@@ -17,7 +17,8 @@
     <el-card class="panel summary" v-loading="loading">
       <div class="summary-layout">
         <div class="summary-main">
-          <div ref="gaugeEl" class="gauge"></div>
+          <div v-show="analysisStore.hasMatchResult" ref="gaugeEl" class="gauge"></div>
+          <el-empty v-if="!analysisStore.hasMatchResult" description="暂无真实匹配结果" :image-size="72" />
           <p class="target-role">
             <span>当前岗位</span>
             <strong>{{ formatJobName(currentJob?.name || '未选择岗位') }}</strong>
@@ -25,8 +26,8 @@
         </div>
         <aside class="summary-rank">
           <div class="summary-rank-head">
-            <h3>岗位排行榜</h3>
-            <span>Top 3</span>
+            <h3>已分析岗位</h3>
+            <span>真实匹配结果</span>
           </div>
           <el-empty v-if="!topRankedJobs.length" description="暂无岗位排行" :image-size="72" />
           <div v-else class="rank-list">
@@ -40,10 +41,10 @@
               <div class="rank-body">
                 <div class="rank-title-row">
                   <strong>{{ formatJobName(job.name) }}</strong>
-                  <span class="rank-score">{{ Math.round(job.match || 0) }}%</span>
+                  <span class="rank-score">{{ Math.round(job.match) }}%</span>
                 </div>
                 <div class="rank-bar">
-                  <span class="rank-bar-fill" :style="{ width: `${Math.min(Math.max(job.match || 0, 0), 100)}%` }"></span>
+                  <span class="rank-bar-fill" :style="{ width: `${Math.min(Math.max(job.match, 0), 100)}%` }"></span>
                 </div>
               </div>
             </article>
@@ -81,13 +82,19 @@
               <h4>{{ formatJobName(job.name) }}</h4>
               <p class="job-meta">{{ job.company || '企业信息待补充' }} · {{ job.industry || '行业未知' }}</p>
             </div>
-            <span class="job-match">{{ Math.round(job.match || 0) }}%</span>
+            <span v-if="getJobMatchScore(job) !== null" class="job-match">
+              {{ Math.round(getJobMatchScore(job) as number) }}%
+            </span>
+            <span v-else class="job-match is-empty">待分析</span>
           </div>
-          <div class="job-progress">
+          <div v-if="getJobMatchScore(job) !== null" class="job-progress">
             <div class="job-progress-bar">
-              <span class="job-progress-fill" :style="{ width: `${Math.min(Math.max(job.match || 0, 0), 100)}%` }"></span>
+              <span
+                class="job-progress-fill"
+                :style="{ width: `${Math.min(Math.max(getJobMatchScore(job) as number, 0), 100)}%` }"
+              ></span>
             </div>
-            <span class="job-progress-text">当前匹配度</span>
+            <span class="job-progress-text">真实匹配度</span>
           </div>
           <p v-if="job.description" class="job-summary">{{ job.description }}</p>
           <div class="job-portrait-grid">
@@ -165,20 +172,19 @@
           <h3>能力差距详细分析</h3>
           <el-button type="primary" plain size="small" @click="refreshRadar">刷新</el-button>
         </div>
-        <el-empty v-if="!analysisStore.gaps.length" description="暂无差距项" />
+        <el-empty v-if="!gapItems.length" description="暂无差距项" />
         <div v-else class="gap-list">
-          <article v-for="(gap, index) in analysisStore.gaps" :key="gap" class="gap-item">
+          <article v-for="gap in gapItems" :key="gap.name" class="gap-item">
             <div class="gap-icon">
               <el-icon><Warning /></el-icon>
             </div>
             <div class="gap-content">
               <div class="gap-title-row">
-                <h4>{{ gap }}</h4>
-                <el-tag :type="priorityMap[index % priorityMap.length].type" size="small">
-                  {{ priorityMap[index % priorityMap.length].label }}
-                </el-tag>
+                <h4>{{ gap.name }}</h4>
+                <el-tag type="info" size="small">{{ gap.priority || '待评估' }}</el-tag>
               </div>
-              <p>{{ getGapDesc(gap) }}</p>
+              <p v-if="gap.suggestion">{{ gap.suggestion }}</p>
+              <p v-else>后端暂未返回该差距项的提升建议。</p>
               <a href="javascript:void(0)" @click.prevent="goToPlan">查看详情 →</a>
             </div>
           </article>
@@ -198,13 +204,20 @@ import { Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
 import RadarChart from '../../components/business/RadarChart.vue'
-import { fetchJobGraph, fetchJobProfile, matchingAnalyze, type JobItem } from '../../api/modules/career'
+import {
+  fetchJobGraph,
+  fetchJobProfile,
+  matchingAnalyze,
+  type JobItem,
+  type MatchingGap
+} from '../../api/modules/career'
+import { getUserFacingErrorMessage } from '../../api/request'
 
 type JobPortraitCard = {
   uid: string
   jobId: number | null
   name: string
-  match: number
+  match: number | null
   company: string
   industry: string
   salaryRange: string
@@ -216,10 +229,6 @@ type JobPortraitCard = {
   description: string
 }
 
-type JobPortraitPreset = Omit<JobPortraitCard, 'uid' | 'jobId' | 'name' | 'salaryRange' | 'highlights'> & {
-  aliases?: string[]
-}
-
 const router = useRouter()
 const analysisStore = useAnalysisStore()
 const loading = ref(false)
@@ -228,6 +237,7 @@ const complianceLoading = ref(false)
 const errorMessage = ref('')
 const complianceResult = ref('')
 const graphJobProfiles = ref<JobPortraitCard[]>([])
+const boardEl = ref<HTMLDivElement | null>(null)
 
 const gaugeEl = ref<HTMLDivElement | null>(null)
 const wordCloudEl = ref<HTMLDivElement | null>(null)
@@ -235,106 +245,6 @@ let gaugeChart: echarts.ECharts | null = null
 let wordCloudChart: echarts.ECharts | null = null
 let wordCloudMaskImage: HTMLImageElement | null = null
 const jobViewMode = ref<'wordcloud' | 'list'>('wordcloud')
-
-const priorityMap = [
-  { label: '紧急', type: 'danger' as const },
-  { label: '重要', type: 'warning' as const },
-  { label: '一般', type: 'success' as const }
-]
-
-const frontendPortraitPresets: Record<string, JobPortraitPreset> = {
-  高级前端开发工程师: {
-    match: 88,
-    company: '上海云岚数字科技有限公司',
-    industry: '企业数字化',
-    requiredSkills: ['React/Vue工程化', '复杂状态管理', '大规模TypeScript应用'],
-    requiredCerts: ['性能优化'],
-    softSkills: ['跨团队沟通', '任务拆解协同'],
-    abilityDimensions: { innovation: 83, learning: 86, stressTolerance: 78, communication: 80, internship: 82 },
-    description: '负责核心前端模块建设与工程规范推进，支撑复杂业务场景的稳定交付。'
-  },
-  前端技术专家: {
-    match: 84,
-    company: '杭州视界交互科技有限公司',
-    industry: '互联网平台',
-    requiredSkills: ['前端架构治理', '复杂交互性能', '跨平台技术设计'],
-    requiredCerts: [],
-    softSkills: ['技术布道', '快速学习'],
-    abilityDimensions: { innovation: 88, learning: 87, stressTolerance: 76, communication: 79, internship: 80 },
-    description: '聚焦技术难点攻坚与前端架构演进，提升大型项目的可扩展性与体验质量。'
-  },
-  前端架构师: {
-    match: 82,
-    company: '深圳智链软件工程有限公司',
-    industry: '计算机软件',
-    requiredSkills: ['前端平台架构', '设计系统治理', '微前端策略'],
-    requiredCerts: [],
-    softSkills: ['方案评审', '架构协同'],
-    abilityDimensions: { innovation: 90, learning: 84, stressTolerance: 80, communication: 82, internship: 79 },
-    description: '主导前端技术栈规划、基础设施建设与团队最佳实践沉淀。'
-  },
-  前端研发经理: {
-    match: 79,
-    company: '北京灵动体验科技有限公司',
-    industry: '消费互联网',
-    requiredSkills: ['团队领导力', '跨团队协作', '质量治理'],
-    requiredCerts: [],
-    softSkills: ['项目推进', '人员培养'],
-    abilityDimensions: { innovation: 80, learning: 78, stressTolerance: 84, communication: 88, internship: 77 },
-    description: '统筹前端研发团队交付节奏，平衡业务目标、人员成长与工程质量。'
-  },
-  前端体验技术总监: {
-    match: 76,
-    company: '广州星帆产品体验有限公司',
-    industry: '用户体验服务',
-    requiredSkills: ['体验技术战略', '多端体验规划', '组织级工程治理'],
-    requiredCerts: [],
-    softSkills: ['业务洞察', '决策沟通'],
-    abilityDimensions: { innovation: 86, learning: 80, stressTolerance: 82, communication: 90, internship: 75 },
-    description: '负责体验技术方向规划，推动产品体验、设计系统与工程能力协同升级。'
-  },
-  全栈开发工程师: {
-    match: 74,
-    company: '成都新页信息技术有限公司',
-    industry: '企业服务',
-    requiredSkills: ['前端框架', '后端开发', '数据库设计'],
-    requiredCerts: [],
-    softSkills: ['全局思维', '需求理解'],
-    abilityDimensions: { innovation: 79, learning: 85, stressTolerance: 81, communication: 75, internship: 83 },
-    description: '覆盖前后端一体化交付，适合具备页面开发基础并希望扩展服务端能力的人才。'
-  },
-  'UI/UX设计师': {
-    aliases: ['UIUX设计师', 'UI / UX设计师'],
-    match: 70,
-    company: '苏州像素创意设计有限公司',
-    industry: '设计服务',
-    requiredSkills: ['用户研究', '原型设计', '交互设计'],
-    requiredCerts: [],
-    softSkills: ['同理心', '视觉表达'],
-    abilityDimensions: { innovation: 87, learning: 81, stressTolerance: 74, communication: 82, internship: 72 },
-    description: '偏重用户体验洞察与界面设计输出，适合希望向设计协同方向拓展的前端人才。'
-  },
-  技术经理: {
-    match: 68,
-    company: '南京数智协同科技有限公司',
-    industry: '软件研发管理',
-    requiredSkills: ['团队管理', '项目管理', '技术决策'],
-    requiredCerts: [],
-    softSkills: ['目标管理', '风险控制'],
-    abilityDimensions: { innovation: 76, learning: 77, stressTolerance: 86, communication: 89, internship: 74 },
-    description: '面向研发管理与跨团队协调，强调交付、资源统筹与技术决策能力。'
-  },
-  移动端开发工程师: {
-    match: 66,
-    company: '武汉云帆移动科技有限公司',
-    industry: '移动互联网',
-    requiredSkills: ['Android/iOS开发', '跨平台框架', '网络编程'],
-    requiredCerts: [],
-    softSkills: ['问题定位', '持续迭代'],
-    abilityDimensions: { innovation: 78, learning: 82, stressTolerance: 79, communication: 73, internship: 81 },
-    description: '聚焦原生与跨端移动应用开发，适合希望从 Web 端延展到移动端生态的人才。'
-  }
-}
 
 const formatJobName = (name: string): string => {
   const trimmed = name.trim()
@@ -345,57 +255,6 @@ const formatJobName = (name: string): string => {
     return 'JAVA后端'
   }
   return trimmed
-}
-
-const findFrontendPreset = (name: string): JobPortraitPreset | null => {
-  const trimmed = name.trim()
-  if (!trimmed) {
-    return null
-  }
-
-  for (const [presetName, preset] of Object.entries(frontendPortraitPresets)) {
-    const aliases = [presetName, ...(preset.aliases ?? [])]
-    if (aliases.some((alias) => alias.trim().toLowerCase() === trimmed.toLowerCase())) {
-      return preset
-    }
-  }
-
-  return null
-}
-
-const applyFrontendShowcasePreset = (
-  jobs: JobPortraitCard[],
-  targetJobId: number | null,
-  targetJobName: string
-): JobPortraitCard[] => {
-  const isFrontendScene = /前端开发/.test(targetJobName)
-  if (!isFrontendScene) {
-    return jobs
-  }
-
-  return jobs.map((job) => {
-    if (job.jobId === targetJobId) {
-      return job
-    }
-
-    const preset = findFrontendPreset(job.name)
-    if (!preset) {
-      return job
-    }
-
-    return {
-      ...job,
-      match: preset.match,
-      company: preset.company,
-      industry: preset.industry,
-      requiredSkills: preset.requiredSkills,
-      requiredCerts: preset.requiredCerts,
-      softSkills: preset.softSkills,
-      abilityDimensions: preset.abilityDimensions,
-      highlights: preset.softSkills,
-      description: preset.description
-    }
-  })
 }
 
 const normalizeName = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, '')
@@ -542,20 +401,27 @@ const currentJob = computed(() => {
 })
 
 const currentDisplayMatch = computed(() => {
-  if (currentJob.value) {
-    return Math.round(currentJob.value.match || 0)
-  }
-  return Math.round(analysisStore.matchScore || 0)
+  return Math.round(analysisStore.matchScore)
 })
 
-const topRankedJobs = computed(() =>
-  [...jobProfiles.value]
-    .sort((a, b) => (b.match || 0) - (a.match || 0))
-    .slice(0, 3)
+const topRankedJobs = computed<Array<JobPortraitCard & { match: number }>>(() => {
+  if (!analysisStore.hasMatchResult || !currentJob.value) {
+    return []
+  }
+  return [{ ...currentJob.value, match: analysisStore.matchScore }]
+})
+
+const gapItems = computed<MatchingGap[]>(() =>
+  analysisStore.gapDetails.length > 0
+    ? analysisStore.gapDetails
+    : analysisStore.gaps.map((name) => ({ name }))
 )
 
-const getGapDesc = (gap: string): string => {
-  return `当前在「${gap}」维度仍有提升空间，建议通过专项练习与项目实践快速补强。`
+const getJobMatchScore = (job: JobPortraitCard): number | null => {
+  if (!analysisStore.hasMatchResult || job.jobId !== analysisStore.jobId) {
+    return null
+  }
+  return analysisStore.matchScore
 }
 
 const getHardSkillTags = (job: JobPortraitCard): string[] => {
@@ -588,13 +454,15 @@ const goToPlan = async (): Promise<void> => {
 }
 
 const renderGauge = (): void => {
-  if (!gaugeEl.value) {
+  if (!gaugeEl.value || !analysisStore.hasMatchResult) {
     return
   }
 
   if (!gaugeChart) {
     gaugeChart = echarts.init(gaugeEl.value)
   }
+
+  const compact = gaugeEl.value.clientWidth < 480
 
   gaugeChart.setOption({
     title: {
@@ -604,7 +472,7 @@ const renderGauge = (): void => {
       textStyle: {
         color: '#8a92a6',
         fontWeight: 500,
-        fontSize: 16
+        fontSize: compact ? 14 : 16
       }
     },
     series: [
@@ -612,10 +480,10 @@ const renderGauge = (): void => {
         type: 'gauge',
         startAngle: 90,
         endAngle: -270,
-        radius: '80%',
+        radius: compact ? '76%' : '80%',
         progress: {
           show: true,
-          width: 16,
+          width: compact ? 12 : 16,
           roundCap: true,
           itemStyle: {
             color: '#6c63f5'
@@ -623,7 +491,7 @@ const renderGauge = (): void => {
         },
         axisLine: {
           lineStyle: {
-            width: 16,
+            width: compact ? 12 : 16,
             color: [[1, '#e6e9f2']]
           }
         },
@@ -635,7 +503,7 @@ const renderGauge = (): void => {
           valueAnimation: true,
           formatter: '{value}%',
           color: '#5f5ee7',
-          fontSize: 62,
+          fontSize: compact ? 44 : 62,
           fontWeight: 700,
           offsetCenter: [0, '-6%']
         },
@@ -653,6 +521,8 @@ const renderWordCloud = (): void => {
   if (!wordCloudChart) {
     wordCloudChart = echarts.init(wordCloudEl.value)
   }
+
+  const compact = wordCloudEl.value.clientWidth < 480
 
   const hashWord = (text: string): number => {
     let hash = 0
@@ -710,8 +580,8 @@ const renderWordCloud = (): void => {
           left: 'center',
           top: 'center',
           gridSize: 1,
-          sizeRange: [4, 52],
-          rotationRange: [-15, 15],
+          sizeRange: [4, compact ? 32 : 52],
+          rotationRange: compact ? [-10, 10] : [-15, 15],
           rotationStep: 15,
           drawOutOfBound: false,
           shrinkToFit: true,
@@ -760,14 +630,14 @@ const refreshRadar = async (): Promise<void> => {
     })
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
-    analysisStore.setInsights(result.strengths, result.gaps)
+    analysisStore.setInsights(result.strengths, result.gaps, result.gapDetails)
     if (result.reportId) {
       analysisStore.setContext({ reportId: result.reportId })
     }
     ElMessage.success('分析结果已更新')
     renderGauge()
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '刷新失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '刷新匹配结果失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -822,7 +692,7 @@ const fetchJobs = async (force = true): Promise<void> => {
         uid,
         jobId,
         name: node.label || seed?.name || `岗位节点 ${index + 1}`,
-        match: seed?.match ?? (node.type === 'target' ? 100 : 0),
+        match: seed?.match ?? null,
         company: seed?.company ?? '',
         industry: seed?.industry ?? '',
         salaryRange: node.salaryRange || seed?.salaryRange || '',
@@ -873,42 +743,20 @@ const fetchJobs = async (force = true): Promise<void> => {
       })
     )
 
-    const showcasedGraphJobs = applyFrontendShowcasePreset(
-      hydratedGraphJobs,
-      targetJobId,
-      formatJobName(seedById.get(targetJobId)?.name ?? hydratedGraphJobs[0]?.name ?? '')
-    )
+    graphJobProfiles.value = hydratedGraphJobs
 
-    graphJobProfiles.value = showcasedGraphJobs
-
-    const candidateTopJobs: JobItem[] = showcasedGraphJobs
-      .filter((item): item is typeof item & { jobId: number } => item.jobId !== null)
-      .map((item) => {
-        const seeded = seedById.get(item.jobId)
-        return (
-          seeded ?? {
-            id: item.jobId,
-            name: item.name,
-            match: item.match,
-            company: item.company,
-            industry: item.industry,
-            salaryRange: item.salaryRange,
-            requiredSkills: item.requiredSkills,
-            requiredCerts: item.requiredCerts,
-            softSkills: item.softSkills,
-            abilityDimensions: item.abilityDimensions,
-            highlights: item.highlights,
-            description: item.description
-          }
-        )
-      })
-    analysisStore.setCandidateJobs(candidateTopJobs)
+    const candidateTopJobs = hydratedGraphJobs
+      .map((item) => (item.jobId ? seedById.get(item.jobId) : undefined))
+      .filter((item): item is JobItem => item !== undefined)
+    if (candidateTopJobs.length > 0) {
+      analysisStore.setCandidateJobs(candidateTopJobs)
+    }
 
     if (!analysisStore.jobId && candidateTopJobs[0]) {
       analysisStore.setContext({ jobId: candidateTopJobs[0].id })
     }
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '加载岗位画像失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '加载岗位画像失败，请稍后重试')
   } finally {
     jobsLoading.value = false
   }
@@ -943,7 +791,7 @@ const selectTargetJob = async (job: { jobId: number | null; name: string }): Pro
     })
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
-    analysisStore.setInsights(result.strengths, result.gaps)
+    analysisStore.setInsights(result.strengths, result.gaps, result.gapDetails)
     if (result.reportId) {
       analysisStore.setContext({ reportId: result.reportId })
     }
@@ -951,7 +799,7 @@ const selectTargetJob = async (job: { jobId: number | null; name: string }): Pro
     renderGauge()
     ElMessage.success(`已切换目标岗位：${job.name}`)
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '切换岗位失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '切换岗位失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -994,7 +842,7 @@ const checkGraphCompliance = async (): Promise<void> => {
       ElMessage.warning('图谱约束未完全通过，请补充后端图谱数据')
     }
   } catch (error) {
-    complianceResult.value = error instanceof Error ? error.message : '图谱约束校验失败'
+    complianceResult.value = getUserFacingErrorMessage(error, '图谱约束校验失败，请稍后重试')
   } finally {
     complianceLoading.value = false
   }
@@ -1003,7 +851,11 @@ const checkGraphCompliance = async (): Promise<void> => {
 const handleResize = (): void => {
   gaugeChart?.resize()
   wordCloudChart?.resize()
+  renderGauge()
+  renderWordCloud()
 }
+
+let chartResizeObserver: ResizeObserver | null = null
 
 onMounted(async () => {
   await fetchJobs(true)
@@ -1013,11 +865,15 @@ onMounted(async () => {
   renderGauge()
   await nextTick()
   renderWordCloud()
-  window.addEventListener('resize', handleResize)
+  if (boardEl.value) {
+    chartResizeObserver = new ResizeObserver(handleResize)
+    chartResizeObserver.observe(boardEl.value)
+  }
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize)
+  chartResizeObserver?.disconnect()
+  chartResizeObserver = null
   gaugeChart?.dispose()
   wordCloudChart?.dispose()
   gaugeChart = null
@@ -1411,7 +1267,7 @@ watch(
   margin-top: auto;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 1199px) {
   .summary-layout {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1422,6 +1278,58 @@ watch(
     padding-left: 0;
     padding-top: 20px;
   }
+}
+
+@media (max-width: 767px) {
+  .analysis-board {
+    gap: 16px;
+  }
+
+  .page-head h2 {
+    font-size: 24px;
+  }
+
+  .summary {
+    min-height: 0;
+  }
+
+  .gauge {
+    height: 280px;
+  }
+
+  .summary-rank-head,
+  .panel-head,
+  .rank-title-row,
+  .job-head,
+  .gap-title-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .head-actions :deep(.el-button) {
+    flex: 1 1 132px;
+    margin-left: 0;
+  }
+
+  .target-role {
+    max-width: 100%;
+    align-items: flex-start;
+    border-radius: 14px;
+    overflow-wrap: anywhere;
+  }
+
+  .job-wordcloud {
+    height: 380px;
+  }
+
+  .job-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 
   .job-portrait-grid {
     grid-template-columns: minmax(0, 1fr);
@@ -1430,6 +1338,20 @@ watch(
   .job-match {
     font-size: 18px;
     min-width: 52px;
+  }
+
+  .job-actions {
+    flex-wrap: wrap;
+  }
+
+  .job-actions :deep(.el-button) {
+    flex: 1 1 120px;
+    margin-left: 0;
+  }
+
+  .gap-item {
+    flex-direction: column;
+    padding: 14px;
   }
 }
 
@@ -1530,7 +1452,7 @@ watch(
   margin-bottom: 4px;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1199px) {
   .detail-grid {
     grid-template-columns: 1fr;
   }

@@ -40,7 +40,20 @@
         <h3>岗位列表</h3>
       </div>
 
-      <el-empty v-if="!jobs.length" description="暂无岗位数据，请先查询或浏览热门岗位" />
+      <el-alert
+        v-if="!loading && errorMessage"
+        type="error"
+        :title="errorMessage"
+        :closable="false"
+        show-icon
+        class="result-state"
+      >
+        <el-button type="primary" link @click="retryLastRequest">重试</el-button>
+      </el-alert>
+
+      <el-empty v-else-if="!loading && !jobs.length" description="未查询到真实岗位数据">
+        <el-button type="primary" plain @click="retryLastRequest">重新查询</el-button>
+      </el-empty>
 
       <div v-else class="job-grid">
         <article v-for="job in jobs" :key="job.id" class="job-card">
@@ -49,7 +62,7 @@
               <h4>{{ job.name }}</h4>
               <p>{{ job.company || '企业信息待补全' }} · {{ job.industry || '行业未知' }}</p>
             </div>
-            <el-tag>{{ Math.round(job.match) }}%</el-tag>
+            <el-tag>相关度 {{ Math.round(job.match) }}%</el-tag>
           </div>
 
           <el-progress :percentage="Math.round(job.match)" :stroke-width="10" />
@@ -72,42 +85,9 @@
       </div>
     </el-card>
 
-    <ai-assistant-drawer v-model="assistantOpen" title="AI 助手小吾" subtitle="告诉我你的疑问">
-      <div class="assistant-content">
-        <section class="assistant-messages">
-          <p class="assistant-tip">你可以直接问：</p>
-          <div class="qa-tags">
-            <el-tag v-for="q in quickQuestions" :key="q" class="qa-tag" effect="plain" @click="askPreset(q)">
-              {{ q }}
-            </el-tag>
-          </div>
-
-          <div class="msg-row is-ai">
-            <div class="msg-bubble">你好！我是 AI 助手小吾，可以帮你分析岗位方向和投递建议。</div>
-          </div>
-
-          <div v-if="lastQuestion" class="msg-row is-user">
-            <div class="msg-bubble">{{ lastQuestion }}</div>
-          </div>
-
-          <div v-if="assistantAnswer" class="msg-row is-ai">
-            <div class="msg-bubble">{{ assistantAnswer }}</div>
-          </div>
-        </section>
-
-        <footer class="assistant-input-bar">
-          <el-input
-            v-model="assistantInput"
-            type="textarea"
-            :rows="2"
-            resize="none"
-            placeholder="请在此处输入你的问题"
-            @keyup.enter.exact.prevent="submitAssistantQuestion"
-          />
-          <div class="assistant-actions">
-            <el-button type="primary" :disabled="!assistantInput.trim()" @click="submitAssistantQuestion">发送</el-button>
-          </div>
-        </footer>
+    <ai-assistant-drawer v-model="assistantOpen" title="AI 职业伙伴" subtitle="百宝箱 Agent 接入准备中">
+      <div class="assistant-content assistant-unavailable">
+        <el-empty description="真实 AI 职业伙伴将在下一阶段接入百宝箱 Agent 后开放" />
       </div>
     </ai-assistant-drawer>
   </div>
@@ -122,6 +102,7 @@ import { fetchJobs, type JobItem } from '../../api/modules/career'
 import { useAnalysisStore } from '../../stores/analysis'
 import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 import AiAssistantDrawer from '../../components/business/AiAssistantDrawer.vue'
+import { getUserFacingErrorMessage } from '../../api/request'
 
 const router = useRouter()
 const route = useRoute()
@@ -130,64 +111,12 @@ const analysisStore = useAnalysisStore()
 const loading = ref(false)
 const keyword = ref('')
 const jobs = ref<JobItem[]>([])
+const errorMessage = ref('')
+const lastRequestMode = ref<'search' | 'explore'>('explore')
 
 const assistantOpen = ref(false)
-const assistantInput = ref('')
-const lastQuestion = ref('')
-const assistantAnswer = ref('')
-
-const quickQuestions = [
-  '我没方向，先从哪些岗位开始看？',
-  '前端和测试哪个更适合应届生？',
-  '产品经理岗位一般看重哪些能力？'
-]
 
 const quickDirections = ['前端开发', '后端开发', '测试工程师', '产品经理', '数据分析', '运维工程师']
-
-const fallbackJobs: JobItem[] = [
-  {
-    id: 91001,
-    name: '后端开发工程师',
-    match: 83,
-    company: '演示企业 A',
-    industry: '互联网',
-    salaryRange: '14k-24k',
-    requiredSkills: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
-    requiredCerts: [],
-    softSkills: ['沟通协作'],
-    abilityDimensions: { innovation: 76, learning: 80, stressTolerance: 74, communication: 72, internship: 70 },
-    highlights: ['服务治理'],
-    description: '负责核心服务开发与稳定性优化'
-  },
-  {
-    id: 91002,
-    name: '数据分析师',
-    match: 79,
-    company: '演示企业 B',
-    industry: '零售电商',
-    salaryRange: '11k-20k',
-    requiredSkills: ['SQL', 'Python', '可视化报表'],
-    requiredCerts: [],
-    softSkills: ['业务理解'],
-    abilityDimensions: { innovation: 74, learning: 81, stressTolerance: 69, communication: 75, internship: 72 },
-    highlights: ['数据洞察'],
-    description: '负责业务数据分析与策略建议输出'
-  },
-  {
-    id: 91003,
-    name: '测试开发工程师',
-    match: 77,
-    company: '演示企业 C',
-    industry: '企业服务',
-    salaryRange: '10k-18k',
-    requiredSkills: ['自动化测试', '接口测试', 'CI/CD'],
-    requiredCerts: [],
-    softSkills: ['质量意识'],
-    abilityDimensions: { innovation: 70, learning: 76, stressTolerance: 82, communication: 70, internship: 73 },
-    highlights: ['测试体系'],
-    description: '负责自动化测试体系建设与质量保障'
-  }
-]
 
 const mergeUniqueById = (input: JobItem[]): JobItem[] => {
   const map = new Map<number, JobItem>()
@@ -208,16 +137,15 @@ const searchByKeyword = async (): Promise<void> => {
 
   try {
     loading.value = true
+    errorMessage.value = ''
+    lastRequestMode.value = 'search'
     const result = await pickDiverseTopJobs(nextKeyword, fetchJobs, 24)
-    jobs.value = result.length ? result : fallbackJobs
+    jobs.value = result
     analysisStore.setTargetKeyword(nextKeyword)
     analysisStore.setCandidateJobs(jobs.value.slice(0, 12))
-    if (!result.length) {
-      ElMessage.warning('查询结果为空，已展示演示岗位')
-    }
-  } catch {
-    jobs.value = fallbackJobs
-    ElMessage.warning('查询失败，已展示演示岗位')
+  } catch (error) {
+    jobs.value = []
+    errorMessage.value = getUserFacingErrorMessage(error, '岗位查询失败，请稍后重试')
   } finally {
     loading.value = false
   }
@@ -226,20 +154,27 @@ const searchByKeyword = async (): Promise<void> => {
 const exploreWithoutDirection = async (): Promise<void> => {
   try {
     loading.value = true
+    errorMessage.value = ''
+    lastRequestMode.value = 'explore'
     const tasks = quickDirections.map((direction) => pickDiverseTopJobs(direction, fetchJobs, 8))
     const groups = await Promise.all(tasks)
     const merged = mergeUniqueById(groups.flat())
-    jobs.value = merged.length ? merged.slice(0, 30) : fallbackJobs
+    jobs.value = merged.slice(0, 30)
     keyword.value = ''
-    if (!merged.length) {
-      ElMessage.warning('暂无热门岗位数据，已展示演示岗位')
-    }
-  } catch {
-    jobs.value = fallbackJobs
-    ElMessage.warning('浏览失败，已展示演示岗位')
+  } catch (error) {
+    jobs.value = []
+    errorMessage.value = getUserFacingErrorMessage(error, '岗位数据加载失败，请稍后重试')
   } finally {
     loading.value = false
   }
+}
+
+const retryLastRequest = async (): Promise<void> => {
+  if (lastRequestMode.value === 'search' && keyword.value.trim()) {
+    await searchByKeyword()
+    return
+  }
+  await exploreWithoutDirection()
 }
 
 const applyDirection = async (direction: string): Promise<void> => {
@@ -251,34 +186,6 @@ const pickDirection = (job: JobItem): void => {
   keyword.value = job.name
   analysisStore.setTargetKeyword(job.name)
   ElMessage.success(`已选择方向：${job.name}`)
-}
-
-const askPreset = (question: string): void => {
-  assistantInput.value = question
-}
-
-const submitAssistantQuestion = (): void => {
-  const question = assistantInput.value.trim()
-  if (!question) {
-    return
-  }
-
-  const answerByRule = (): string => {
-    if (/没方向|不知道做什么|先看/.test(question)) {
-      return '建议先从“前端开发、测试工程师、产品经理”三类岗位入手：这三类岗位需求稳定、学习资源丰富，便于你快速建立比较基准。'
-    }
-    if (/前端|测试/.test(question)) {
-      return '如果你更喜欢做界面与交互、能持续打磨体验，优先前端；如果你更偏向质量保障、流程规范和自动化思维，优先测试。你也可以先在岗位库对比两类岗位要求。'
-    }
-    if (/产品/.test(question)) {
-      return '产品经理常见关注点：需求分析、业务理解、沟通协同、数据分析与方案落地。建议你在岗位列表里重点看“岗位要求”标签并逐项补齐。'
-    }
-    return '可以先在岗位库用 2-3 个关键词查询，再按匹配度前 5 的岗位对比岗位要求，最后回到数据输入中心开始分析。'
-  }
-
-  lastQuestion.value = question
-  assistantAnswer.value = answerByRule()
-  assistantInput.value = ''
 }
 
 const goInputWithTarget = async (job: JobItem): Promise<void> => {
@@ -421,81 +328,17 @@ onMounted(async () => {
 
 .assistant-content {
   height: 100%;
-  display: flex;
-  flex-direction: column;
   background: #f6f8fc;
 }
 
-.assistant-messages {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px;
+.assistant-unavailable {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
 }
 
-.assistant-tip {
-  margin: 0;
-  color: #4b5672;
-  font-size: 13px;
-}
-
-.qa-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.qa-tag {
-  cursor: pointer;
-}
-
-.msg-row {
-  display: flex;
-}
-
-.msg-row.is-user {
-  justify-content: flex-end;
-}
-
-.msg-bubble {
-  max-width: 88%;
-  padding: 10px 12px;
-  border-radius: 12px;
-  line-height: 1.6;
-  font-size: 14px;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.msg-row.is-ai .msg-bubble {
-  color: #26324d;
-  background: #fff;
-  border: 1px solid #e4e9f3;
-}
-
-.msg-row.is-user .msg-bubble {
-  color: #fff;
-  background: #3b6ef5;
-}
-
-.assistant-input-bar {
-  border-top: 1px solid #dbe4f1;
-  background: #f8fbff;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.assistant-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-@media (max-width: 980px) {
+@media (max-width: 1199px) {
   .query-row {
     grid-template-columns: 1fr;
   }
@@ -503,6 +346,50 @@ onMounted(async () => {
   .panel-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 767px) {
+  .page-head h2 {
+    font-size: 24px;
+  }
+
+  .query-row :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .quick-tags {
+    align-items: flex-start;
+  }
+
+  .job-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .job-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .job-head > div {
+    min-width: 0;
+  }
+
+  .job-head h4,
+  .job-head p,
+  .desc,
+  .meta {
+    overflow-wrap: anywhere;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+
+  .actions :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
   }
 }
 </style>

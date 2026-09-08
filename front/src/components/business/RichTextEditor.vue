@@ -132,4 +132,57 @@ onBeforeUnmount(() => {
   min-height: 260px;
   padding: 0 20px;
 }
+
+.editor-shell :deep(.w-e-toolbar) {
+  flex-wrap: wrap;
+}
+
+.editor-shell :deep(.w-e-text-container img) {
+  max-width: 100%;
+  height: auto;
+}
+
+.editor-shell :deep(.w-e-text-container table),
+.editor-shell :deep(.w-e-text-container pre) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.editor-shell :deep(.w-e-text-container a),
+.editor-shell :deep(.w-e-text-container p) {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .editor-actions {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
+  .action-right {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .action-right :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .editor-body {
+    min-height: 240px;
+    padding: 0 12px;
+  }
+}
+
+@media (max-width: 320px) {
+  .action-right {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

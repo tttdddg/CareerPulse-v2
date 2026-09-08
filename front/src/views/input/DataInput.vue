@@ -23,6 +23,22 @@
         @error="handleUploadError"
       />
 
+      <el-descriptions
+        v-if="parsedProfile"
+        class="parsed-profile"
+        title="简历解析回填结果"
+        :column="descriptionColumns"
+        border
+      >
+        <el-descriptions-item label="姓名">{{ parsedProfile.name || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="学历">{{ parsedProfile.education || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="专业">{{ parsedProfile.major || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="目标岗位">{{ parsedProfile.targetJob || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="项目经历">{{ parsedProfile.projects || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="实习经历">{{ parsedProfile.internships || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="工作经历">{{ parsedProfile.workExperience || '后端未返回' }}</el-descriptions-item>
+      </el-descriptions>
+
       <div class="field-grid">
         <section class="field-block">
           <h3><span class="field-mark"></span>专业技能</h3>
@@ -97,28 +113,34 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
-import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
-import { fetchJobs, matchingAnalyze, uploadStudentProfile, uploadStudentResume } from '../../api/modules/career'
-import { saveAnalysisReport } from '../../api/modules/history'
+import {
+  fetchJobs,
+  matchingAnalyze,
+  uploadStudentProfile,
+  uploadStudentResume,
+  type StudentUploadProfileResult
+} from '../../api/modules/career'
+import { getUserFacingErrorMessage } from '../../api/request'
 import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 
 const router = useRouter()
 const route = useRoute()
 const analysisStore = useAnalysisStore()
-const historyStore = useHistoryStore()
 const userStore = useUserStore()
 
 const loading = ref(false)
 const analysisLoading = ref(false)
 const errorMessage = ref('')
 const uploadedStudentId = ref<number | null>(null)
+const parsedProfile = ref<StudentUploadProfileResult | null>(null)
+const descriptionColumns = ref(2)
 
 const form = reactive({
   role: '',
@@ -159,17 +181,20 @@ const handleResumeUpload = async (payload: {
   try {
     loading.value = true
     const parsed = await uploadStudentResume(payload.formData)
+    parsedProfile.value = parsed
     uploadedStudentId.value = parsed.studentId
     form.role = parsed.name || form.role
     form.skills = parsed.skills || form.skills
     form.certificates = parsed.certificates || form.certificates
-    form.experience = parsed.internships || form.experience
+    const experienceParts = [parsed.internships, parsed.workExperience, parsed.projects].filter(Boolean)
+    form.experience = experienceParts.join('\n\n') || form.experience
+    form.targetRole = parsed.targetJob || form.targetRole
     form.selfEvaluation = parsed.selfEvaluation || form.selfEvaluation
     payload.onSuccess?.(parsed)
     ElMessage.success('简历解析完成')
   } catch (error) {
     const uploadError = error instanceof Error ? error : new Error('简历解析失败')
-    errorMessage.value = uploadError.message
+    errorMessage.value = getUserFacingErrorMessage(error, '简历解析失败，请稍后重试')
     payload.onError?.(uploadError)
   } finally {
     loading.value = false
@@ -227,72 +252,20 @@ const handleStartAnalysis = async (): Promise<void> => {
       userId: userStore.profile?.id ?? 'default'
     })
 
-    const title = `${topJob.name || form.targetRole} 匹配报告`
-    const reportId = analyzeResult.reportId ? String(analyzeResult.reportId) : `report-${Date.now()}`
-
-    const result = {
-      ...analyzeResult,
-      reportId,
-      title,
-      tags: [topJob.name || form.targetRole, form.industry || '行业未知']
-    }
-
-    analysisStore.setMatchScore(result.matchScore)
-    analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
-    analysisStore.setInsights(result.strengths, result.gaps)
+    analysisStore.setMatchScore(analyzeResult.matchScore)
+    analysisStore.setRadarData(analyzeResult.radarIndicators, analyzeResult.radarSeries)
+    analysisStore.setInsights(analyzeResult.strengths, analyzeResult.gaps, analyzeResult.gapDetails)
     analysisStore.setContext({
       studentId,
       jobId: topJob.id,
       reportId: analyzeResult.reportId
     })
 
-    // 保存报告到后端数据库
-    try {
-      const savedReport = await saveAnalysisReport({
-        userId: userStore.profile?.id ?? 'default',
-        title: result.title,
-        score: result.matchScore,
-        tags: result.tags,
-        matchScore: result.matchScore,
-        radarIndicators: result.radarIndicators,
-        radarSeries: result.radarSeries,
-        strengths: result.strengths,
-        gaps: result.gaps,
-        studentId,
-        jobId: topJob.id
-      })
-      
-      const finalReportId = savedReport.reportId ? String(savedReport.reportId) : result.reportId
-
-      if (savedReport.reportId) {
-        analysisStore.setContext({ reportId: savedReport.reportId })
-        historyStore.setLastViewedReport(String(savedReport.reportId))
-      }
-      
-      historyStore.addReport({
-        id: finalReportId,
-        title: result.title,
-        createdAt: new Date().toISOString().slice(0, 10),
-        score: result.matchScore,
-        tags: result.tags
-      })
-      
-      ElMessage.success('分析完成并保存')
-    } catch (saveError) {
-      console.error('保存报告失败:', saveError)
-      // 如果保存失败，仍然添加到历史记录（本地）
-      historyStore.addReport({
-        id: result.reportId,
-        title: result.title,
-        createdAt: new Date().toISOString().slice(0, 10),
-        score: result.matchScore,
-        tags: result.tags
-      })
-    }
+    ElMessage.success('分析完成')
 
     await router.push('/app/analysis')
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '启动分析失败'
+    errorMessage.value = getUserFacingErrorMessage(error, '启动分析失败，请稍后重试')
   } finally {
     analysisLoading.value = false
   }
@@ -302,11 +275,21 @@ const handleExploreJobs = async (): Promise<void> => {
   await router.push('/app/jobs?mode=explore')
 }
 
+const syncResponsiveState = (): void => {
+  descriptionColumns.value = window.innerWidth < 768 ? 1 : 2
+}
+
 onMounted(() => {
+  syncResponsiveState()
+  window.addEventListener('resize', syncResponsiveState)
   const targetFromQuery = typeof route.query.target === 'string' ? route.query.target.trim() : ''
   if (targetFromQuery) {
     form.targetRole = targetFromQuery
   }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', syncResponsiveState)
 })
 </script>
 
@@ -467,19 +450,59 @@ onMounted(() => {
   margin-bottom: 4px;
 }
 
-@media (max-width: 1200px) {
+@media (max-width: 1199px) {
   .field-grid {
     grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 900px) {
-  .action-row {
-    grid-template-columns: 1fr;
+@media (max-width: 767px) {
+  .data-input-page {
+    gap: 14px;
   }
 
-  .start-button {
+  .page-head h1 {
+    font-size: 24px;
+  }
+
+  :deep(.resume-zone .el-upload-dragger) {
+    min-height: 148px;
+    padding: 18px 12px;
+  }
+
+  :deep(.resume-zone .upload-icon) {
+    font-size: 44px;
+  }
+
+  :deep(.resume-zone .upload-text) {
+    max-width: 100%;
+    text-align: center;
+  }
+
+  :deep(.resume-zone .upload-text p) {
+    font-size: 16px;
+  }
+
+  :deep(.resume-zone .upload-text span) {
+    overflow-wrap: anywhere;
+    font-size: 13px;
+  }
+
+  .field-grid {
+    gap: 16px;
+  }
+
+  .action-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .start-button,
+  .explore-button {
     width: 100%;
+    height: 50px;
+    margin-left: 0;
+    font-size: 16px;
   }
 }
 </style>

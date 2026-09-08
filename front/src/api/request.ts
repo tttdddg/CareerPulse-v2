@@ -28,6 +28,27 @@ export class ApiError extends Error {
   }
 }
 
+export const getUserFacingErrorMessage = (error: unknown, fallback: string): string => {
+  if (!(error instanceof ApiError)) {
+    return fallback
+  }
+
+  if (error.status === 400 || error.status === 422) {
+    return '提交的数据无法处理，请检查填写内容后重试'
+  }
+  if (error.status === 401 || error.status === 403) {
+    return '当前会话无权执行此操作，请重新登录后重试'
+  }
+  if (error.status === 404) {
+    return '未找到对应数据，请刷新或重新完成前置步骤'
+  }
+  if (error.status && error.status >= 500) {
+    return '服务暂时不可用，请稍后重试'
+  }
+
+  return fallback
+}
+
 const API_BASE_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_BASE_URL ?? '/api')
 
 const resolveToken = (): string | null => {

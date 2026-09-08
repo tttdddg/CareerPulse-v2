@@ -118,6 +118,7 @@ const closePanel = (): void => {
 }
 
 .header-title {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -136,11 +137,33 @@ const closePanel = (): void => {
   font-size: 12px;
 }
 
+.header-title div,
+.header-title h3,
+.header-title p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .panel-body {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
   padding: 0;
+  overflow-wrap: anywhere;
+}
+
+.panel-body :deep(img),
+.panel-body :deep(video),
+.panel-body :deep(canvas) {
+  max-width: 100%;
+  height: auto;
+}
+
+.panel-body :deep(pre),
+.panel-body :deep(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .assistant-slide-enter-active,
@@ -154,15 +177,27 @@ const closePanel = (): void => {
   transform: translateY(70px) scale(0.82);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 767px) {
   .assistant-shell {
     bottom: 12vh;
   }
 
   .chat-panel {
-    bottom: 24px;
-    right: 10px;
-    height: 72vh;
+    right: 12px;
+    bottom: 12px;
+    width: calc(100vw - 24px);
+    height: min(78vh, calc(100dvh - 24px));
+    max-height: 720px;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    padding: 12px;
+  }
+
+  .panel-header :deep(.el-button) {
+    flex: none;
+    margin-left: 0;
   }
 }
 </style>
