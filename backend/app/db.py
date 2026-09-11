@@ -14,16 +14,18 @@ from typing import Any
 
 import psycopg2
 
-from .config import POSTGRES_CONFIG
+from .config import get_postgres_config
 
 
 def get_db_conn():
+    config = get_postgres_config()
     return psycopg2.connect(
-        host=POSTGRES_CONFIG["host"],
-        port=POSTGRES_CONFIG["port"],
-        database=POSTGRES_CONFIG["database"],
-        user=POSTGRES_CONFIG["user"],
-        password=POSTGRES_CONFIG["password"],
+        host=config["host"],
+        port=config["port"],
+        database=config["database"],
+        user=config["user"],
+        password=config["password"],
+        connect_timeout=config["connect_timeout"],
     )
 
 

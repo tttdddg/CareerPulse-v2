@@ -99,6 +99,28 @@
 
 ---
 
+# 2026-09-11 阿里云 ECS 第一阶段部署准备发现
+
+- 前序只读审计确认生产入口为 `backend/` 下的 `app.main:app`，MCP 以 Streamable HTTP 挂载在同一 FastAPI 应用的 `/mcp`。
+- 当前本机验证基线为 Python 3.11.15；生产依赖需按 Linux/Python 3.11 直接依赖整理，不能采用 Windows 全量 freeze。
+- 旧 REST 数据库仍从 `app/config.py` 读取固定 PostgreSQL 参数；本轮只把连接参数迁移到环境变量并保留开发默认值，不创建旧表。
+- `report_service.py` 运行时导入 `reportlab`，而现有 `requirements.txt` 未声明；生产依赖必须补齐。
+- 当前仓库没有 `deploy/` 资产，也没有 `/healthz`；本轮新增最小部署边界，不改业务路由契约。
+- `profile_agent/job_agent` Prompt 文件和旧业务基础表迁移仍缺失，本轮明确不虚构。
+- `reportlab` 当前 PyPI 稳定发布 5.0.1 提供通用 Python wheel 且支持 Python 3.11，可作为生产直接依赖固定版本。
+- 已安装 `mcp==2.0.0` 暴露的最新协议版本为 `2026-07-28`；smoke test 可使用该版本发送最小 initialize 请求。
+- 现有测试没有 `/healthz` 或旧 PostgreSQL 环境配置测试；本轮将新增独立部署就绪测试，不修改既有业务测试断言。
+- 配置实现保留 `POSTGRES_CONFIG` 历史符号以降低兼容风险，但 `db.get_db_conn()` 每次连接都会重新读取环境，并新增可配置的 1–60 秒连接超时。
+- `/healthz` 已明确排除 OpenAPI，固定只返回 `{"status":"ok"}`；不会触发数据库、LLM、TBox 或 MCP 工具调用。
+- 新增部署边界测试 5 项全部通过，`git diff --check` 仅报告仓库既有 Windows 行尾转换提示，无空白错误。
+- 部署目录五类资产已齐全；扩展后的部署边界测试 8/8 通过，覆盖 Nginx 关键指令、systemd loopback/single-worker 和环境模板空密钥。
+- 当前 Windows 执行环境没有 `bash`，因此无法在本机直接运行 `bash -n`；脚本仍需在 Ubuntu 目标机执行语法检查和真实 smoke。
+- WSL 可执行文件存在但没有已安装发行版；即使授权也无法提供 Bash/Nginx/systemd 校验环境。smoke 脚本已确认 LF、正确 shebang、无 NUL，并由静态测试覆盖关键内容。
+- smoke 使用的原始 MCP initialize 载荷已通过真实 ASGI lifespan 测试：无 Bearer 为 401，有 Bearer 为 200 且包含 result。
+- 最终全量测试为 203 passed + 109 subtests；相较前序 194 项，新增 9 项全部纳入 discovery。
+- 最终扫描未发现原硬编码 PostgreSQL 密码、猜测旧表 DDL、Prompt/前端变更或部署模板中的非空真实密钥。
+
+
 # MCP 百宝箱入参兼容修复发现（2026-08-27）
 
 ## 初始边界

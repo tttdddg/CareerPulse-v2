@@ -44,6 +44,47 @@
 
 ---
 
+# 当前任务：阿里云 ECS 第一阶段部署准备（2026-09-11）
+
+## 目标
+
+在不改变现有 Service/Agent 业务逻辑、公共 Schema、前端和旧表结构的前提下，以 Python 3.11 为基线补齐 FastAPI + MCP 的 Ubuntu 22.04 部署资产、配置化旧 PostgreSQL 连接、最小健康检查和生产依赖清单，并完成全量回归。
+
+## 阶段
+
+1. **已完成** — 复核工作树、现有配置、依赖、路由与相关测试，冻结最小修改边界。
+2. **已完成** — 配置化旧 PostgreSQL、补 `/healthz`、整理 Python 3.11/Linux 生产依赖。
+3. **已完成** — 新增 systemd、Nginx、环境模板、部署说明和 smoke test。
+4. **已完成** — 新增/调整非业务测试，执行定向与完整测试、静态检查和部署文件校验。
+5. **已完成** — 汇总修改文件、首次部署命令和仍未解决阻塞项。
+
+## 约束与决定
+
+- 不修改 Service/Agent 业务实现，不创建或猜测旧业务基础表，不补造缺失 Prompt，不修改前端。
+- 不执行服务器部署，不写入真实密码、Token、数据库 URL 或个人信息。
+- `/healthz` 仅返回固定最小状态，不探测或暴露数据库/外部服务配置。
+- `requirements-prod.txt` 按直接运行依赖整理并固定 Python 包版本，不从 Windows 环境完整 freeze。
+- 先保持单 Uvicorn worker，由 Nginx 只代理到 `127.0.0.1:8000`。
+
+## 错误记录
+
+| 错误 | 尝试 | 处理 |
+|---|---:|---|
+| `planning-with-files/scripts/session-catchup.py` 不存在 | 1 | 技能目录仅包含 `SKILL.md`；已读取 Git 状态及三份现有规划文件恢复上下文，不再重试。 |
+| 首次探测 MCP 协议版本时导入不存在的 `mcp.shared.version` | 1 | 改从已安装 `mcp.types.LATEST_PROTOCOL_VERSION` 读取，确认固定 SDK 2.0.0 对应 `2026-07-28`，不重复错误导入。 |
+| 首次组合补丁同时 Delete/Add `config.py` 被补丁工具拒绝 | 1 | 补丁未落盘；改为 Update File 替换原内容并拆分新增文件，不重复同一路径双操作。 |
+| Windows 主机没有 `bash`，无法直接执行 `bash -n` | 1 | 不重复调用；改查找 WSL/sh 或使用静态内容校验，最终 Ubuntu 首次部署仍要求执行 `bash -n`。 |
+| PowerShell 将 `backend/requirements*.txt` 原样传给 `rg` 导致路径语法错误 | 1 | 该段未完成；后续改用 `rg --glob 'requirements*.txt' backend`，不再使用 shell glob 路径。 |
+| WSL 首次受沙箱拒绝，授权后又确认未安装 Linux 发行版 | 2 | 无可用 Linux 用户空间，停止本机 Bash/Nginx/systemd 原生语法尝试；保留静态测试并把目标机原生校验列为首次部署必做。 |
+
+## 完成结论
+
+- Python 3.11/Linux 生产依赖、旧 PostgreSQL 环境化、最小 `/healthz` 和完整 `deploy/` 资产已完成。
+- 部署测试 9/9；最终后端全量回归 203 passed + 109 subtests，数据/迁移静态检查、compileall、pip check、敏感信息与 diff check 通过。
+- 未修改 Service/Agent 业务逻辑、公共 Schema、旧表迁移、Prompt 或前端；未执行服务器部署或真实外部调用。
+- Ubuntu 原生 `bash -n`、`nginx -t`、systemd 启动和公网 MCP smoke 必须在首次 ECS 部署时执行，当前 Windows 主机无 Linux 发行版，不能声称已验证。
+
+
 # CareerPulse MCP 百宝箱入参兼容修复（2026-08-27）
 
 ## 当前目标

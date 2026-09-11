@@ -210,6 +210,12 @@ def create_app(
         expose_headers=["Content-Disposition", "Mcp-Session-Id"],
     )
 
+    @application.get("/healthz", include_in_schema=False)
+    async def healthz() -> dict[str, str]:
+        """Return minimal process health without probing configuration."""
+
+        return {"status": "ok"}
+
     @application.middleware("http")
     async def preflight_fallback(request: Request, call_next):
         if request.method == "OPTIONS":

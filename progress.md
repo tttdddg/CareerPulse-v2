@@ -34,6 +34,25 @@
 
 ---
 
+# 2026-09-11 阿里云 ECS 第一阶段部署准备执行日志
+
+- 已读取 `planning-with-files` 技能；因安装目录缺少其 session catchup 脚本，改用 Git 状态与现有规划文件恢复上下文并记录错误。
+- 已建立五阶段计划；正在按用户要求在修改前复核配置、依赖、路由和测试边界。
+- 修改前复核完成：目标业务文件无既有 diff，现有测试未覆盖 health/config，生产依赖仅 MCP/httpx 固定版本，部署目录不存在。
+- 已确认 ReportLab 5.0.1 的 Python 3.11 wheel 和 MCP 2.0.0 的协议版本；进入配置、健康检查与依赖文件实现。
+- 已完成旧 PostgreSQL 环境化、5 秒连接超时、最小 `/healthz`、基础 requirements 补 ReportLab 和 Python 3.11 `requirements-prod.txt`。
+- 新增 `test_deployment_readiness.py` 覆盖 health 响应/不进入 OpenAPI、PostgreSQL 环境读取/空密码默认/非法端口和生产依赖约束；定向 5/5 通过。
+- 阶段2完成，开始新增 systemd、Nginx、生产环境模板、部署说明和 MCP/TBox smoke test。
+- 已新增完整 `deploy/`：systemd、Nginx、环境模板、部署 README 与 smoke test；未加入旧表 SQL、Prompt 或前端文件。
+- 部署边界测试扩展为 8 项并全部通过；Uvicorn 本机帮助确认 unit 中 single-worker、proxy header 和 no-server-header 参数有效。
+- Windows 主机缺少 Bash，`bash -n` 未执行；一次 PowerShell 路径 glob 也被拒绝，均已记录并切换验证方式。
+- WSL 授权后确认未安装 Linux 发行版，因此不再尝试伪造 Linux 原生验证；最终报告将明确区分本机静态验证与 ECS 首次部署验证。
+- 新增 raw MCP initialize 部署测试，验证 smoke 请求与当前 MCP 2.0.0 服务真实兼容；部署定向测试最终 9/9 通过。
+- 所有修改完成后重新执行后端全量回归：203 passed、109 subtests passed（39.93s）。
+- `init_a02_data.py --check`、`pip check`、`compileall`、敏感信息扫描、旧表/Prompt/前端边界扫描及 `git diff --check` 均通过。
+- 第一阶段部署准备完成；未部署 ECS、未调用真实 LLM/TBox、未修改业务逻辑或前端。
+
+
 # MCP 百宝箱入参兼容修复执行日志（2026-08-27）
 
 - 已读取 planning-with-files 技能并启用文件化计划。

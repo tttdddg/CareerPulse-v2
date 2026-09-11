@@ -4,6 +4,7 @@ pydantic
 psycopg2
 openai
 python-docx
+reportlab
 pdfplumber
 pytesseract
 Pillow

@@ -1,0 +1,24 @@
+# CareerPulse production runtime dependencies for Linux and Python 3.11.
+# This is a curated list of direct dependencies, not a Windows pip freeze.
+
+# ASGI API and validation
+fastapi==0.133.1
+uvicorn[standard]==0.41.0
+pydantic==2.13.4
+python-multipart==0.0.27
+
+# PostgreSQL persistence
+psycopg2==2.9.12
+
+# LLM and HTTP integrations
+openai==2.24.0
+httpx==0.28.1
+mcp==2.0.0
+
+# Resume ingestion, data processing, and report export
+python-docx==1.2.0
+pdfplumber==0.11.10
+pytesseract==0.3.13
+Pillow==12.2.0
+pandas==3.0.5
+reportlab==5.0.1
