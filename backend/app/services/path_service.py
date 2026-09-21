@@ -4,9 +4,16 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
+from dataclasses import dataclass
+from time import perf_counter
 from typing import Any
 
 from ..models import CareerGraphEdge, CareerGraphNode
+from ..repositories.career_graph_repository import (
+    CareerGraphProvider,
+    CareerGraphProviderDataError,
+    CareerGraphProviderResult,
+)
 from ..schemas.job_schema import JobProfile
 from ..schemas.match_schema import MatchResult
 from ..schemas.path_schema import (
@@ -17,7 +24,10 @@ from ..schemas.path_schema import (
     UserPreferences,
 )
 from ..schemas.profile_schema import StudentProfile
-from .career_graph_repository import CareerGraphRepository
+from .career_graph_repository import (
+    CareerGraphRepository,
+    JsonCareerGraphProvider,
+)
 from .match_service import MatchService
 from .path_config import (
     CALCULATION_VERSION,
@@ -34,6 +44,18 @@ from .path_config import (
 )
 
 
+@dataclass(frozen=True)
+class GraphLoadMetadata:
+    """Privacy-safe provider facts for the PathAgent tool log."""
+
+    data_source: str
+    node_count: int
+    edge_count: int
+    fallback_used: bool
+    demo_mode: bool
+    duration_ms: int
+
+
 class PathService:
     """Create stable graph-backed candidate paths and annual roadmaps."""
 
@@ -41,9 +63,31 @@ class PathService:
         self,
         repository: CareerGraphRepository | None = None,
         match_service: MatchService | None = None,
+        *,
+        provider: CareerGraphProvider | None = None,
     ) -> None:
-        self.repository = repository or CareerGraphRepository()
+        if repository is not None and provider is not None:
+            raise ValueError("inject either career graph provider or repository")
+        # Repository injection remains for focused algorithm tests. Runtime
+        # composition injects a source-policy Provider instead.
+        self._repository_override = repository
+        self.provider = provider or JsonCareerGraphProvider(demo_mode=True)
         self.match_service = match_service or MatchService()
+
+    @property
+    def repository(self) -> CareerGraphRepository:
+        """Compatibility view for tests that exercise private search helpers."""
+
+        if self._repository_override is not None:
+            return self._repository_override
+        result = self.provider.load()
+        return CareerGraphRepository.from_provider_result(result)
+
+    def set_provider(self, provider: CareerGraphProvider) -> None:
+        """Configure one runtime source policy before requests are served."""
+
+        self.provider = provider
+        self._repository_override = None
 
     def calculate(
         self,
@@ -53,6 +97,23 @@ class PathService:
         user_preferences: UserPreferences | Mapping[str, Any] | None = None,
         horizon_years: int = 3,
     ) -> dict[str, Any]:
+        result, _ = self.calculate_with_metadata(
+            student_profile,
+            target_job_profile,
+            match_result,
+            user_preferences,
+            horizon_years,
+        )
+        return result
+
+    def calculate_with_metadata(
+        self,
+        student_profile: StudentProfile | Mapping[str, Any],
+        target_job_profile: JobProfile | Mapping[str, Any],
+        match_result: MatchResult | Mapping[str, Any],
+        user_preferences: UserPreferences | Mapping[str, Any] | None = None,
+        horizon_years: int = 3,
+    ) -> tuple[dict[str, Any], GraphLoadMetadata]:
         request = PathRequest.model_validate(
             {
                 "student_profile": self._dump(student_profile),
@@ -62,9 +123,43 @@ class PathService:
                 "horizon_years": horizon_years,
             }
         )
-        return self._calculate(request).model_dump()
+        load_started = perf_counter()
+        provider_result = self._load_graph()
+        try:
+            repository = (
+                self._repository_override
+                or CareerGraphRepository.from_provider_result(provider_result)
+            )
+        except ValueError:
+            raise CareerGraphProviderDataError(
+                "career graph snapshot failed whole-graph validation"
+            ) from None
+        metadata = GraphLoadMetadata(
+            data_source=provider_result.data_source,
+            node_count=len(provider_result.nodes),
+            edge_count=len(provider_result.edges),
+            fallback_used=provider_result.fallback_used,
+            demo_mode=provider_result.demo_mode,
+            duration_ms=max(0, round((perf_counter() - load_started) * 1000)),
+        )
+        return self._calculate(request, repository).model_dump(), metadata
 
-    def _calculate(self, request: PathRequest) -> PathResult:
+    def _load_graph(self) -> CareerGraphProviderResult:
+        if self._repository_override is not None:
+            return CareerGraphProviderResult(
+                nodes=list(self._repository_override.nodes),
+                edges=list(self._repository_override.edges),
+                data_source="demo_json",
+                fallback_used=False,
+                demo_mode=True,
+            )
+        return self.provider.load()
+
+    def _calculate(
+        self,
+        request: PathRequest,
+        repository: CareerGraphRepository,
+    ) -> PathResult:
         assumptions = [
             "候选岗位仅来自已初始化职业图谱，不创建推断节点",
             "路径数值由deterministic PathService计算，不使用LLM",
@@ -88,7 +183,7 @@ class PathService:
             global_flags.append("desired_city_not_provided")
 
         years_experience = request.student_profile.basic_info.years_of_experience or 0.0
-        starts = self.repository.entry_roles(
+        starts = repository.entry_roles(
             include_junior=years_experience >= ENTRY_EXPERIENCE_THRESHOLD
         )
         if not starts:
@@ -102,7 +197,7 @@ class PathService:
 
         try:
             start, start_match, start_flags = self._select_start(
-                request.student_profile, starts
+                request.student_profile, starts, repository
             )
         except ValueError as error:
             return self._empty_result(
@@ -113,7 +208,7 @@ class PathService:
                 global_flags + [f"unresolved_start_data:{type(error).__name__}"],
             )
         global_flags.extend(start_flags)
-        goal = self.repository.node_by_title(request.target_job_profile.normalized_title)
+        goal = repository.node_by_title(request.target_job_profile.normalized_title)
         fallback_target = False
         if goal is None:
             global_flags.append(
@@ -121,17 +216,22 @@ class PathService:
             )
             global_risks.append("目标岗位不在职业图谱中，推荐结果只能到达图内替代岗位")
 
-        paths = self._search_paths(start.node_key, goal.node_key) if goal else []
+        paths = self._search_paths(
+            start.node_key, goal.node_key, repository=repository
+        ) if goal else []
         if not paths:
             goal = self._fallback_goal(
                 start,
                 request.target_job_profile.industry,
                 exclude_key=goal.node_key if goal else None,
+                repository=repository,
             )
             fallback_target = goal is not None
             if goal is not None:
                 global_flags.append(f"fallback_target_used:{goal.node_key}")
-                paths = self._search_paths(start.node_key, goal.node_key)
+                paths = self._search_paths(
+                    start.node_key, goal.node_key, repository=repository
+                )
         if not paths:
             return self._empty_result(
                 request,
@@ -152,6 +252,7 @@ class PathService:
                         start_match,
                         goal,
                         fallback_target,
+                        repository,
                     )
                 )
             except ValueError:
@@ -187,8 +288,8 @@ class PathService:
                 global_flags + ["all_paths_filtered"],
             )
 
-        three_year = self._roadmap(request, recommended, 3)
-        five_year = self._roadmap(request, recommended, 5)
+        three_year = self._roadmap(request, recommended, 3, repository)
+        five_year = self._roadmap(request, recommended, 5, repository)
         confidence = round(
             (recommended.score.data_confidence + request.match_result.confidence) / 2.0,
             4,
@@ -223,7 +324,10 @@ class PathService:
         return result
 
     def _select_start(
-        self, student: StudentProfile, starts: list[CareerGraphNode]
+        self,
+        student: StudentProfile,
+        starts: list[CareerGraphNode],
+        repository: CareerGraphRepository,
     ) -> tuple[CareerGraphNode, MatchResult, list[str]]:
         ranked: list[
             tuple[float, float, float, float, str, CareerGraphNode, MatchResult, list[str]]
@@ -231,7 +335,7 @@ class PathService:
         skipped_flags: list[str] = []
         for raw_node in starts:
             try:
-                node, flags = self.repository.resolved_node(raw_node.node_key)
+                node, flags = repository.resolved_node(raw_node.node_key)
                 match = self._match_node(student, node)
             except ValueError:
                 skipped_flags.append(f"entry_node_unresolved:{raw_node.node_key}")
@@ -263,8 +367,15 @@ class PathService:
         _, _, _, _, _, node, match, flags = min(ranked, key=lambda item: item[:5])
         return node, match, skipped_flags + flags
 
-    def _search_paths(self, start_key: str, goal_key: str) -> list[list[str]]:
-        max_nodes = min(MAX_PATH_NODES, len(self.repository.nodes))
+    def _search_paths(
+        self,
+        start_key: str,
+        goal_key: str,
+        *,
+        repository: CareerGraphRepository | None = None,
+    ) -> list[list[str]]:
+        graph = repository or self.repository
+        max_nodes = min(MAX_PATH_NODES, len(graph.nodes))
         found: list[list[str]] = []
 
         def dfs(
@@ -278,7 +389,7 @@ class PathService:
                 return
             if len(path) >= max_nodes:
                 return
-            for edge in self.repository.outgoing_edges(current):
+            for edge in graph.outgoing_edges(current):
                 if edge.target_key in visited:
                     continue
                 next_lateral = lateral_run + 1 if edge.relation_type == "lateral" else 0
@@ -300,8 +411,9 @@ class PathService:
         target_industry: str,
         *,
         exclude_key: str | None,
+        repository: CareerGraphRepository,
     ) -> CareerGraphNode | None:
-        reachable = self.repository.reachable_nodes(start.node_key, MAX_PATH_NODES)
+        reachable = repository.reachable_nodes(start.node_key, MAX_PATH_NODES)
         options = [
             node
             for node in reachable
@@ -329,12 +441,13 @@ class PathService:
         start_match: MatchResult,
         goal: CareerGraphNode,
         fallback_target: bool,
+        repository: CareerGraphRepository,
     ) -> CandidatePath:
         nodes: list[CareerGraphNode] = []
         flags: list[str] = []
         node_matches: list[MatchResult] = []
         for key in node_keys:
-            node, node_flags = self.repository.resolved_node(key)
+            node, node_flags = repository.resolved_node(key)
             nodes.append(node)
             flags.extend(node_flags)
             node_match = (
@@ -348,7 +461,7 @@ class PathService:
         edges = [
             next(
                 edge
-                for edge in self.repository.outgoing_edges(nodes[index].node_key)
+                for edge in repository.outgoing_edges(nodes[index].node_key)
                 if edge.target_key == nodes[index + 1].node_key
             )
             for index in range(len(nodes) - 1)
@@ -391,7 +504,7 @@ class PathService:
         time_months = max(
             1,
             round(
-                sum(self.repository.node_duration(node) for node in nodes)
+                sum(repository.node_duration(node) for node in nodes)
                 + transfer * SCORE_WEIGHTS["transfer_months"]
             ),
         )
@@ -500,13 +613,17 @@ class PathService:
         return candidate.model_copy(update={"path_type": path_type, "score": score})
 
     def _roadmap(
-        self, request: PathRequest, path: CandidatePath, years: int
+        self,
+        request: PathRequest,
+        path: CandidatePath,
+        years: int,
+        repository: CareerGraphRepository,
     ) -> CareerRoadmap:
         stages = []
         cumulative = 0
         schedule: list[tuple[int, CareerGraphNode]] = []
         for node in path.nodes:
-            cumulative += self.repository.node_duration(node)
+            cumulative += repository.node_duration(node)
             schedule.append((cumulative, node))
         for year in range(1, years + 1):
             boundary = year * 12
@@ -756,4 +873,4 @@ class PathService:
         return list(dict.fromkeys(values))
 
 
-__all__ = ["PathService"]
+__all__ = ["GraphLoadMetadata", "PathService"]

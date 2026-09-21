@@ -16,7 +16,7 @@
     "job_id":91002,"title":"数据分析师","normalized_title":"数据分析师","industry":"电子商务",
     "required_abilities":[
       {"tag":"数据分析","required_level":4,"weight":0.3,"importance":"critical"},
-      {"tag":"SQL/数据库","required_level":4,"weight":0.25,"importance":"critical"},
+      {"tag":"数据库/SQL","required_level":4,"weight":0.25,"importance":"critical"},
       {"tag":"Python","required_level":3,"weight":0.2,"importance":"important"},
       {"tag":"数据可视化","required_level":3,"weight":0.15,"importance":"important"},
       {"tag":"沟通表达","required_level":3,"weight":0.1,"importance":"nice_to_have"}
@@ -28,10 +28,10 @@
     "required_abilities":[
       {"tag":"后端开发","required_level":4,"weight":0.3,"importance":"critical"},
       {"tag":"Java","required_level":4,"weight":0.25,"importance":"critical"},
-      {"tag":"SQL/数据库","required_level":3,"weight":0.15,"importance":"important"},
+      {"tag":"数据库/SQL","required_level":3,"weight":0.15,"importance":"important"},
       {"tag":"API设计","required_level":3,"weight":0.1,"importance":"important"},
-      {"tag":"Linux/运维","required_level":2,"weight":0.1,"importance":"nice_to_have"},
-      {"tag":"Git/版本控制","required_level":3,"weight":0.1,"importance":"nice_to_have"}
+      {"tag":"运维/Linux","required_level":2,"weight":0.1,"importance":"nice_to_have"},
+      {"tag":"版本控制/Git","required_level":3,"weight":0.1,"importance":"nice_to_have"}
     ],
     "soft_skills":["团队协作","解决问题"],"salary_range":null,"job_description":"匿名演示岗位画像，不代表真实招聘职位。"
   }

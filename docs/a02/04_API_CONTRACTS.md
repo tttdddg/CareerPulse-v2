@@ -49,7 +49,12 @@ CareerState 是跨 Agent 共享的会话级状态对象，由 CareerOrchestrator
   "status": "string — 阶段状态，见 §1.1",
   "error_type": "string | null — FAILED 时的可判断错误类型",
   "student_input": "object | null — 用户原始输入 {resume_text, form_fields, target_job}",
+  "student_profile_id": "int | null — PostgreSQL student_profile 业务记录引用；不得放入 Agent 画像",
+  "student_profile_updated_at": "string | null — 最近一次数据库画像版本时间",
   "target_job_input": "object | null — 目标岗位 {job_id, job_title, industry}",
+  "job_record_id": "int | null — PostgreSQL job_clean 记录引用",
+  "job_type_key": "string | null — PostgreSQL job_type_profile.type_key",
+  "job_data_source": "session | postgresql | demo_json | null",
   "student_profile": "object | null — ProfileAgent 输出, 见 §2.1",
   "job_profile": "object | null — JobAgent 输出, 见 §3.1",
   "trend_result": "object | null — 趋势分析结果, 见 §3.2",
@@ -165,7 +170,7 @@ INITIALIZED
 
 | MCP 工具 | 必填输入 | 真实执行入口 | 成功状态 | 确定性结果 |
 |---|---|---|---|---|
-| `build_student_profile` | `session_id/user_id` + 至少一个扁平画像证据字段 | `ProfileAgent` / `ProfileService` | `PROFILE_COMPLETED` | `StudentProfile` |
+| `build_student_profile` | `session_id/user_id` + 至少一个扁平画像证据字段 | `ProfileAgent` / `ProfileService` / `StudentProfilePersistenceService` | `PROFILE_COMPLETED` | `StudentProfile`；满足冻结表最低要求时同时返回 PostgreSQL `student_id` |
 | `analyze_target_job` | `session_id/user_id/job_title` + 可选扁平岗位字段 | `JobAgent` | `JOB_COMPLETED` | `JobProfile + TrendResult` |
 | `analyze_job_match` | `session_id/user_id` | `MatchAgent` / `MatchService` | `MATCH_COMPLETED` | `MatchResult` |
 | `generate_career_path` | `session_id/user_id` | `PathAgent` / `PathService` | `PATH_COMPLETED` | `PathResult` |
@@ -179,10 +184,39 @@ INITIALIZED
 `work_experience`、`competitions`、`certificates`、`supplementary_info`，其中
 `skills` 及各经历字段是字符串数组。调用时至少提供一个非空画像证据字段。
 
+比赛模式把调用方提供的 `user_id` 视为可信逻辑身份。画像满足 PG16 冻结表最低要求
+（学历、专业、目标岗位以及至少三项有证据能力）时，`build_student_profile` 创建或更新
+`student_profile`，并把返回的 `student_id` 绑定到当前 `CareerState`。部分画像仍是合法的
+对话输入，但只保存为 session 快照，返回 `student_id=null/data_source=session`，用于继续追问，
+不会因数据库写入要求而把既有成功链路变为失败。
+
 `analyze_target_job` 的 MCP 公开字段为必填字符串 `job_title`，以及可选基础类型
 `job_id`、`industry`、`city`、`job_description`、`trend_context`。这两个工具不再公开
 `student_input` / `target_job_input` 嵌套对象；MCP 适配层会用扁平字段构造内部严格模型。
 这一变化只影响 MCP 工具参数，§1.3 的 HTTP Tool API 契约保持不变。
+
+内部严格 `TargetJobInput` 另支持互斥业务引用 `type_key`。存在 `job_id` 时固定读取
+`job_clean` 并按 `normalized_job_title` 关联 `job_type_profile`；存在 `type_key` 时固定
+读取该类型画像及其代表岗位。数据库引用优先于同请求中的自由文本，分支不得交给 LLM。
+仅有 `job_title/job_description` 时不查询数据库，继续使用原始 JD 分析。
+
+数据库岗位成功响应在既有 `agent_run_id/fallback_used/job_profile/trend_result` 基础上
+加法返回：
+
+```json
+{
+  "job_id": "int | null",
+  "type_key": "string | null",
+  "data_source": "session | postgresql | demo_json",
+  "demo_mode": "bool"
+}
+```
+
+数据库 `skill_requirements` 的 `tag/required_level/weight/importance` 必须原值映射，
+JobAgent 和 LLM 不得重算。PostgreSQL 无记录返回 `JOB_CONTEXT_NOT_FOUND`；数据库不可用
+返回可重试的 `JOB_DATABASE_UNAVAILABLE`，生产模式禁止回退 `jobs_demo.json`。显式
+Demo Mode 跳过 PostgreSQL，返回相同 `JobProfile` 模型并标记
+`data_source=demo_json/fallback_used=true`。
 
 `generate_and_score_training` 是一个合并工具，不拆分为生成/评分两个 MCP 名称。生成模式不传
 `user_answer`，必须传三值枚举 `training_type`；评分模式必须传 `training_id + user_answer`，
@@ -228,6 +262,31 @@ session 已保存 `student_profile` 和 `job_profile`；路径要求已保存 `m
 `PROFILE_COMPLETED`/`JOB_COMPLETED` 是仓库现有状态机中对外“PROFILE_READY/JOB_READY”
 语义的正式状态名，不新增第二套状态枚举。规则 fallback 产生的结构化 Profile/Job 仍通过
 固定 Schema 验证并保留 `fallback_used=true` AgentRunLog。
+
+`build_student_profile.data` 在保持既有 `agent_run_id/fallback_used/student_profile`
+字段不变的基础上，加法返回：
+
+```json
+{
+  "student_id": "int | null — 仅由 PostgreSQL RETURNING 产生",
+  "data_source": "session | postgresql | demo_json",
+  "demo_mode": "bool"
+}
+```
+
+启用画像持久化时，调用顺序固定为：ProfileAgent 产出 → `StudentProfile` Pydantic
+校验 → `ProfileService` 确定性分数复核 → PostgreSQL 创建/更新 → 调用账本写入
+`student_id/updated_at` 安全检查点 → CareerState 快照。State 只保存画像会话投影、
+`student_profile_id` 和版本时间；从 PostgreSQL 恢复的能力证据统一标记
+`evidence_source=history`。姓名不进入 Prompt、CareerState 画像或日志；调用方未提供
+合规展示名时数据库使用 `匿名学生`。
+
+同一 `trace_id` 的成功重放读取账本中的原 `student_id`，不得再次插入。若 PostgreSQL
+提交后 CareerState 快照失败，但安全检查点已写入，重试按该 ID 恢复画像和状态。由于
+当前业务表仍没有 `user_id` 绑定及同事务幂等回执。比赛组合根已按项目负责人确认的信任
+模型默认注入 `StudentProfilePersistenceService`，但这不代表生产安全门禁已经满足。检查点
+自身写入失败或进程恰在业务提交与检查点之间崩溃时不能声称 exactly-once，正式多租户部署
+仍受 §19 数据库接入门禁约束。
 
 ### 1.5 CareerPulse → 百宝箱智能体 Chat API（`tbox-chat-v1`）
 
@@ -951,10 +1010,49 @@ Demo Mode 下：
 
 ---
 
+## 12.4 参数化只读数据库 MCP 工具（D7-06 加法契约）
+
+在既有七个高层工具保持不变的前提下，加法注册四个只读业务工具：
+
+| 工具名 | 固定业务参数 | 上限与约束 |
+|---|---|---|
+| `read_student_profile` | `session_id`、`user_id`、`student_id`、可选 `trace_id` | `student_id >= 1`；必须通过会话到学生引用的授权绑定；禁止姓名搜索 |
+| `search_jobs` | `session_id`、`user_id`、可选 `keyword/city/industry/page/page_size/trace_id` | `page_size <= 50`；不接受排序、SQL、表名或列名；列表不返回公司名和完整 JD |
+| `read_job_context` | `session_id`、`user_id`、`job_id` 或 `normalized_title`、可选 `trace_id` | 两种岗位引用必须且只能提供一个；不计算匹配分 |
+| `read_career_graph_edges` | `session_id`、`user_id`、可选 `source_type_key/relation_type/limit/trace_id` | `relation_type=vertical/lateral`；`limit <= 500` |
+
+四个响应继续使用 MCP 统一 envelope：
+`success/error_code/message/missing_fields/retryable/trace_id/session_id/status/data`。
+成功 `data` 固定包含 `data_source=postgresql|demo_json` 和 `fallback_used`。生产数据库失败
+不得读取 JSON；只有服务端显式 Demo Mode 才可选择 Demo Provider 或执行 Demo 回退。
+
+数据库调用通过现有调用账本、trace 幂等检查、超时和错误转换。账本只保存业务 ID、筛选项
+是否存在、分页、返回条数、来源和回退标记，不保存姓名、完整 `basic_info`、能力证据、完整
+JD、数据库凭据或 SQL 参数正文。
+
+比赛模式使用已持久化 CareerState 执行严格三元绑定：请求的 `session_id` 必须存在，
+`user_id` 必须等于该 session 的逻辑用户，`student_id` 必须等于该 session 保存的
+`student_profile_id`。任一项不一致均拒绝读取。该规则不等同于生产 SSO/Token 身份认证；
+正式多租户部署仍应由网关提供可信主体，并在业务数据库落地用户到画像的长期归属关系。
+
+## 12.5 双数据源等价与失败语义（D7-11）
+
+- PostgreSQL 与 JSON Demo Provider 必须先映射到相同严格 Pydantic 业务模型；时间戳、`data_source`、`demo_mode` 和 `fallback_used` 不参与业务等价比较。
+- 同一学生、岗位和图谱快照产生的 Profile/Job 投影、Match 分数与缺口、Path 候选与路线、Training 分数、Resource 推荐和 Feedback 结果必须相同。
+- 生产环境数据库连接失败统一返回可重试 `DATABASE_UNAVAILABLE`（MCP 超时为可重试 `MCP_TOOL_TIMEOUT`），响应不得携带 JSON Demo 数据。
+- 显式 Demo Mode 才允许 Demo Provider；数据库失败后的 Demo 回退必须同时返回 `data_source=demo_json` 和 `fallback_used=true`。
+- Feedback 的 `growth_snapshot.competitiveness_score` 可记录 Match 的 `overall_score`，但不得回写或覆盖 `student_profile.competitiveness_score` / `career_competitiveness_score`。
+- `training_tasks.json` 与 `resources.json` 保持原契约与加载路径，不增加数据库来源字段。
+
 ## 13. 版本记录
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-09-21 | v1.8 | 比赛模式启用完整画像 PostgreSQL 持久化及 CareerState 三元引用授权；部分画像保持 session 兼容 | Codex |
+| 2026-09-20 | v1.7 | 冻结双数据源等价、生产失败关闭、Demo 回退和 Feedback 不回写画像规则 | Codex |
+| 2026-09-20 | v1.6 | 接入 analyze_target_job 的确定性 PostgreSQL 岗位上下文与来源元数据 | Codex |
+| 2026-09-20 | v1.5 | 加法定义画像数据库引用、来源元数据及 PostgreSQL-first 状态恢复边界 | Codex |
+| 2026-09-19 | v1.4 | 加法注册四个参数化只读数据库 MCP 工具；冻结来源元数据、上限和学生授权失败关闭规则 | Codex |
 | 2026-08-27 | v1.3 | 加法注册 stage4-mcp-v1 三工具，标准 MCP 工具总数更新为7 | CareerPulse A02 Team |
 | 2026-08-21 | v1.2 | 加法新增 stage3-mcp-v1 四工具、状态、trace、错误和安全约束 | CareerPulse A02 Team |
 | 2026-08-04 | v1.0 | 初始冻结：CareerState、统一错误格式、能力等级、能力标签体系、Demo格式 | 技术负责人 |

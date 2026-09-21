@@ -227,7 +227,7 @@ PathAgent、MatchService 或 PathService。适配层负责 Bearer 鉴权、固�
 请求指纹/幂等、超时、稳定错误 envelope 和 `platform_tool_calls`；业务计算仍按
 `平台 → 适配层 → CareerOrchestrator → Agent → Service` 执行。平台调用记录通过
 `agent_run_key` 关联 AgentRunLog，不暴露数据库连接或表查询能力。
-- 统一降级：LLM 失败 → 规则/Demo 数据
+- 统一降级：LLM 失败 → 已验证的规则结果；只有显式 Demo Mode 才允许读取 Demo 业务数据
 - 子类实现：async def _execute(state) -> dict
 ```
 
@@ -346,11 +346,22 @@ PathAgent、MatchService 或 PathService。适配层负责 Bearer 鉴权、固�
 
 | 层级 | 降级方式 | 触发条件 |
 |------|---------|---------|
-| LLM 调用 | 规则引擎 + Demo 数据 | API Key 缺失 / 超时 / 连续重试失败 |
+| LLM 调用 | 规则引擎或安全失败 | API Key 缺失 / 超时 / 连续重试失败；不得因此切换业务数据源 |
 | Agent 执行 | 跳过该 Agent，标记 fallback_used | 前置依赖缺失 / Agent 内部异常 |
 | 外部模型 API | Demo Mode 固定数据 | A02_DEMO_MODE=true |
-| 数据库 | 内存 Mock | 数据库连接失败 |
+| 业务 PostgreSQL | 生产失败关闭；Demo 可显式回退 JSON | 生产禁止 JSON 回退；Demo 回退必须标记 `data_source=demo_json/fallback_used=true` |
+| StateRepository | 返回持久化错误 | 不得退化为内存成功 |
 | 百宝箱工具 | 返回错误 JSON (code=-1) | 后端服务不可用 |
+
+---
+
+### 6.1 最终数据所有权（D7-11）
+
+- PostgreSQL 16 `careerpulse_micro`（默认 `localhost:5433`）是生产环境学生画像、岗位实例、岗位类型和职业图谱的业务真源。
+- `students_demo.json`、`jobs_demo.json`、`career_graph.json` 只在显式 Demo Mode 使用；它们通过同一 Pydantic 业务模型进入 Agent 链路。
+- `training_tasks.json` 与 `resources.json` 仍分别由 TrainingService、ResourceService 直接读取，不迁入业务数据库。
+- StateRepository 只保存 `career_state` 会话快照、`agent_logs` 和 `platform_tool_calls`；即使其后端使用 PostgreSQL，也不是四张业务表的替代品。
+- 相同业务快照经 PostgreSQL/JSON Provider 进入链路时，Profile、Job、Match、Path、Training、Feedback 的业务结果必须一致；仅时间戳、来源和回退标记允许不同。
 
 ---
 
@@ -358,4 +369,5 @@ PathAgent、MatchService 或 PathService。适配层负责 Bearer 鉴权、固�
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-09-20 | v1.1 | 收口业务数据源、StateRepository 边界与生产失败关闭策略 | Codex |
 | 2026-08-04 | v1.0 | 初始冻结：分层架构、目录结构、模块职责、数据流 | 技术负责人 |

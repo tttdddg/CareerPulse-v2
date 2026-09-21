@@ -236,6 +236,10 @@ V004 只保存请求 SHA-256 指纹、`user_id` 哈希、CareerState 结果字�
 
 ### 3.1 ability_tags.json（≥40 条）
 
+当前文件包含 81 个有效标签。该文件是合法标签全集的唯一来源；画像维度映射必须与有效标签
+做集合相等校验（不缺失、不多出），岗位软技能分类按 `category` 动态派生。标签别名只维护在
+`ability_tag_aliases.json`，使用侧不得复制不完整的硬编码别名表。
+
 见 `04_API_CONTRACTS.md §11`，字段格式：
 
 ```json
@@ -350,6 +354,22 @@ V004 只保存请求 SHA-256 指纹、`user_id` 哈希、CareerState 结果字�
 ]
 ```
 
+### 3.7 最终真源与存储边界（D7-11）
+
+| 数据 | 生产真源 | Demo/测试来源 | 是否进入 StateRepository |
+|---|---|---|---|
+| 学生画像 | `careerpulse_micro.student_profile` | `students_demo.json` | 只保存当前会话投影/引用，不是业务主表 |
+| 岗位实例/类型 | `job_clean` + `job_type_profile` | `jobs_demo.json` | 只保存会话岗位投影/引用 |
+| 职业图谱 | `job_type_profile` + `job_type_graph_edge` | `career_graph.json` | 只保存计算后的路径快照 |
+| 训练题 | `training_tasks.json` | 同一文件 | 可保存本次任务/评分快照，文件仍是真源 |
+| 学习资源 | `resources.json` | 同一文件 | 可保存本次推荐快照，文件仍是真源 |
+| 会话/日志/幂等 | `career_state`、`agent_logs`、`platform_tool_calls` | SQLite 等价三表 | 本身即 StateRepository 范围 |
+
+生产业务数据库固定为 PostgreSQL 16，默认端点 `localhost:5433`、库名
+`careerpulse_micro`，配置键为 `POSTGRES_DATABASE`；`POSTGRES_DB` 不作为别名接受。
+早期章节中的规划表不代表当前已建业务表，四张业务表的最终列定义以
+`数据库改进设计.md` 与 `19_DATABASE_ACCESS_CONTRACTS.md` 为准。
+
 ---
 
 ## 4. 数据库迁移规则
@@ -366,4 +386,5 @@ V004 只保存请求 SHA-256 指纹、`user_id` 哈希、CareerState 结果字�
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-09-20 | v1.1 | 收口 PostgreSQL、Demo JSON、训练资源和 StateRepository 的数据所有权 | Codex |
 | 2026-08-04 | v1.0 | 初始冻结：9张新表+6类初始化数据规范 | 技术负责人 |

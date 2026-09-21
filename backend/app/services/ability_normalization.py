@@ -75,6 +75,25 @@ class AbilityTagNormalizer:
             )
         return result["standard_tag"]
 
+    def explicit_aliases(self) -> dict[str, str]:
+        """Return the authoritative alias-to-standard mapping as a safe copy."""
+
+        return {
+            item["alias"]: item["standard_tag"]
+            for item in self._aliases.values()
+        }
+
+    def aliases_for(self, standard_tag: str) -> tuple[str, ...]:
+        """Return every explicit alias registered for one canonical tag."""
+
+        return tuple(
+            sorted(
+                item["alias"]
+                for item in self._aliases.values()
+                if item["standard_tag"] == standard_tag
+            )
+        )
+
     @staticmethod
     def _result(original_tag: str, standard_tag: str, basis: str) -> dict[str, Any]:
         return {
@@ -131,6 +150,7 @@ class AbilityTagNormalizer:
             if existing is not None and existing["standard_tag"] != standard_tag:
                 raise ValueError(f"alias {alias!r} maps to multiple standard tags")
             aliases[key] = {
+                "alias": alias,
                 "standard_tag": standard_tag,
                 "rule_basis": rule_basis,
             }

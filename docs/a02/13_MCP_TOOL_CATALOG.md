@@ -5,10 +5,12 @@
 > 工具名、参数名、类型、required 字段不得随意修改。
 > 百宝箱工具配置必须与本文件严格一致。
 
-> **阶段4仓库侧运行状态（2026-08-27）**：当前标准 MCP Server 的 `tools/list` 注册
+> **D7-06 仓库侧运行状态（2026-09-19）**：当前标准 MCP Server 的 `tools/list` 注册
 > `build_student_profile`、`analyze_target_job`、`analyze_job_match`、
 > `generate_career_path`、`generate_and_score_training`、
-> `recommend_learning_and_job_resources`、`save_growth_feedback`，共 7 个工具。
+> `recommend_learning_and_job_resources`、`save_growth_feedback`、
+> `read_student_profile`、`search_jobs`、`read_job_context`、
+> `read_career_graph_edges`，共 11 个工具。
 > 第 1～4 节的旧名称仍仅为历史语义并映射到当前注册名；第 5～7 节是当前真实运行契约。
 > 这里的“已注册”只表示代码/协议可发现，不表示百宝箱现场已经配置或发布。
 
@@ -65,13 +67,17 @@
 
 | 远程 MCP 工具名 | 历史目录/内部 Agent 工具名 | 正式 HTTP 对应 | 说明 |
 |---|---|---|---|
-| `build_student_profile` | `analyze_student_profile` | 无独立正式 HTTP 平台工具 | 真实 ProfileAgent，写 session 状态 |
+| `build_student_profile` | `analyze_student_profile` | 无独立正式 HTTP 平台工具 | 真实 ProfileAgent；完整画像写 PostgreSQL 并绑定 session，部分画像只写 session |
 | `analyze_target_job` | `analyze_job_and_trend` | 无独立正式 HTTP 平台工具 | 真实 JobAgent，写 session 状态 |
 | `analyze_job_match` | `calculate_job_match` | `analyze_job_match` | MCP 从 session 读画像/岗位；HTTP 保留现有完整 profile 输入契约 |
 | `generate_career_path` | `recommend_career_path` | `generate_career_path` | 两者均从 session 读已完成匹配 |
 | `generate_and_score_training` | `TrainingAgent` / 同名内部 handler | 无独立 HTTP 平台 operation | 合并 generate/score；TrainingService 独占数值 |
 | `recommend_learning_and_job_resources` | `ResourceService` / 同名内部 handler | 无独立 HTTP 平台 operation | 从 State 读取 gaps/target job |
 | `save_growth_feedback` | `FeedbackAgent` / 同名内部 handler | 无独立 HTTP 平台 operation | 保存用户评分并更新成长快照 |
+| `read_student_profile` | `StudentProfilePersistenceService` | 无 | 按正整数 ID 只读；比赛模式要求 session/user/student 三元引用完全一致 |
+| `search_jobs` | `JobContextService` | 无 | 关键词/城市/行业及最多 50 条分页；列表排除公司名和完整 JD |
+| `read_job_context` | `JobContextService` | 无 | `job_id` 或 `normalized_title` 二选一 |
+| `read_career_graph_edges` | `CareerGraphProviderSelector` | 无 | 起点/关系/数量白名单；生产禁止 Demo 回退 |
 
 MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配、路径、训练和资源工具
 不接受任何客户端计算结果字段。运行 Schema、统一错误、状态与 trace 规则以
@@ -788,7 +794,54 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 
 ---
 
-## 8. 工具清单总览
+## 8. 参数化只读数据库工具
+
+四个工具统一要求 `session_id/user_id`，可选 `trace_id`，并返回
+`data_source` 与 `fallback_used`。未知字段由 Schema 拒绝，永久不接受 `sql`、表名、列名、
+排序表达式、连接串或写入参数。
+
+### 8.1 read_student_profile
+
+- 必填：`student_id`，正整数。
+- 成功数据：`student_profile`、`data_source`、`fallback_used`。
+- 授权：比赛模式信任调用方 `user_id`，但仍要求持久化 CareerState 中的
+  `session_id + user_id + student_profile_id` 与请求完全一致；不同用户、不同 session 或
+  不同画像 ID 均拒绝。正式多租户环境仍需用 SSO/Token 主体替换该比赛信任边界。
+
+### 8.2 search_jobs
+
+- 可选筛选：`keyword`（最多 200 字符）、`city`（64）、`industry`（255）。
+- 分页：`page` 从 1 开始，`page_size` 为 1～50。
+- 返回固定列表 DTO：`job_id/title/normalized_title/city/salary_range/industry`，不返回
+  `company_name` 或 `job_description`。
+
+### 8.3 read_job_context
+
+- `job_id` 与 `normalized_title` 必须二选一。
+- 返回经校验的岗位实例、类型画像和确定性组装 `JobProfile`；不计算匹配分，不调用 LLM。
+
+### 8.4 read_career_graph_edges
+
+- 可选 `source_type_key`、`relation_type=vertical|lateral`；`limit` 为 1～500。
+- 成本、成长值、风险和转岗要求直接来自 Provider，不由 Tool 改写。
+- 生产数据库失败返回 `DATABASE_UNAVAILABLE`，不读取 JSON。
+
+主要业务错误：`STUDENT_PROFILE_ACCESS_DENIED`、`BUSINESS_RECORD_NOT_FOUND`、
+`BUSINESS_RECORD_SCHEMA_INVALID`、`DATABASE_UNAVAILABLE`、`DEMO_DATA_INVALID`、
+`MCP_TOOL_TIMEOUT`。调用账本只保存安全摘要和返回条数。
+
+### 8.5 数据库工具验收矩阵（D7-11）
+
+四个工具都通过同一 `_run_database_read` 边界获得 trace 幂等、超时转换和隐私安全账本，
+并分别覆盖成功、无结果/未找到、非法参数和连接失败。岗位搜索与图谱读取的“无结果”是
+空列表成功，不伪造成 `BUSINESS_RECORD_NOT_FOUND`；学生和岗位详情无记录返回该固定错误。
+生产连接失败必须可重试且不执行 JSON Provider；显式 Demo 回退必须在响应和账本同时标记
+`data_source=demo_json/fallback_used=true`。日志不得出现姓名、完整画像/JD、能力证据、邮箱、
+电话、证件号、数据库凭据或原始 SQL 参数。
+
+---
+
+## 9. 工具清单总览
 
 | # | 历史/规划名称 | 当前状态 | 当前注册映射 |
 |---|---|---|---|
@@ -799,13 +852,19 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 | 5 | `generate_and_score_training` | 已注册 | 同名 |
 | 6 | `recommend_learning_and_job_resources` | 已注册 | 同名 |
 | 7 | `save_growth_feedback` | 已注册 | 同名 |
+| 8 | `read_student_profile` | 已注册；身份绑定缺失时失败关闭 | 同名 |
+| 9 | `search_jobs` | 已注册 | 同名 |
+| 10 | `read_job_context` | 已注册 | 同名 |
+| 11 | `read_career_graph_edges` | 已注册 | 同名 |
 
 ---
 
-## 9. 版本记录
+## 10. 版本记录
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-09-20 | v1.4 | 收口数据库工具测试矩阵、空结果语义与双源日志规则 | Codex |
+| 2026-09-19 | v1.3 | 加法注册四个参数化只读数据库工具；总数为11并冻结安全日志和来源字段 | Codex |
 | 2026-08-04 | v1.0 | 初始冻结：7个工具完整输入输出Schema | 技术负责人 |
 | 2026-08-24 | v1.1 | 明确阶段3仅注册4个标准MCP工具；7个旧名称仅保留为历史/规划参考 | Codex |
 | 2026-08-27 | v1.2 | 注册阶段4三个真实工具并按当前严格 State 契约同步输入输出；总数为7 | Codex |

@@ -241,7 +241,7 @@ def real_match_result() -> dict[str, Any]:
         "abilities": [
             {"tag": "数据分析", "level": 1, "confidence": 0.9, "evidence": "匿名项目"},
             {"tag": "Python", "level": 2, "confidence": 0.8, "evidence": "匿名练习"},
-            {"tag": "SQL/数据库", "level": 3, "confidence": 0.7, "evidence": "匿名任务"},
+            {"tag": "数据库/SQL", "level": 3, "confidence": 0.7, "evidence": "匿名任务"},
         ],
         "completeness": 1.0,
         "missing_fields": [],
@@ -267,7 +267,7 @@ def real_match_result() -> dict[str, Any]:
                 "evidence": "匿名岗位要求",
             },
             {
-                "tag": "SQL/数据库",
+                "tag": "数据库/SQL",
                 "required_level": 4,
                 "weight": 0.2,
                 "importance": "important",
@@ -631,7 +631,7 @@ class TrainingAgentTests(unittest.IsolatedAsyncioTestCase):
         state = build_state(None, session_id="resource-gap-order")
         state.match_result = {
             "skill_gaps": [
-                {"dimension": "SQL/数据库", "priority": 3},
+                {"dimension": "数据库/SQL", "priority": 3},
                 {"dimension": "数据分析", "priority": 1},
                 {"dimension": "Python", "priority": 2},
             ]
@@ -645,7 +645,7 @@ class TrainingAgentTests(unittest.IsolatedAsyncioTestCase):
         agent._recommend_resources(state)
 
         self.assertEqual(
-            ["SQL/数据库", "数据分析", "Python"],
+            ["数据库/SQL", "数据分析", "Python"],
             resource_service.calls[0]["ability_gaps"],
         )
 

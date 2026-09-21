@@ -27,13 +27,31 @@ class ProfileSchemaModel(BaseModel):
 
 
 @lru_cache(maxsize=1)
-def active_ability_tags() -> frozenset[str]:
-    """Load the authoritative, add-only ability tag dictionary."""
-
+def _active_ability_catalog() -> tuple[tuple[str, str], ...]:
     with _ABILITY_TAGS_FILE.open(encoding="utf-8") as tag_file:
         records = json.load(tag_file)
+    return tuple(
+        (record["tag"], record["category"])
+        for record in records
+        if not record.get("deprecated", False)
+    )
+
+
+@lru_cache(maxsize=1)
+def active_ability_tags() -> frozenset[str]:
+    """Load every active tag from the authoritative add-only dictionary."""
+
+    return frozenset(tag for tag, _category in _active_ability_catalog())
+
+
+@lru_cache(maxsize=None)
+def active_ability_tags_by_category(category: str) -> frozenset[str]:
+    """Return one category without maintaining a second hard-coded tag list."""
+
     return frozenset(
-        record["tag"] for record in records if not record.get("deprecated", False)
+        tag
+        for tag, record_category in _active_ability_catalog()
+        if record_category == category
     )
 
 
@@ -111,4 +129,5 @@ __all__ = [
     "StudentBasicInfo",
     "StudentProfile",
     "active_ability_tags",
+    "active_ability_tags_by_category",
 ]

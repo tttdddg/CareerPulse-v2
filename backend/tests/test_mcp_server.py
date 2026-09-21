@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import unittest
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -22,11 +23,21 @@ from app.agents.training_agent import TrainingAgent
 from app.db_state import StateRepository
 from app.main import create_app
 from app.mcp.server import create_career_mcp_server
+from app.models import CareerGraph
 from app.orchestrator import CareerOrchestrator
+from app.repositories.career_graph_repository import CareerGraphProviderResult
 from app.schemas.career_profile_schema import StudentProfile
 from app.schemas.job_schema import JobProfile
+from app.schemas.job_context_schema import JobCleanRecord, JobTypeProfileRecord
 from app.schemas.match_schema import MatchResult
 from app.schemas.path_schema import PathResult
+from app.schemas.student_persistence_schema import StudentProfileRecord
+from app.services.job_context_service import JobContextService
+from app.services.career_graph_repository import CareerGraphProviderSelector
+from app.services.student_profile_persistence_service import (
+    StudentProfilePersistenceService,
+)
+from app.tools.database_tools import DatabaseTools
 
 
 TOKEN = "test-only-mcp-token"
@@ -42,6 +53,126 @@ class OfflineLLMClient:
 
     async def generate_structured(self, *args: Any, **kwargs: Any) -> Any:
         raise RuntimeError("simulated offline LLM")
+
+
+class OfflineJobContextService:
+    """Deterministic PostgreSQL boundary substitute for MCP protocol tests."""
+
+    @staticmethod
+    def _context(job_id: int):
+        job = JobCleanRecord(
+            job_id=job_id,
+            job_title="AI产品经理",
+            normalized_job_title="AI产品经理",
+            city="上海",
+            salary_range="演示薪资范围",
+            company_name="不进入Agent",
+            industry="人工智能",
+            job_description="要求产品规划、需求分析、用户研究和沟通表达。",
+        )
+        job_type = JobTypeProfileRecord(
+            type_key="AI产品经理",
+            industry="人工智能",
+            sample_size=10,
+            salary_desc_p50="演示薪资范围",
+            exemplar_job_id=job_id,
+            profile_summary="AI产品经理岗位类型画像。",
+            level_range="entry",
+            skill_requirements=[
+                {
+                    "tag": "产品规划",
+                    "required_level": 3,
+                    "weight": 0.4,
+                    "importance": "critical",
+                },
+                {
+                    "tag": "需求分析",
+                    "required_level": 3,
+                    "weight": 0.35,
+                    "importance": "critical",
+                },
+                {
+                    "tag": "沟通表达",
+                    "required_level": 3,
+                    "weight": 0.25,
+                    "importance": "important",
+                },
+            ],
+        )
+        return JobContextService._assemble(job, job_type)
+
+    def get_context_by_job_id(self, job_id: int):
+        return self._context(job_id)
+
+    def get_context_by_normalized_title(self, normalized_title: str):
+        return self._context(91001)
+
+    def get_context_by_type_key(self, type_key: str):
+        return self.get_context_by_normalized_title(type_key)
+
+
+class OfflineCareerGraphProvider:
+    """PostgreSQL-shaped graph substitute for MCP protocol tests."""
+
+    def __init__(self) -> None:
+        graph_file = (
+            Path(__file__).resolve().parents[1]
+            / "app"
+            / "data"
+            / "career_graph.json"
+        )
+        self.graph = CareerGraph.model_validate(
+            json.loads(graph_file.read_text(encoding="utf-8"))
+        )
+
+    def load(self, query=None, *, fallback_used: bool = False):
+        return CareerGraphProviderResult(
+            nodes=list(self.graph.nodes),
+            edges=list(self.graph.edges),
+            data_source="postgresql",
+            fallback_used=fallback_used,
+            demo_mode=False,
+        )
+
+
+class MemoryStudentProfileRepository:
+    """Transaction-free business-store substitute for MCP composition tests."""
+
+    def __init__(self) -> None:
+        self.records: dict[int, StudentProfileRecord] = {}
+        self.next_id = 10_000
+
+    def create(self, write: Any) -> StudentProfileRecord:
+        self.next_id += 1
+        now = datetime.now(timezone.utc)
+        record = StudentProfileRecord(
+            student_id=self.next_id,
+            created_at=now,
+            updated_at=now,
+            **write.model_dump(),
+        )
+        self.records[record.student_id] = record
+        return record
+
+    def get_by_id(self, student_id: int) -> StudentProfileRecord | None:
+        return self.records.get(student_id)
+
+    def update_by_id(
+        self,
+        student_id: int,
+        write: Any,
+    ) -> StudentProfileRecord | None:
+        previous = self.records.get(student_id)
+        if previous is None:
+            return None
+        record = StudentProfileRecord(
+            student_id=student_id,
+            created_at=previous.created_at,
+            updated_at=datetime.now(timezone.utc),
+            **write.model_dump(),
+        )
+        self.records[student_id] = record
+        return record
 
 
 def student_tool_arguments() -> dict[str, Any]:
@@ -103,9 +234,20 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.db_path = runtime_dir / f"mcp-{uuid.uuid4().hex}.sqlite3"
         self.repository = StateRepository(sqlite_path=self.db_path)
         self.orchestrator = real_orchestrator(self.repository)
+        self.student_repository = MemoryStudentProfileRepository()
+        self.student_service = StudentProfilePersistenceService(
+            self.student_repository
+        )
         self.server = create_career_mcp_server(
             self.orchestrator,
             timeout_seconds=2,
+            database_tools=DatabaseTools(
+                student_service=self.student_service,
+                job_service=OfflineJobContextService(),
+                graph_selector=CareerGraphProviderSelector(
+                    OfflineCareerGraphProvider()
+                ),
+            ),
         )
 
     def tearDown(self) -> None:
@@ -178,6 +320,10 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             "generate_and_score_training",
             "recommend_learning_and_job_resources",
             "save_growth_feedback",
+            "read_student_profile",
+            "search_jobs",
+            "read_job_context",
+            "read_career_graph_edges",
         }
         self.assertEqual(expected, {tool.name for tool in listed.tools})
         schemas = {tool.name: tool.input_schema for tool in listed.tools}
@@ -286,8 +432,17 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.is_error, result)
         self.assertTrue(result.structured_content["success"])
+        self.assertIsNotNone(result.structured_content["data"]["student_id"])
+        self.assertEqual(
+            "postgresql", result.structured_content["data"]["data_source"]
+        )
+        self.assertFalse(result.structured_content["data"]["demo_mode"])
         state = self.orchestrator.get_session(session_id)
         assert state is not None
+        self.assertEqual(
+            result.structured_content["data"]["student_id"],
+            state.student_profile_id,
+        )
         self.assertEqual(arguments["resume_text"], state.student_input["resume_text"])
         self.assertEqual(arguments["skills"], state.student_input["skills"])
         self.assertEqual(
@@ -301,6 +456,61 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 "years_of_experience": 0.5,
             },
             state.student_input["form_fields"],
+        )
+
+    async def test_student_profile_read_uses_trusted_session_binding(self) -> None:
+        session_id = "mcp-profile-binding-001"
+        common = {"session_id": session_id, "user_id": USER_ID}
+        async with Client(self.server, mode="legacy") as client:
+            created = await client.call_tool(
+                "build_student_profile",
+                {
+                    **common,
+                    "trace_id": "tool-profile-binding-create",
+                    **student_tool_arguments(),
+                },
+            )
+            student_id = created.structured_content["data"]["student_id"]
+            allowed = await client.call_tool(
+                "read_student_profile",
+                {
+                    **common,
+                    "trace_id": "tool-profile-binding-read",
+                    "student_id": student_id,
+                },
+            )
+            wrong_user = await client.call_tool(
+                "read_student_profile",
+                {
+                    "session_id": session_id,
+                    "user_id": "different-user",
+                    "trace_id": "tool-profile-binding-wrong-user",
+                    "student_id": student_id,
+                },
+            )
+            wrong_student = await client.call_tool(
+                "read_student_profile",
+                {
+                    **common,
+                    "trace_id": "tool-profile-binding-wrong-student",
+                    "student_id": student_id + 1,
+                },
+            )
+
+        self.assertTrue(allowed.structured_content["success"])
+        self.assertEqual(
+            "postgresql",
+            allowed.structured_content["data"]["data_source"],
+        )
+        self.assertFalse(wrong_user.structured_content["success"])
+        self.assertEqual(
+            "SESSION_USER_MISMATCH",
+            wrong_user.structured_content["error_code"],
+        )
+        self.assertFalse(wrong_student.structured_content["success"])
+        self.assertEqual(
+            "STUDENT_PROFILE_ACCESS_DENIED",
+            wrong_student.structured_content["error_code"],
         )
 
     async def test_build_student_profile_normalizes_antbox_string_lists(self) -> None:
@@ -341,7 +551,10 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                     },
                 )
                 self.assertFalse(result.is_error, result)
-                self.assertTrue(result.structured_content["success"])
+                self.assertTrue(
+                    result.structured_content["success"],
+                    f"case={index}: {result.structured_content}",
+                )
                 state = self.orchestrator.get_session(session_id)
                 assert state is not None
                 self.assertEqual(expected, state.student_input.get(field_name))
@@ -392,6 +605,13 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(result.is_error, result)
         self.assertTrue(result.structured_content["success"])
+        self.assertEqual(
+            "postgresql", result.structured_content["data"]["data_source"]
+        )
+        self.assertEqual(91001, result.structured_content["data"]["job_id"])
+        self.assertEqual(
+            "AI产品经理", result.structured_content["data"]["type_key"]
+        )
         state = self.orchestrator.get_session(session_id)
         assert state is not None
         self.assertEqual(target_job_tool_arguments(), state.target_job_input)
@@ -405,7 +625,8 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(profile["data"]["fallback_used"])
         StudentProfile.model_validate(profile["data"]["student_profile"])
         self.assertEqual("JOB_COMPLETED", job["status"])
-        self.assertTrue(job["data"]["fallback_used"])
+        self.assertFalse(job["data"]["fallback_used"])
+        self.assertEqual("postgresql", job["data"]["data_source"])
         JobProfile.model_validate(job["data"]["job_profile"])
         self.assertEqual("MATCH_COMPLETED", match["status"])
         MatchResult.model_validate(match["data"]["match_result"])
@@ -447,7 +668,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         common = {"session_id": session_id, "user_id": USER_ID}
         async with Client(self.server, mode="legacy") as client:
             listed = await client.list_tools()
-            self.assertEqual(7, len(listed.tools))
+            self.assertEqual(11, len(listed.tools))
             await self._run_chain(client, session_id)
             generated = await client.call_tool(
                 "generate_and_score_training",
@@ -509,7 +730,10 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(state.training_plan)
         self.assertIsNotNone(state.resource_result)
         self.assertIsNotNone(state.feedback_result)
-        self.assertNotIn(LONG_ANSWER, json.dumps(state.model_dump(), ensure_ascii=False))
+        self.assertNotIn(
+            LONG_ANSWER,
+            json.dumps(state.model_dump(mode="json"), ensure_ascii=False),
+        )
 
     async def test_feedback_ratings_accept_numeric_text_and_native_integers(
         self,
@@ -855,7 +1079,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                 async with Client(remote_transport, mode="legacy") as client:
                     self.assertIsNotNone(client.session.initialize_result)
                     listed = await client.list_tools()
-                    self.assertEqual(7, len(listed.tools))
+                    self.assertEqual(11, len(listed.tools))
                     result = await client.call_tool(
                         "analyze_job_match",
                         {"session_id": "remote-missing", "user_id": USER_ID},

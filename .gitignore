@@ -7,3 +7,16 @@ __pycache__/
 zz_test_patch.txt
 .runtime/
 backend/.runtime/
+
+# Local secrets and deployment credentials. Commit only example files.
+.env
+backend/.env
+backend/.env.local
+backend/.env.*.local
+deploy/env/*.env
+
+# Private key and certificate material must be provisioned outside Git.
+*.pem
+*.key
+*.p12
+*.pfx

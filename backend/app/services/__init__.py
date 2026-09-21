@@ -11,24 +11,31 @@ from typing import Any
 
 
 _EXPORTS = {
-    "get_history_snapshot": ("history_service", "get_history_snapshot"),
-    "get_user_histories": ("history_service", "get_user_histories"),
-    "get_job_graph": ("job_service", "get_job_graph"),
-    "get_job_profile": ("job_service", "get_job_profile"),
-    "search_jobs": ("job_service", "search_jobs"),
-    "analyze_matching": ("matching_service", "analyze_matching"),
-    "build_matching_analysis": ("matching_service", "build_matching_analysis"),
+    "JobContextError": ("job_context_service", "JobContextError"),
+    "JobContextMappingError": ("job_context_service", "JobContextMappingError"),
+    "JobContextNotFoundError": ("job_context_service", "JobContextNotFoundError"),
+    "JobContextService": ("job_context_service", "JobContextService"),
     "get_recommendations": ("recommendation_service", "get_recommendations"),
     "ProfileEvidenceExtraction": ("profile_service", "ProfileEvidenceExtraction"),
     "ProfileService": ("profile_service", "ProfileService"),
-    "export_report": ("report_service", "export_report"),
-    "generate_report": ("report_service", "generate_report"),
-    "get_report": ("report_service", "get_report"),
-    "polish_report": ("report_service", "polish_report"),
+    "StudentProfileMappingError": (
+        "student_profile_persistence_service",
+        "StudentProfileMappingError",
+    ),
+    "StudentProfileNotFoundError": (
+        "student_profile_persistence_service",
+        "StudentProfileNotFoundError",
+    ),
+    "StudentProfilePersistenceService": (
+        "student_profile_persistence_service",
+        "StudentProfilePersistenceService",
+    ),
+    "StudentProfileScoreMismatchError": (
+        "student_profile_persistence_service",
+        "StudentProfileScoreMismatchError",
+    ),
     "extract_all_content": ("resume_service", "extract_all_content"),
     "parse_llm_json": ("resume_service", "parse_llm_json"),
-    "get_student_profile": ("student_service", "get_student_profile"),
-    "save_resume_profile": ("student_service", "save_resume_profile"),
 }
 
 

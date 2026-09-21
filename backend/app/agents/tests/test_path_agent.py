@@ -49,7 +49,7 @@ class PathAgentTests(unittest.IsolatedAsyncioTestCase):
             "ability_dimensions": [
                 {
                     "dimension": "专业知识",
-                    "tags": ["Python", "SQL/数据库", "数据分析", "数据可视化"],
+                    "tags": ["Python", "数据库/SQL", "数据分析", "数据可视化"],
                     "level": 4,
                     "confidence": 0.85,
                     "evidence": ["完成匿名统计建模项目", "完成模拟业务查询任务"],
@@ -64,7 +64,7 @@ class PathAgentTests(unittest.IsolatedAsyncioTestCase):
                     "evidence_source": "project",
                 },
             ],
-            "ability_tags": ["Python", "SQL/数据库", "数据分析", "数据可视化", "沟通表达"],
+            "ability_tags": ["Python", "数据库/SQL", "数据分析", "数据可视化", "沟通表达"],
             "profile_completeness": 0.8,
             "career_competitiveness_score": 66.0,
             "missing_fields": [],
@@ -82,7 +82,7 @@ class PathAgentTests(unittest.IsolatedAsyncioTestCase):
             "industry": "电子商务",
             "required_abilities": [
                 {"tag": "数据分析", "required_level": 4, "weight": 0.3, "importance": "critical", "evidence": "JD要求"},
-                {"tag": "SQL/数据库", "required_level": 4, "weight": 0.25, "importance": "critical", "evidence": "JD要求"},
+                {"tag": "数据库/SQL", "required_level": 4, "weight": 0.25, "importance": "critical", "evidence": "JD要求"},
                 {"tag": "Python", "required_level": 3, "weight": 0.2, "importance": "important", "evidence": "JD要求"},
                 {"tag": "数据可视化", "required_level": 3, "weight": 0.15, "importance": "important", "evidence": "JD要求"},
                 {"tag": "沟通表达", "required_level": 3, "weight": 0.1, "importance": "nice_to_have", "evidence": "JD要求"},
@@ -234,6 +234,11 @@ class PathAgentTests(unittest.IsolatedAsyncioTestCase):
             [item.model_dump() for item in state.agent_logs], ensure_ascii=False
         )
 
+        self.assertEqual(
+            ["load_career_graph", "recommend_career_path"],
+            [item.tool_name for item in state.agent_logs[-1].tool_calls],
+        )
+        self.assertIn("data_source=demo_json", serialized)
         self.assertNotIn("student@example.com", serialized)
         self.assertNotIn("13800138000", serialized)
 

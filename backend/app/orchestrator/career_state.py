@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -78,7 +79,15 @@ class CareerState(BaseModel):
     status: Status = "INITIALIZED"
     error_type: str | None = Field(default=None, max_length=128)
     student_input: dict[str, Any] | None = None
+    student_profile_id: int | None = Field(default=None, ge=1)
+    student_profile_snapshot_id: int | None = Field(default=None, ge=1)
+    student_profile_updated_at: datetime | None = None
     target_job_input: dict[str, Any] | None = None
+    job_record_id: int | None = Field(default=None, ge=1)
+    job_type_key: str | None = Field(default=None, max_length=300)
+    job_profile_snapshot_id: int | None = Field(default=None, ge=1)
+    job_profile_snapshot_type_key: str | None = Field(default=None, max_length=300)
+    job_data_source: Literal["session", "postgresql", "demo_json"] | None = None
     student_profile: dict[str, Any] | None = None
     job_profile: dict[str, Any] | None = None
     trend_result: dict[str, Any] | None = None

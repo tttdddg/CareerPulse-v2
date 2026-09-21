@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
@@ -19,6 +19,16 @@ from ..schemas.internal_tool_schema import (
     SaveGrowthFeedbackRequest,
     SaveGrowthFeedbackResult,
 )
+from ..schemas.database_tool_schema import (
+    ReadCareerGraphEdgesRequest,
+    ReadCareerGraphEdgesResult,
+    ReadJobContextRequest,
+    ReadJobContextResult,
+    ReadStudentProfileRequest,
+    ReadStudentProfileResult,
+    SearchJobsRequest,
+    SearchJobsResult,
+)
 from ..schemas.mcp_tool_schema import (
     AnalyzeJobMatchMCPRequest,
     AnalyzeJobMatchMCPResult,
@@ -32,6 +42,7 @@ from ..schemas.mcp_tool_schema import (
     TargetJobInput,
 )
 from ..schemas.training_schema import TrainingType
+from ..tools.database_tools import DatabaseTools
 from .input_normalization import (
     normalize_enum_text,
     parse_optional_float,
@@ -142,12 +153,19 @@ def create_career_mcp_server(
     orchestrator: CareerOrchestrator,
     *,
     timeout_seconds: float = 25.0,
+    database_tools: DatabaseTools | None = None,
 ) -> MCPServer:
     """Create one MCP server bound to the application's real orchestrator."""
 
+    configured_database_tools = database_tools or DatabaseTools()
     service = CareerMCPToolService(
         orchestrator,
         timeout_seconds=timeout_seconds,
+        database_tools=configured_database_tools,
+        # Competition mode treats the caller-supplied user_id as the trusted
+        # logical identity.  Reuse the same validated persistence service for
+        # the high-level profile tool and the guarded read-only database tool.
+        profile_persistence_service=configured_database_tools.student_service,
     )
     server = MCPServer(
         name="CareerPulse-A02",
@@ -539,6 +557,153 @@ def create_career_mcp_server(
             comments=comments,
         )
         return await service.save_growth_feedback(request)
+
+    @server.tool(
+        name="read_student_profile",
+        description=(
+            "Read one authorized historical student profile by its positive database "
+            "ID. The server must verify the session-to-student binding; this tool "
+            "never searches by name and never writes a profile."
+        ),
+        structured_output=True,
+    )
+    async def read_student_profile(
+        session_id: SessionIdInput,
+        user_id: UserIdInput,
+        student_id: Annotated[
+            int,
+            Field(ge=1, description="Authorized positive student profile ID."),
+        ],
+        trace_id: TraceIdInput = None,
+    ) -> ReadStudentProfileResult:
+        request = ReadStudentProfileRequest(
+            session_id=session_id,
+            user_id=user_id,
+            trace_id=trace_id,
+            student_id=student_id,
+        )
+        return await service.read_student_profile(request)
+
+    @server.tool(
+        name="search_jobs",
+        description=(
+            "Search stored jobs using only keyword, city, industry and bounded "
+            "pagination. SQL, table names, column names and sort expressions are "
+            "not accepted. Search results exclude company name and full job text."
+        ),
+        structured_output=True,
+    )
+    async def search_jobs(
+        session_id: SessionIdInput,
+        user_id: UserIdInput,
+        keyword: Annotated[
+            str | None,
+            Field(max_length=200, description="Optional literal job-title keyword."),
+        ] = None,
+        city: Annotated[
+            str | None,
+            Field(max_length=64, description="Optional exact city filter."),
+        ] = None,
+        industry: Annotated[
+            str | None,
+            Field(max_length=255, description="Optional industry text filter."),
+        ] = None,
+        page: Annotated[
+            int,
+            Field(ge=1, le=10_000, description="One-based result page."),
+        ] = 1,
+        page_size: Annotated[
+            int,
+            Field(ge=1, le=50, description="Results per page, at most 50."),
+        ] = 20,
+        trace_id: TraceIdInput = None,
+    ) -> SearchJobsResult:
+        request = SearchJobsRequest(
+            session_id=session_id,
+            user_id=user_id,
+            trace_id=trace_id,
+            keyword=keyword,
+            city=city,
+            industry=industry,
+            page=page,
+            page_size=page_size,
+        )
+        return await service.search_database_jobs(request)
+
+    @server.tool(
+        name="read_job_context",
+        description=(
+            "Read a validated job instance plus type profile by exactly one fixed "
+            "reference: job_id or normalized_title. The tool does not calculate "
+            "matching scores or accept database expressions."
+        ),
+        structured_output=True,
+    )
+    async def read_job_context(
+        session_id: SessionIdInput,
+        user_id: UserIdInput,
+        job_id: Annotated[
+            int | None,
+            Field(ge=1, description="Optional positive concrete job ID."),
+        ] = None,
+        normalized_title: Annotated[
+            str | None,
+            Field(
+                min_length=1,
+                max_length=255,
+                description="Optional exact normalized job title.",
+            ),
+        ] = None,
+        trace_id: TraceIdInput = None,
+    ) -> ReadJobContextResult:
+        request = ReadJobContextRequest(
+            session_id=session_id,
+            user_id=user_id,
+            trace_id=trace_id,
+            job_id=job_id,
+            normalized_title=normalized_title,
+        )
+        return await service.read_job_context(request)
+
+    @server.tool(
+        name="read_career_graph_edges",
+        description=(
+            "Read validated career graph edges with optional exact source type, "
+            "vertical/lateral relation and a fixed maximum of 500 records. Edge "
+            "cost, growth and risk values are returned without recalculation."
+        ),
+        structured_output=True,
+    )
+    async def read_career_graph_edges(
+        session_id: SessionIdInput,
+        user_id: UserIdInput,
+        source_type_key: Annotated[
+            str | None,
+            Field(
+                min_length=1,
+                max_length=300,
+                description="Optional exact source job-type key.",
+            ),
+        ] = None,
+        relation_type: Annotated[
+            Literal["vertical", "lateral"] | None,
+            Field(description="Optional relation: vertical or lateral."),
+        ] = None,
+        limit: Annotated[
+            int,
+            Field(ge=1, le=500, description="Maximum returned edges, at most 500."),
+        ] = 100,
+        trace_id: TraceIdInput = None,
+    ) -> ReadCareerGraphEdgesResult:
+        request = ReadCareerGraphEdgesRequest(
+            session_id=session_id,
+            user_id=user_id,
+            trace_id=trace_id,
+            source_type_key=source_type_key,
+            relation_type=relation_type,
+            limit=limit,
+        )
+        return await service.read_career_graph_edges(request)
 
     # MCP SDK 2.0 builds a dynamic root argument model with its default
     # extra="ignore" policy. The project contract requires unknown tool

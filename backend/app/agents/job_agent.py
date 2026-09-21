@@ -14,31 +14,23 @@ from .base_agent import AgentResult, BaseAgent
 from ..core.llm_client import LLMValidationError, llm_client
 from ..orchestrator.career_state import CareerState
 from ..schemas.job_schema import JobAgentOutput, JobProfile, TrendResult
-from ..schemas.profile_schema import active_ability_tags
+from ..schemas.profile_schema import (
+    active_ability_tags,
+    active_ability_tags_by_category,
+)
+from ..services.ability_normalization import AbilityTagNormalizer
 
 
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompts" / "job_agent"
 _JOBS_DEMO_FILE = Path(__file__).resolve().parents[1] / "data" / "jobs_demo.json"
-_SOFT_SKILL_TAGS = {
-    "沟通表达",
-    "团队协作",
-    "领导力",
-    "解决问题",
-    "学习能力",
-    "时间管理",
-    "抗压能力",
-    "远程协作",
-}
-_TAG_ALIASES = {
-    "JavaScript": "JavaScript/TypeScript",
-    "TypeScript": "JavaScript/TypeScript",
-    "SQL": "SQL/数据库",
-    "数据库": "SQL/数据库",
-    "Kubernetes": "Docker/K8s",
-    "K8s": "Docker/K8s",
-    "Git": "Git/版本控制",
-    "SaaS": "企业服务/SaaS",
-}
+_DEFAULT_SYSTEM_PROMPT = """你是 CareerPulse JobAgent 的岗位证据提取器。
+只能根据明确提供的 JD 和趋势材料提取事实，不得修改 job_id，不得虚构能力等级、
+权重、重要度、薪资或市场趋势。输出必须符合 JobAgentOutput JSON Schema。"""
+_DEFAULT_USER_TEMPLATE = """岗位：{{job_name}}
+<job_description>{{job_description}}</job_description>
+<trend_context>{{trend_context}}</trend_context>"""
+_SOFT_SKILL_TAGS = active_ability_tags_by_category("soft_skill")
+_TAG_ALIASES = AbilityTagNormalizer().explicit_aliases()
 _EMAIL_PATTERN = re.compile(r"[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}", re.I)
 _PHONE_PATTERN = re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)")
 _NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?%?")
@@ -75,6 +67,10 @@ class JobAgent(BaseAgent):
         return result
 
     async def _execute(self, state: CareerState) -> dict[str, Any]:
+        if state.job_data_source == "postgresql":
+            return self._database_output(state).model_dump()
+        if state.job_data_source == "demo_json":
+            raise RuntimeError("explicit Demo Mode uses validated JobAgent fallback")
         system_prompt, user_prompt = self._build_prompts(state)
         raw_output = await self._llm_client.generate_structured(
             [
@@ -87,16 +83,59 @@ class JobAgent(BaseAgent):
         output = self._ensure_output(raw_output, state)
         return output.model_dump()
 
+    @staticmethod
+    def _database_output(state: CareerState) -> JobAgentOutput:
+        """Preserve the database ability vector and add no unsupported trends."""
+
+        profile = JobProfile.model_validate(state.job_profile)
+        trend = TrendResult(
+            job_title=profile.title,
+            industry=profile.industry,
+            trend_summary="数据库岗位画像未提供可验证的时间序列趋势资料。",
+            hot_skills=[],
+            rising_skills=[],
+            declining_skills=[],
+            ai_risk_assessment="medium",
+            ai_risk_detail="缺少可验证趋势资料，无法形成可靠 AI 风险结论。",
+            development_opportunities=[],
+            development_risks=[],
+            data_source=(
+                "PostgreSQL job_clean + job_type_profile；"
+                "未提供可验证趋势数据"
+            ),
+        )
+        return JobAgentOutput(job_profile=profile, trend_result=trend)
+
     async def _fallback(self, state: CareerState, error: Exception) -> dict[str, Any]:
         try:
+            if state.job_data_source == "demo_json":
+                return self._demo_output(state).model_dump()
             return self._fallback_output(state).model_dump()
         except Exception as exc:
             # Validation errors can echo provider/user content; keep logs summary-only.
             raise RuntimeError("JobAgent fallback validation failed") from exc
 
+    def _demo_output(self, state: CareerState) -> JobAgentOutput:
+        target = state.target_job_input or {}
+        title = self._first_text(
+            target, "job_title", "job_name", "title", "type_key"
+        ) or "数据分析师"
+        industry = self._first_text(target, "industry") or "待确认"
+        job_id = self._positive_int(target.get("job_id"))
+        return JobAgentOutput(
+            job_profile=self._demo_profile(title, industry, job_id),
+            trend_result=self._fallback_trend(
+                title=title,
+                industry=industry,
+                trend_context="",
+            ),
+        )
+
     def _build_prompts(self, state: CareerState) -> tuple[str, str]:
         target = state.target_job_input or {}
-        title = self._first_text(target, "job_title", "job_name", "title")
+        title = self._first_text(
+            target, "job_title", "job_name", "title", "type_key"
+        )
         if not title:
             raise ValueError("JobAgent target is missing job_title")
         job_context = {
@@ -162,8 +201,9 @@ class JobAgent(BaseAgent):
             user_template = (_PROMPT_DIR / "user_template.txt").read_text(
                 encoding="utf-8"
             )
-        except OSError as exc:
-            raise RuntimeError("JobAgent Prompt V1 could not be loaded") from exc
+        except OSError:
+            system_prompt = _DEFAULT_SYSTEM_PROMPT
+            user_template = _DEFAULT_USER_TEMPLATE
         required = {"{{job_name}}", "{{job_description}}", "{{trend_context}}"}
         if any(placeholder not in user_template for placeholder in required):
             raise RuntimeError("JobAgent user template is missing placeholders")
@@ -272,7 +312,9 @@ class JobAgent(BaseAgent):
         self, output: JobAgentOutput, state: CareerState
     ) -> JobAgentOutput:
         target = state.target_job_input or {}
-        title = self._first_text(target, "job_title", "job_name", "title")
+        title = self._first_text(
+            target, "job_title", "job_name", "title", "type_key"
+        )
         industry = self._first_text(target, "industry")
         job_id = self._positive_int(target.get("job_id"))
         profile_updates: dict[str, Any] = {"job_id": job_id}
@@ -290,7 +332,9 @@ class JobAgent(BaseAgent):
 
     def _fallback_output(self, state: CareerState) -> JobAgentOutput:
         target = state.target_job_input or {}
-        title = self._first_text(target, "job_title", "job_name", "title") or "数据分析师"
+        title = self._first_text(
+            target, "job_title", "job_name", "title", "type_key"
+        ) or "数据分析师"
         industry = self._first_text(target, "industry") or "待确认"
         job_id = self._positive_int(target.get("job_id"))
         jd_text = self._job_description(target)
@@ -477,7 +521,11 @@ class JobAgent(BaseAgent):
 
     def _input_summary(self, state: CareerState) -> str:
         target = state.target_job_input or {}
-        has_title = bool(self._first_text(target, "job_title", "job_name", "title"))
+        has_title = bool(
+            self._first_text(
+                target, "job_title", "job_name", "title", "type_key"
+            )
+        )
         has_jd = self._has_input(
             target, "job_description", "jd_text", "jd", "description"
         )

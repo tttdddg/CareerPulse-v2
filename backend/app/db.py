@@ -1,98 +1,222 @@
 ﻿"""
 
-本模块只放“跨业务可复用”的能力：
-1) 建立数据库连接
-2) 检查表是否存在
-3) 业务表初始化
-4) 常见字段标准化函数
+本模块只保留新业务 Repository 共用的 PostgreSQL 基础设施：
+1) PostgreSQL 16 连接池
+2) 只读连接上下文
+3) 写事务上下文
+
+旧 REST 的独立连接、运行时建表和字段转换辅助函数已移除；数据库
+Schema 只允许通过版本化 migration 管理。
 """
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from contextlib import contextmanager
+from threading import RLock
+from typing import Any, Iterator
 
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 
-from .config import get_postgres_config
-
-
-def get_db_conn():
-    config = get_postgres_config()
-    return psycopg2.connect(
-        host=config["host"],
-        port=config["port"],
-        database=config["database"],
-        user=config["user"],
-        password=config["password"],
-        connect_timeout=config["connect_timeout"],
-    )
+from .config import get_postgres_config, get_postgres_pool_config
 
 
-def table_exists(conn, table_name: str) -> bool:
-    """Check whether a table exists in public schema."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT EXISTS (
-                SELECT 1
-                FROM information_schema.tables
-                WHERE table_schema = 'public' AND table_name = %s
-            )
-            """,
-            (table_name,),
+class BusinessDatabaseError(RuntimeError):
+    """Safe base error that never exposes credentials or query parameters."""
+
+
+class BusinessDatabaseUnavailable(BusinessDatabaseError):
+    """The pool or a business connection is unavailable."""
+
+
+class BusinessDatabaseTransactionError(BusinessDatabaseError):
+    """A commit, rollback, or connection cleanup failed."""
+
+
+_business_pool: ThreadedConnectionPool | None = None
+_business_pool_lock = RLock()
+_REQUIRED_POSTGRES_MAJOR_VERSION = 16
+
+
+def _validate_business_connection(connection: Any) -> None:
+    """Fail closed when the business connection is not PostgreSQL 16."""
+
+    try:
+        server_version = int(connection.server_version)
+    except (AttributeError, TypeError, ValueError):
+        raise BusinessDatabaseUnavailable(
+            "business database server version is unavailable"
+        ) from None
+    if server_version // 10_000 != _REQUIRED_POSTGRES_MAJOR_VERSION:
+        raise BusinessDatabaseUnavailable(
+            "business database must use PostgreSQL 16"
         )
-        return bool(cur.fetchone()[0])
 
 
-def ensure_business_tables(conn):
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS career_report (
-                id BIGSERIAL PRIMARY KEY,
-                student_id BIGINT NOT NULL,
-                job_id INTEGER NOT NULL,
-                status VARCHAR(32) NOT NULL DEFAULT 'ready',
-                content JSONB NOT NULL,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-
-            CREATE TABLE IF NOT EXISTS matching_history (
-                id BIGSERIAL PRIMARY KEY,
-                user_id VARCHAR(64) NOT NULL DEFAULT 'default',
-                student_id BIGINT NOT NULL,
-                job_id INTEGER NOT NULL,
-                overall_score NUMERIC(5,2),
-                analysis JSONB NOT NULL,
-                report_id BIGINT,
-                created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-            """
+def _new_business_pool() -> ThreadedConnectionPool:
+    connection_config = get_postgres_config()
+    pool_config = get_postgres_pool_config()
+    try:
+        pool = ThreadedConnectionPool(
+            pool_config["minconn"],
+            pool_config["maxconn"],
+            **connection_config,
         )
-    conn.commit()
+        connection = pool.getconn()
+        try:
+            _validate_business_connection(connection)
+        finally:
+            pool.putconn(connection)
+        return pool
+    except BusinessDatabaseUnavailable:
+        if "pool" in locals():
+            try:
+                pool.closeall()
+            except Exception:
+                pass
+        raise
+    except Exception:
+        if "pool" in locals():
+            try:
+                pool.closeall()
+            except Exception:
+                pass
+        raise BusinessDatabaseUnavailable(
+            "business database connection pool is unavailable"
+        ) from None
 
 
-def normalize_industry(industry: str | None) -> str:
-    """Normalize industry text to the first label for stable type-key grouping."""
-    if not industry:
-        return "未知行业"
-    first = str(industry).split(",")[0].strip()
-    return first or "未知行业"
+def get_business_database_pool() -> ThreadedConnectionPool:
+    """Return the process-wide thread-safe pool, creating it on first use."""
+
+    global _business_pool
+    with _business_pool_lock:
+        if _business_pool is None:
+            _business_pool = _new_business_pool()
+        return _business_pool
 
 
-def make_type_key(normalized_job_title: str | None, industry: str | None) -> str:
-    """Build deterministic key used to map instance -> job type profile.
+def close_business_database_pool() -> None:
+    """Close the current pool during application shutdown or test cleanup."""
 
-    聚合改为仅按岗位标准名，避免同名岗位被行业拆散。
+    global _business_pool
+    with _business_pool_lock:
+        pool = _business_pool
+        _business_pool = None
+    if pool is None:
+        return
+    try:
+        pool.closeall()
+    except Exception:
+        raise BusinessDatabaseError(
+            "business database connection pool could not be closed"
+        ) from None
+
+
+def _lease_connection() -> tuple[ThreadedConnectionPool, Any]:
+    pool = get_business_database_pool()
+    try:
+        connection = pool.getconn()
+    except Exception:
+        raise BusinessDatabaseUnavailable(
+            "business database connection could not be acquired"
+        ) from None
+    if connection is None:
+        raise BusinessDatabaseUnavailable(
+            "business database connection could not be acquired"
+        )
+    return pool, connection
+
+
+def _return_connection(
+    pool: ThreadedConnectionPool,
+    connection: Any,
+    *,
+    discard: bool = False,
+) -> None:
+    if getattr(connection, "closed", False):
+        discard = True
+    try:
+        pool.putconn(connection, close=discard)
+    except Exception:
+        try:
+            connection.close()
+        except Exception:
+            pass
+        raise BusinessDatabaseError(
+            "business database connection could not be returned"
+        ) from None
+
+
+@contextmanager
+def business_connection() -> Iterator[Any]:
+    """Lease a pooled connection and return it without an open transaction.
+
+    This context never commits. It rolls back before returning the connection,
+    making it suitable for reads and explicit lower-level control. Use
+    :func:`business_transaction` for writes.
     """
-    _ = industry
-    return (normalized_job_title or "未知岗位").strip()
+
+    pool, connection = _lease_connection()
+    discard = False
+    active_error = False
+    returned = False
+    try:
+        yield connection
+    except BaseException:
+        active_error = True
+        raise
+    finally:
+        if not getattr(connection, "closed", False):
+            try:
+                connection.rollback()
+            except Exception:
+                discard = True
+                if not active_error:
+                    _return_connection(pool, connection, discard=True)
+                    returned = True
+                    raise BusinessDatabaseTransactionError(
+                        "business database connection cleanup failed"
+                    ) from None
+        if not returned:
+            _return_connection(pool, connection, discard=discard)
 
 
-def to_iso(dt: Any) -> str | None:
-    """Convert datetime to ISO-8601 string, passthrough None/others."""
-    if isinstance(dt, datetime):
-        return dt.isoformat()
-    return None
+@contextmanager
+def business_transaction() -> Iterator[Any]:
+    """Commit a successful pooled transaction and roll back an exception."""
+
+    pool, connection = _lease_connection()
+    discard = False
+    try:
+        try:
+            yield connection
+            connection.commit()
+        except BaseException as exc:
+            try:
+                connection.rollback()
+            except Exception:
+                discard = True
+                if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+                    raise
+                raise BusinessDatabaseTransactionError(
+                    "business database transaction rollback failed"
+                ) from None
+            if isinstance(exc, psycopg2.Error):
+                raise BusinessDatabaseTransactionError(
+                    "business database transaction failed"
+                ) from None
+            raise
+    finally:
+        _return_connection(pool, connection, discard=discard)
+
+
+__all__ = [
+    "BusinessDatabaseError",
+    "BusinessDatabaseTransactionError",
+    "BusinessDatabaseUnavailable",
+    "business_connection",
+    "business_transaction",
+    "close_business_database_pool",
+    "get_business_database_pool",
+]

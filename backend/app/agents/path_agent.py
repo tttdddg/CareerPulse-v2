@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import json
+from contextvars import ContextVar
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .base_agent import BaseAgent
+from .base_agent import AgentResult, BaseAgent
 from ..core.llm_client import llm_client
-from ..orchestrator.career_state import CareerState
-from ..services.path_service import PathService
+from ..orchestrator.career_state import CareerState, ToolCallLog
+from ..repositories.career_graph_repository import (
+    CareerGraphProvider,
+    CareerGraphProviderError,
+)
+from ..services.path_service import GraphLoadMetadata, PathService
+
+
+_GRAPH_LOAD_METADATA: ContextVar[GraphLoadMetadata | None] = ContextVar(
+    "path_graph_load_metadata",
+    default=None,
+)
 
 
 class _LLMStageEnhancement(BaseModel):
@@ -37,17 +48,53 @@ class PathAgent(BaseAgent):
     ) -> None:
         self._llm_client = client if client is not None else llm_client
         self._service = service or PathService()
+        self._runtime_provider_configurable = service is None
+
+    def configure_graph_provider(self, provider: CareerGraphProvider) -> None:
+        """Bind the runtime graph source before this Agent serves requests."""
+
+        if self._runtime_provider_configurable:
+            self._service.set_provider(provider)
+
+    async def run(self, state: CareerState) -> AgentResult:
+        token = _GRAPH_LOAD_METADATA.set(None)
+        try:
+            result = await super().run(state)
+            metadata = _GRAPH_LOAD_METADATA.get()
+            if metadata is not None and state.agent_logs:
+                state.agent_logs[-1].tool_calls.insert(
+                    0,
+                    ToolCallLog(
+                        tool_name="load_career_graph",
+                        service_name=type(self._service.provider).__name__[:64],
+                        input_summary=(
+                            "target_type_key="
+                            f"{(state.job_profile or {}).get('normalized_title', 'unknown')}"
+                        ),
+                        output_summary=(
+                            f"data_source={metadata.data_source}; "
+                            f"node_count={metadata.node_count}; "
+                            f"edge_count={metadata.edge_count}"
+                        ),
+                        duration_ms=metadata.duration_ms,
+                        status="success",
+                    ),
+                )
+            return result
+        finally:
+            _GRAPH_LOAD_METADATA.reset(token)
 
     async def _execute(self, state: CareerState) -> dict[str, Any]:
         flat_profile = self._flatten_profile(state.student_profile)
         preferences = self._extract_preferences(state.student_profile)
-        result = self._service.calculate(
+        result, metadata = self._service.calculate_with_metadata(
             student_profile=flat_profile,
             target_job_profile=state.job_profile,
             match_result=state.match_result,
             user_preferences=preferences,
             horizon_years=3,
         )
+        _GRAPH_LOAD_METADATA.set(metadata)
         try:
             await self._enhance_with_llm(result)
         except Exception:
@@ -59,16 +106,19 @@ class PathAgent(BaseAgent):
         }
 
     async def _fallback(self, state: CareerState, error: Exception) -> dict[str, Any]:
+        if isinstance(error, CareerGraphProviderError):
+            raise error
         flat_profile = self._flatten_profile(state.student_profile)
         preferences = self._extract_preferences(state.student_profile)
         try:
-            result = self._service.calculate(
+            result, metadata = self._service.calculate_with_metadata(
                 student_profile=flat_profile or {},
                 target_job_profile=state.job_profile or {},
                 match_result=state.match_result or {},
                 user_preferences=preferences,
                 horizon_years=3,
             )
+            _GRAPH_LOAD_METADATA.set(metadata)
         except Exception:
             result = self._build_fallback_result(state)
         return {

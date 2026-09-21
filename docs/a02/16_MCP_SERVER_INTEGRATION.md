@@ -5,7 +5,7 @@
 - SDK：官方 Model Context Protocol Python SDK `mcp==2.0.0`（固定稳定版，Python >=3.10）。
 - 传输：Streamable HTTP。
 - 默认端点：`/mcp`。
-- Server 能力版本：`stage4-mcp-v1`，当前 `tools/list` 返回 7 个工具。
+- Server 能力版本：`stage4-mcp-v1` 加 D7-06 只读扩展，当前 `tools/list` 返回 11 个工具。
 - 运行方式：挂载到现有 `app.main:app` FastAPI 应用，共用 CareerOrchestrator、
   CareerState、StateRepository、Agent、Service 和平台调用账本。
 - 鉴权：MCP 独立静态 Bearer Token；不复用或改变 HTTP Tool API 的
@@ -79,6 +79,10 @@ Token 缺失或不匹配返回 HTTP 401，响应不会回显 Token。MCP 鉴权�
 | `generate_and_score_training` | TrainingAgent + TrainingService / 同名 handler | 无独立 HTTP operation | generate/score 合并，写 training_plan |
 | `recommend_learning_and_job_resources` | ResourceService / 同名 handler | 无独立 HTTP operation | 从 State 读 gaps/target job，写 resource_result |
 | `save_growth_feedback` | FeedbackAgent + FeedbackService / 同名 handler | 无独立 HTTP operation | 读 State 上下文，写 feedback_result |
+| `read_student_profile` | StudentProfilePersistenceService | 无 | 授权后按 ID 读取；身份绑定未配置时失败关闭 |
+| `search_jobs` | JobContextService | 无 | 白名单筛选和最多 50 条分页 |
+| `read_job_context` | JobContextService | 无 | 按具体岗位 ID 或标准岗位名读取 |
+| `read_career_graph_edges` | CareerGraph Provider | 无 | 白名单边查询；生产失败不回退 JSON |
 
 HTTP API 保持 `stage3-tool-v1` 契约不变。HTTP 匹配工具仍接收完整已验证 Profile；MCP 的
 七工具共享 session 流程，匹配/路径/资源只接收 `session_id/user_id`。两种传输得到的
@@ -86,7 +90,7 @@ MatchResult/PathResult 已做逐字段一致性测试。
 
 ## 6. 调用顺序与样例
 
-七个工具必须复用相同 `session_id` 和 `user_id`。前四步形成画像→岗位→匹配→路径主链，
+十一个工具必须复用相同 `session_id` 和 `user_id`。原前四步形成画像→岗位→匹配→路径主链，
 后三个工具按需调用。`trace_id` 可省略由服务端生成；若由平台提供，
 每个逻辑调用使用唯一值。
 
@@ -232,8 +236,14 @@ MatchResult/PathResult 已做逐字段一致性测试。
 | `FEEDBACK_FAILED` | 空 | 检查评分/隐私输入；不假定反馈已保存 |
 
 异常堆栈、数据库地址、API Key 和完整简历不会进入 MCP 结果。Profile/Job 的 LLM 失败可使用
-现有验证过的规则/Demo fallback，结果中 `fallback_used=true`；Match/Path 的 Service 结果不被
-LLM 覆盖。
+现有验证过的规则 fallback；只有显式 Demo Mode 才可使用 Demo 业务数据，并在结果中标记
+`fallback_used=true`。Match/Path 的 Service 结果不被 LLM 覆盖。
+
+业务数据源需要与会话存储分别配置：`POSTGRES_HOST`、`POSTGRES_PORT=5433`、
+`POSTGRES_DATABASE=careerpulse_micro`、`POSTGRES_USER`、`POSTGRES_PASSWORD` 供四张业务表
+使用；`A02_STATE_DB_PATH` 或 `A02_DATABASE_URL` 只供 StateRepository 三类记录使用。生产环境
+不得因 PostgreSQL 不可用而切到 JSON。`A02_DEMO_MODE=true` 只表示允许显式 Demo 数据策略，
+每次回退仍需返回并记录来源与回退标记。
 
 ## 8. 官方客户端测试
 
@@ -244,7 +254,7 @@ python -m unittest tests.test_mcp_server -v
 python -m unittest tests.test_tbox_stage3_tools -v
 ```
 
-第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、7 工具同 session
+第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、11 工具发现与原高层工具同 session
 串联、Training 两模式、Schema 拒绝、安全业务失败、Bearer、Streamable HTTP、HTTP 结果一致性、
 fallback 和日志隐私。
 
@@ -280,6 +290,7 @@ asyncio.run(main())
 - `MCP_ALLOWED_HOSTS` 设置为真实公共域名（必要时带端口模式），不要使用无边界通配符。
 - 若客户端会发送 Origin，`MCP_ALLOWED_ORIGINS` 必须只加入实际可信 Origin。
 - 多实例部署继续使用共享 PostgreSQL；当前本地 SQLite 只适合单实例 Demo。
+- 上线前必须在 PostgreSQL 16 `careerpulse_micro` 上完成四表 schema/行数、只读 Provider 和生产失败关闭检查；仅通过 Mock/JSON 测试不能视为实库验收。
 - 在目标环境重新执行官方远程客户端测试，并检查平台调用账本/AgentRunLog。
 
 ## 10. 百宝箱中应填写的逻辑字段
@@ -293,7 +304,7 @@ asyncio.run(main())
 | 传输 | Streamable HTTP |
 | Authentication | Bearer / Authorization Header |
 | Header | `Authorization: Bearer <deployment-secret>`（密钥字段） |
-| 工具发现 | 从 `tools/list` 读取 7 个工具 |
+| 工具发现 | 从 `tools/list` 读取 11 个工具 |
 | 超时 | 大于 CareerPulse 后端超时；平台上限待现场验证 |
 
 目前尚未验证目标百宝箱租户是否支持远程 Streamable HTTP MCP、其精确字段名、超时、返回

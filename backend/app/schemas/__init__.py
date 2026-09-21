@@ -11,6 +11,37 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .database_tool_schema import (
+    JobSearchItem,
+    ReadCareerGraphEdgesData,
+    ReadCareerGraphEdgesRequest,
+    ReadCareerGraphEdgesResult,
+    ReadJobContextData,
+    ReadJobContextRequest,
+    ReadJobContextResult,
+    ReadStudentProfileData,
+    ReadStudentProfileRequest,
+    ReadStudentProfileResult,
+    SearchJobsData,
+    SearchJobsRequest,
+    SearchJobsResult,
+)
+from .job_context_schema import (
+    JobCleanRecord,
+    JobContext,
+    JobSearchFilters,
+    JobSearchPage,
+    JobSkillRequirement,
+    JobTypeProfileRecord,
+)
+from .student_persistence_schema import (
+    StoredStudentAbility,
+    StoredStudentBasicInfo,
+    StudentProfilePersistenceResult,
+    StudentProfileRecord,
+    StudentProfileWrite,
+)
+
 
 class ProfileUploadRequest(BaseModel):
     name: str | None = Field(default=None, description="学生姓名，可选")
@@ -51,10 +82,34 @@ class StudentUploadResponse(BaseModel):
 
 
 __all__ = [
+    "JobSearchItem",
+    "JobCleanRecord",
+    "JobContext",
+    "JobSearchFilters",
+    "JobSearchPage",
+    "JobSkillRequirement",
+    "JobTypeProfileRecord",
     "MatchingAnalyzeRequest",
     "ProfileUploadRequest",
+    "ReadCareerGraphEdgesData",
+    "ReadCareerGraphEdgesRequest",
+    "ReadCareerGraphEdgesResult",
+    "ReadJobContextData",
+    "ReadJobContextRequest",
+    "ReadJobContextResult",
+    "ReadStudentProfileData",
+    "ReadStudentProfileRequest",
+    "ReadStudentProfileResult",
     "ReportGenerateRequest",
     "ReportPolishRequest",
     "StudentUploadResponse",
     "StudentUploadResponseData",
+    "SearchJobsData",
+    "SearchJobsRequest",
+    "SearchJobsResult",
+    "StoredStudentAbility",
+    "StoredStudentBasicInfo",
+    "StudentProfilePersistenceResult",
+    "StudentProfileRecord",
+    "StudentProfileWrite",
 ]

@@ -304,6 +304,7 @@ class StageFourFinalEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("certificate_suggestions", resource_result)
         self.assertIn("job_resources_unavailable", resource_result["data_quality_flags"])
 
+        profile_before_feedback = deepcopy(state.student_profile)
         feedback = await self.tools.save_growth_feedback(
             SaveGrowthFeedbackRequest(
                 session_id=session_id,
@@ -336,6 +337,11 @@ class StageFourFinalEndToEndTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(FLAG_FIRST_GROWTH_SNAPSHOT, feedback_result["data_quality_flags"])
 
         final_state = self.orchestrator.get_session(session_id)
+        self.assertEqual(profile_before_feedback, final_state.student_profile)
+        self.assertEqual(
+            student_profile()["career_competitiveness_score"],
+            final_state.student_profile["career_competitiveness_score"],
+        )
         self.assertEqual(resource_result, final_state.resource_result)
         self.assertEqual(feedback_result, final_state.feedback_result)
         serialized = json.dumps(final_state.model_dump(), ensure_ascii=False)

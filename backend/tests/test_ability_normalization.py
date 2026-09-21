@@ -1,5 +1,6 @@
 import unittest
 
+from app.schemas.profile_schema import active_ability_tags
 from app.services.ability_normalization import AbilityTagNormalizer
 
 
@@ -16,14 +17,14 @@ class AbilityTagNormalizerTests(unittest.TestCase):
             ("Python 编程", "Python"),
             ("Python   编程", "Python"),
             ("Python programming", "Python"),
-            ("Python Web", "Python Web开发"),
-            ("Python Web Development", "Python Web开发"),
+            ("Python Web", "Python/Web开发"),
+            ("Python Web Development", "Python/Web开发"),
             ("JS", "JavaScript/TypeScript"),
             ("typescript", "JavaScript/TypeScript"),
-            ("SQL", "SQL/数据库"),
-            ("database", "SQL/数据库"),
-            ("K8S", "Docker/K8s"),
-            ("Kubernetes", "Docker/K8s"),
+            ("SQL", "数据库/SQL"),
+            ("database", "数据库/SQL"),
+            ("K8S", "容器/K8s"),
+            ("Kubernetes", "容器/K8s"),
             ("Data Analysis", "数据分析"),
             ("Machine Learning", "机器学习"),
             ("ml", "机器学习"),
@@ -35,10 +36,10 @@ class AbilityTagNormalizerTests(unittest.TestCase):
             ("Communication", "沟通表达"),
             ("Teamwork", "团队协作"),
             ("Problem Solving", "解决问题"),
-            ("Git", "Git/版本控制"),
+            ("Git", "版本控制/Git"),
             ("检索增强生成", "RAG"),
-            ("LLM", "LLM应用开发"),
-            ("工具调用", "Tool Calling"),
+            ("LLM", "大模型应用开发/LLM"),
+            ("工具调用", "工具调用/Tool Calling"),
             ("Model Context Protocol", "MCP"),
         ]
         self.assertGreaterEqual(len(examples), 20)
@@ -53,10 +54,10 @@ class AbilityTagNormalizerTests(unittest.TestCase):
     def test_related_but_distinct_capabilities_are_not_merged(self):
         expected = {
             "Python": "Python",
-            "Python Web": "Python Web开发",
+            "Python Web": "Python/Web开发",
             "RAG": "RAG",
-            "LLM": "LLM应用开发",
-            "工具调用": "Tool Calling",
+            "LLM": "大模型应用开发/LLM",
+            "工具调用": "工具调用/Tool Calling",
             "MCP": "MCP",
         }
         actual = {
@@ -92,6 +93,19 @@ class AbilityTagNormalizerTests(unittest.TestCase):
     def test_strict_method_raises_for_unknown_tag(self):
         with self.assertRaisesRegex(ValueError, "cannot be mapped deterministically"):
             self.normalizer.normalize_or_raise("Python和Java")
+
+    def test_public_alias_catalog_matches_normalization_and_active_tags(self):
+        aliases = self.normalizer.explicit_aliases()
+
+        self.assertTrue(aliases)
+        self.assertTrue(set(aliases.values()) <= active_ability_tags())
+        for alias, standard_tag in aliases.items():
+            with self.subTest(alias=alias):
+                self.assertEqual(
+                    standard_tag,
+                    self.normalizer.normalize(alias)["standard_tag"],
+                )
+                self.assertIn(alias, self.normalizer.aliases_for(standard_tag))
 
 
 if __name__ == "__main__":

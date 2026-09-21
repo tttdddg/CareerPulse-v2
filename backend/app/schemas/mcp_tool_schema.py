@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -47,11 +47,28 @@ class TargetJobInput(MCPModel):
     """Target evidence accepted by the existing JobAgent."""
 
     job_id: int | None = Field(default=None, ge=1)
-    job_title: str = Field(min_length=1, max_length=200)
+    type_key: str | None = Field(default=None, min_length=1, max_length=300)
+    job_title: str | None = Field(default=None, min_length=1, max_length=200)
     industry: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=100)
     job_description: str | None = Field(default=None, max_length=100_000)
     trend_context: str | dict[str, Any] | list[Any] | None = None
+
+    @model_validator(mode="after")
+    def require_database_reference_or_job_evidence(self) -> "TargetJobInput":
+        if not any(
+            value not in (None, "", [], {})
+            for value in (
+                self.job_id,
+                self.type_key,
+                self.job_title,
+                self.job_description,
+            )
+        ):
+            raise ValueError(
+                "target job requires job_id, type_key, title, or job description"
+            )
+        return self
 
 
 class MCPToolRequest(MCPModel):
@@ -85,12 +102,19 @@ class GenerateCareerPathMCPRequest(MCPToolRequest):
 class BuildStudentProfileData(MCPModel):
     agent_run_id: str = Field(min_length=1, max_length=256)
     fallback_used: bool
+    student_id: int | None = Field(default=None, ge=1)
+    data_source: Literal["session", "postgresql", "demo_json"] = "session"
+    demo_mode: bool = False
     student_profile: StudentProfile
 
 
 class AnalyzeTargetJobData(MCPModel):
     agent_run_id: str = Field(min_length=1, max_length=256)
     fallback_used: bool
+    job_id: int | None = Field(default=None, ge=1)
+    type_key: str | None = Field(default=None, max_length=300)
+    data_source: Literal["session", "postgresql", "demo_json"] = "session"
+    demo_mode: bool = False
     job_profile: JobProfile
     trend_result: TrendResult
 

@@ -281,6 +281,27 @@ class ProfileAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("student@example.com", serialized)
         self.assertNotIn("13800138000", serialized)
 
+    def test_historical_name_and_user_id_never_enter_prompt(self) -> None:
+        state = CareerState(
+            session_id="history-identity-prompt",
+            student_input={"resume_text": "使用 Python 完成匿名课程项目。"},
+            student_profile={
+                "user_id": "PRIVATE_USER_SENTINEL",
+                "basic_info": {"name": "PRIVATE_NAME_SENTINEL"},
+            },
+        )
+        agent = ProfileAgent(client=QueueClient())
+
+        original = agent._prompt_templates
+        agent._prompt_templates = lambda: ("system", "{{profile_material}}")
+        try:
+            _, prompt = agent._build_prompts(state)
+        finally:
+            agent._prompt_templates = original
+
+        self.assertNotIn("PRIVATE_USER_SENTINEL", prompt)
+        self.assertNotIn("PRIVATE_NAME_SENTINEL", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

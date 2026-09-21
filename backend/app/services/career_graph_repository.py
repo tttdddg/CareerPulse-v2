@@ -7,13 +7,178 @@ from collections import defaultdict
 from collections.abc import Iterable
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from ..models import CareerGraph, CareerGraphEdge, CareerGraphNode
+from ..repositories.career_graph_repository import (
+    CareerGraphProvider,
+    CareerGraphProviderError,
+    CareerGraphProviderResult,
+    CareerGraphQuery,
+)
 from ..schemas.job_schema import JobProfile
 from ..schemas.profile_schema import active_ability_tags
 from .path_config import DEFAULT_DURATION_MONTHS, LEVEL_ORDER
 
 
 _CAREER_GRAPH_FILE = Path(__file__).resolve().parents[1] / "data" / "career_graph.json"
+
+
+class DemoCareerGraphProviderError(CareerGraphProviderError):
+    """The explicitly enabled Demo graph could not be loaded."""
+
+
+class JsonCareerGraphProvider:
+    """Read the versioned JSON graph only when Demo Mode is explicit."""
+
+    def __init__(
+        self,
+        graph_file: Path | str = _CAREER_GRAPH_FILE,
+        *,
+        demo_mode: bool,
+    ) -> None:
+        if demo_mode is not True:
+            raise ValueError("JSON career graph requires explicit Demo Mode")
+        self.graph_file = Path(graph_file)
+
+    def load(
+        self,
+        query: CareerGraphQuery | None = None,
+        *,
+        fallback_used: bool = False,
+    ) -> CareerGraphProviderResult:
+        filters = query or CareerGraphQuery()
+        try:
+            with self.graph_file.open(encoding="utf-8") as handle:
+                graph = CareerGraph.model_validate(json.load(handle))
+        except (OSError, TypeError, ValueError, ValidationError, json.JSONDecodeError):
+            raise DemoCareerGraphProviderError(
+                "Demo career graph data is invalid"
+            ) from None
+
+        edges = [
+            edge
+            for edge in graph.edges
+            if (
+                filters.source_type_key is None
+                or edge.source_key == filters.source_type_key
+            )
+            and (
+                filters.relation_type is None
+                or edge.relation_type == filters.relation_type
+            )
+        ]
+        edges.sort(
+            key=lambda item: (
+                item.source_key,
+                item.target_key,
+                item.relation_type,
+            )
+        )
+        return CareerGraphProviderResult(
+            nodes=sorted(graph.nodes, key=lambda item: item.node_key),
+            edges=edges[: filters.limit],
+            data_source="demo_json",
+            fallback_used=fallback_used,
+            demo_mode=True,
+        )
+
+
+class CareerGraphProviderSelector:
+    """Apply the production-closed and explicit-Demo source policy."""
+
+    def __init__(
+        self,
+        postgres_provider: CareerGraphProvider,
+        demo_provider: CareerGraphProvider | None = None,
+    ) -> None:
+        self.postgres_provider = postgres_provider
+        self.demo_provider = demo_provider
+
+    def load(
+        self,
+        query: CareerGraphQuery | None = None,
+        *,
+        demo_mode: bool = False,
+        fallback_to_demo: bool = False,
+    ) -> CareerGraphProviderResult:
+        if fallback_to_demo and not demo_mode:
+            raise ValueError("Demo fallback requires explicit Demo Mode")
+
+        if demo_mode and not fallback_to_demo:
+            return self._load_demo(query, fallback_used=False)
+
+        try:
+            result = self.postgres_provider.load(query, fallback_used=False)
+        except CareerGraphProviderError:
+            if not demo_mode or not fallback_to_demo:
+                raise
+            return self._load_demo(query, fallback_used=True)
+
+        if demo_mode:
+            result = result.model_copy(update={"demo_mode": True})
+        return self._validated_result(result, full_graph=query is None)
+
+    def _load_demo(
+        self,
+        query: CareerGraphQuery | None,
+        *,
+        fallback_used: bool,
+    ) -> CareerGraphProviderResult:
+        if self.demo_provider is None:
+            raise DemoCareerGraphProviderError(
+                "Demo career graph provider is not configured"
+            )
+        result = self.demo_provider.load(query, fallback_used=fallback_used)
+        return self._validated_result(result, full_graph=query is None)
+
+    @staticmethod
+    def _validated_result(
+        result: CareerGraphProviderResult,
+        *,
+        full_graph: bool,
+    ) -> CareerGraphProviderResult:
+        if full_graph:
+            CareerGraphRepository(
+                graph=CareerGraph(nodes=result.nodes, edges=result.edges)
+            )
+        return result
+
+
+class ConfiguredCareerGraphProvider:
+    """Bind source-policy flags once for injection into PathService."""
+
+    def __init__(
+        self,
+        selector: CareerGraphProviderSelector,
+        *,
+        demo_mode: bool = False,
+        fallback_to_demo: bool = False,
+    ) -> None:
+        if fallback_to_demo and not demo_mode:
+            raise ValueError("Demo fallback requires explicit Demo Mode")
+        self.selector = selector
+        self.demo_mode = demo_mode
+        self.fallback_to_demo = fallback_to_demo
+
+    def load(
+        self,
+        query: CareerGraphQuery | None = None,
+        *,
+        fallback_used: bool = False,
+    ) -> CareerGraphProviderResult:
+        if fallback_used:
+            raise ValueError("configured graph providers own fallback policy")
+        try:
+            return self.selector.load(
+                query,
+                demo_mode=self.demo_mode,
+                fallback_to_demo=self.fallback_to_demo,
+            )
+        except ValueError:
+            raise CareerGraphProviderDataError(
+                "career graph snapshot failed whole-graph validation"
+            ) from None
 
 
 class CareerGraphRepository:
@@ -44,6 +209,19 @@ class CareerGraphRepository:
             self._outgoing[edge.source_key].append(edge)
         for edges in self._outgoing.values():
             edges.sort(key=lambda item: (item.target_key, item.relation_type))
+
+    @classmethod
+    def from_provider_result(
+        cls,
+        result: CareerGraphProviderResult,
+    ) -> "CareerGraphRepository":
+        """Build the existing PathService view without changing score fields."""
+
+        repository = cls(graph=CareerGraph(nodes=result.nodes, edges=result.edges))
+        repository.data_source = result.data_source
+        repository.fallback_used = result.fallback_used
+        repository.demo_mode = result.demo_mode
+        return repository
 
     @property
     def nodes(self) -> tuple[CareerGraphNode, ...]:
@@ -205,4 +383,10 @@ class CareerGraphRepository:
             raise ValueError(f"career graph contains isolated nodes: {isolated}")
 
 
-__all__ = ["CareerGraphRepository"]
+__all__ = [
+    "CareerGraphProviderSelector",
+    "ConfiguredCareerGraphProvider",
+    "CareerGraphRepository",
+    "DemoCareerGraphProviderError",
+    "JsonCareerGraphProvider",
+]

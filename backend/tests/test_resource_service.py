@@ -39,7 +39,7 @@ class ResourceServiceTests(unittest.TestCase):
         self.service = ResourceService(resources=DATA)
 
     def test_gaps_follow_input_order(self) -> None:
-        result = self.service.recommend_resources(["数据分析", "Python", "SQL/数据库"])
+        result = self.service.recommend_resources(["数据分析", "Python", "数据库/SQL"])
         self.assertEqual(
             ["数据分析演示项目", "Python基础演示课程", "SQL练习演示集"],
             title_list(result),

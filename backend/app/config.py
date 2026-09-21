@@ -1,4 +1,4 @@
-"""Environment-backed configuration for legacy CareerPulse services."""
+"""Environment-backed configuration for CareerPulse business services."""
 
 from __future__ import annotations
 
@@ -18,13 +18,19 @@ def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
 
 
 def get_postgres_config() -> dict[str, Any]:
-    """Read the legacy PostgreSQL connection settings from the environment."""
+    """Read business PostgreSQL connection settings from ``POSTGRES_*`` only."""
+
+    configured_database = os.getenv("POSTGRES_DATABASE")
+    if configured_database is None and os.getenv("POSTGRES_DB") not in (None, ""):
+        raise ValueError(
+            "POSTGRES_DB is not supported; use POSTGRES_DATABASE"
+        )
 
     return {
         "host": os.getenv("POSTGRES_HOST", "localhost").strip() or "localhost",
-        "port": _env_int("POSTGRES_PORT", 5432, minimum=1, maximum=65535),
-        "database": os.getenv("POSTGRES_DATABASE", "postgres").strip()
-        or "postgres",
+        "port": _env_int("POSTGRES_PORT", 5433, minimum=1, maximum=65535),
+        "database": (configured_database or "careerpulse_micro").strip()
+        or "careerpulse_micro",
         "user": os.getenv("POSTGRES_USER", "postgres").strip() or "postgres",
         # Intentionally empty by default. Production credentials belong only in
         # the protected systemd EnvironmentFile, never in source control.
@@ -35,10 +41,27 @@ def get_postgres_config() -> dict[str, Any]:
     }
 
 
+def get_postgres_pool_config() -> dict[str, int]:
+    """Read bounded business connection-pool settings from ``POSTGRES_*``."""
+
+    minimum = _env_int("POSTGRES_POOL_MIN_SIZE", 1, minimum=1, maximum=100)
+    maximum = _env_int("POSTGRES_POOL_MAX_SIZE", 10, minimum=1, maximum=100)
+    if maximum < minimum:
+        raise ValueError(
+            "POSTGRES_POOL_MAX_SIZE must be greater than or equal to "
+            "POSTGRES_POOL_MIN_SIZE"
+        )
+    return {"minconn": minimum, "maxconn": maximum}
+
+
 # Retain the historical name for compatibility with any external imports. The
 # database helper reads fresh settings per connection so deployment tooling and
 # tests can override the process environment safely.
 POSTGRES_CONFIG = get_postgres_config()
 
 
-__all__ = ["POSTGRES_CONFIG", "get_postgres_config"]
+__all__ = [
+    "POSTGRES_CONFIG",
+    "get_postgres_config",
+    "get_postgres_pool_config",
+]

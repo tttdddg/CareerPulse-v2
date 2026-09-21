@@ -66,8 +66,8 @@ class DeploymentReadinessTests(unittest.TestCase):
             config = get_postgres_config()
 
         self.assertEqual(config["host"], "localhost")
-        self.assertEqual(config["port"], 5432)
-        self.assertEqual(config["database"], "postgres")
+        self.assertEqual(config["port"], 5433)
+        self.assertEqual(config["database"], "careerpulse_micro")
         self.assertEqual(config["user"], "postgres")
         self.assertEqual(config["password"], "")
         self.assertEqual(config["connect_timeout"], 5)
@@ -75,6 +75,16 @@ class DeploymentReadinessTests(unittest.TestCase):
     def test_legacy_postgres_rejects_invalid_port(self) -> None:
         with patch.dict(os.environ, {"POSTGRES_PORT": "70000"}, clear=False):
             with self.assertRaisesRegex(ValueError, "POSTGRES_PORT"):
+                get_postgres_config()
+
+    def test_postgres_db_alias_fails_instead_of_connecting_to_default(self) -> None:
+        names = {"POSTGRES_DATABASE", "POSTGRES_DB"}
+        clean_environment = {
+            key: value for key, value in os.environ.items() if key not in names
+        }
+        clean_environment["POSTGRES_DB"] = "wrong_database"
+        with patch.dict(os.environ, clean_environment, clear=True):
+            with self.assertRaisesRegex(ValueError, "POSTGRES_DATABASE"):
                 get_postgres_config()
 
     def test_production_requirements_are_curated_and_include_pdf_export(self) -> None:
@@ -119,6 +129,9 @@ class DeploymentReadinessTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("MCP_ENABLED=true", environment)
+        self.assertIn("POSTGRES_PORT=5433", environment)
+        self.assertIn("POSTGRES_DATABASE=careerpulse_micro", environment)
+        self.assertNotIn("POSTGRES_DB=", environment)
         self.assertIn(
             "A02_STATE_DB_PATH=/var/lib/careerpulse/career_state.sqlite3",
             environment,

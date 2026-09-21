@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 from app.agents.base_agent import BaseAgent
 from app.api.career_agent_api import app as career_agent_app
+from app.core.llm_client import LLMConfigurationError
 from app.orchestrator import CareerOrchestrator, CareerState
 from app.platform import MockCareerToolRequest, app as tbox_app, run_mock_career_tool
 
@@ -50,19 +51,26 @@ class BrokenFallbackAgent(BaseAgent):
 
 class MockCareerFlowTests(unittest.IsolatedAsyncioTestCase):
     def test_standalone_apps_expose_expected_routes(self):
-        career_paths = {route.path for route in career_agent_app.routes}
-        tbox_paths = {route.path for route in tbox_app.routes}
+        # MCP SDK 2.x can add non-HTTP router objects to ``app.routes``.
+        # OpenAPI is the stable public HTTP surface and contains only paths.
+        career_paths = set(career_agent_app.openapi()["paths"])
+        tbox_paths = set(tbox_app.openapi()["paths"])
 
         self.assertIn("/api/career-agent/run", career_paths)
         self.assertIn("/api/career-agent/session/{session_id}", career_paths)
         self.assertIn("/api/agent/logs/{session_id}", career_paths)
         self.assertIn("/api/tbox/mock-career-analysis", tbox_paths)
 
-    async def test_full_chain_generates_report_and_safe_logs(self):
-        result = await CareerOrchestrator().run(build_state())
+    async def test_full_chain_generates_partial_report_and_safe_logs_offline(self):
+        with patch(
+            "app.core.llm_client.llm_client.generate_structured",
+            new=AsyncMock(side_effect=LLMConfigurationError("offline test")),
+        ):
+            result = await CareerOrchestrator().run(build_state())
 
         self.assertEqual(6, len(result.agent_logs))
-        self.assertEqual("success", result.final_report["status"])
+        self.assertEqual("partial", result.final_report["status"])
+        self.assertTrue(any(log.fallback_used for log in result.agent_logs))
         self.assertEqual(
             "deterministic-v1", result.match_result["matching_algorithm_version"]
         )
@@ -103,17 +111,22 @@ class MockCareerFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_tbox_mock_tool_uses_frozen_envelope(self):
         state = build_state("sess-tool")
-        response = await run_mock_career_tool(
-            MockCareerToolRequest(
-                session_id=state.session_id,
-                platform_session_id=state.platform_session_id,
-                user_id=state.user_id,
-                student_input=state.student_input,
-                target_job_input=state.target_job_input,
+        with patch(
+            "app.core.llm_client.llm_client.generate_structured",
+            new=AsyncMock(side_effect=LLMConfigurationError("offline test")),
+        ):
+            response = await run_mock_career_tool(
+                MockCareerToolRequest(
+                    session_id=state.session_id,
+                    platform_session_id=state.platform_session_id,
+                    user_id=state.user_id,
+                    student_input=state.student_input,
+                    target_job_input=state.target_job_input,
+                )
             )
-        )
 
-        self.assertEqual(0, response.code)
+        self.assertEqual(-4, response.code)
+        self.assertEqual("Mock workflow completed with fallback", response.message)
         self.assertIsNone(response.error)
         self.assertEqual("sess-tool", response.data["session_id"])
         self.assertIn("final_report", response.data)

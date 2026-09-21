@@ -48,22 +48,22 @@ class MatchServiceTests(unittest.TestCase):
         self.service = MatchService()
         self.target = job(
             requirement("Python", 4, 0.5),
-            requirement("SQL/数据库", 3, 0.3),
+            requirement("数据库/SQL", 3, 0.3),
             requirement("沟通表达", 2, 0.2),
         )
 
     def test_high_match(self):
         result = self.service.calculate(
-            profile(ability("Python", 5), ability("SQL/数据库", 3), ability("沟通表达", 4)),
+            profile(ability("Python", 5), ability("数据库/SQL", 3), ability("沟通表达", 4)),
             self.target,
         )
         self.assertEqual(result["overall_score"], 100.0)
         self.assertEqual(result["ability_gaps"], [])
-        self.assertEqual(result["strengths"], ["Python", "SQL/数据库", "沟通表达"])
+        self.assertEqual(result["strengths"], ["Python", "数据库/SQL", "沟通表达"])
 
     def test_medium_match(self):
         result = self.service.calculate(
-            profile(ability("Python", 3), ability("SQL/数据库", 2), ability("沟通表达", 1)),
+            profile(ability("Python", 3), ability("数据库/SQL", 2), ability("沟通表达", 1)),
             self.target,
         )
         self.assertEqual(result["overall_score"], 67.5)
@@ -76,7 +76,7 @@ class MatchServiceTests(unittest.TestCase):
         self.assertEqual(result["ability_gaps"][0], {
             "tag": "Python", "current_level": 0, "required_level": 4, "gap": 4, "priority": 1
         })
-        self.assertEqual(result["ability_gaps"][1]["tag"], "SQL/数据库")
+        self.assertEqual(result["ability_gaps"][1]["tag"], "数据库/SQL")
 
     def test_empty_student_abilities_are_zero(self):
         result = self.service.calculate(profile(), self.target)
@@ -156,7 +156,7 @@ class MatchServiceTests(unittest.TestCase):
         self.assertEqual([item["priority"] for item in result["ability_gaps"]], [1, 2])
 
     def test_same_input_is_exactly_deterministic(self):
-        student = profile(ability("Python", 3), ability("SQL/数据库", 2))
+        student = profile(ability("Python", 3), ability("数据库/SQL", 2))
         first = self.service.calculate(student, self.target)
         for _ in range(10):
             self.assertEqual(self.service.calculate(student, self.target), first)
@@ -190,7 +190,7 @@ class MatchServiceTests(unittest.TestCase):
         self.assertEqual(result["overall_score"], 90.42)
         self.assertEqual(result["match_level"], "high")
         self.assertEqual(result["matched_skills"], ["数据分析", "Python", "数据可视化"])
-        self.assertEqual([item["dimension"] for item in result["skill_gaps"]], ["SQL/数据库", "沟通表达"])
+        self.assertEqual([item["dimension"] for item in result["skill_gaps"]], ["数据库/SQL", "沟通表达"])
         self.assertEqual(result["confidence"], 0.8756)
         self.assertEqual(
             [item["status"] for item in result["hard_constraint_results"]],
@@ -216,20 +216,20 @@ class MatchServiceTests(unittest.TestCase):
             profile(ability("Python", 4, 0.9, "匿名项目")),
             job(
                 requirement("Python", 4, 0.6),
-                requirement("SQL/数据库", 4, 0.4),
+                requirement("数据库/SQL", 4, 0.4),
             ),
         )
         self.assertEqual(result["overall_score"], 100.0)
         self.assertEqual(result["match_level"], "high")
-        self.assertEqual(result["missing_skills"], ["SQL/数据库"])
+        self.assertEqual(result["missing_skills"], ["数据库/SQL"])
         self.assertLess(result["confidence"], 0.9)
 
     def test_zero_weight_dimension_is_explicitly_excluded(self):
         result = self.service.calculate(
-            profile(ability("SQL/数据库", 3, 0.8, "匿名课程设计")),
+            profile(ability("数据库/SQL", 3, 0.8, "匿名课程设计")),
             job(
                 requirement("Python", 4, 0.0, "critical"),
-                requirement("SQL/数据库", 3, 1.0),
+                requirement("数据库/SQL", 3, 1.0),
             ),
         )
         excluded = result["dimension_matches"][0]

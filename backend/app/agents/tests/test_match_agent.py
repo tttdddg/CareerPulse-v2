@@ -44,7 +44,7 @@ class MatchAgentTests(unittest.IsolatedAsyncioTestCase):
             "ability_dimensions": [
                 {
                     "dimension": "专业知识",
-                    "tags": ["Python", "SQL/数据库"],
+                    "tags": ["Python", "数据库/SQL"],
                     "level": 3,
                     "confidence": 0.85,
                     "evidence": ["完成数据挖掘课程项目"],
@@ -59,7 +59,7 @@ class MatchAgentTests(unittest.IsolatedAsyncioTestCase):
                     "evidence_source": "project",
                 },
             ],
-            "ability_tags": ["Python", "SQL/数据库", "沟通表达"],
+            "ability_tags": ["Python", "数据库/SQL", "沟通表达"],
             "profile_completeness": 0.8,
             "career_competitiveness_score": 42.0,
             "missing_fields": [],
@@ -232,7 +232,7 @@ class MatchAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(python["evidence"], "完成数据挖掘课程项目")
         self.assertEqual(python["confidence"], 0.85)
 
-        sql = next(a for a in result["abilities"] if a["tag"] == "SQL/数据库")
+        sql = next(a for a in result["abilities"] if a["tag"] == "数据库/SQL")
         self.assertEqual(sql["level"], 3)
         self.assertEqual(sql["evidence"], "完成数据挖掘课程项目")
 

@@ -14,6 +14,12 @@ from ..services.profile_service import ProfileEvidenceExtraction, ProfileService
 
 
 _PROMPT_DIR = Path(__file__).resolve().parents[3] / "prompts" / "profile_agent"
+_DEFAULT_SYSTEM_PROMPT = """你是 CareerPulse ProfileAgent 的证据提取器。
+只提取用户明确提供的信息，模型推断必须单独标记且不得作为事实或评分依据。
+不得输出姓名、联系方式、证件号、student_id、完整度或竞争力分数。
+能力候选必须能由输入证据直接支持；最终合并和评分由 ProfileService 完成。"""
+_DEFAULT_USER_TEMPLATE = """请从以下匿名化画像材料提取结构化证据：
+<profile_material>{{profile_material}}</profile_material>"""
 
 
 class ProfileAgent(BaseAgent):
@@ -90,7 +96,12 @@ class ProfileAgent(BaseAgent):
             "competitions": merged["competitions"],
             "certificates": merged["certificates"],
             "supplementary_info": merged["supplementary_info"],
-            "historical_profile": state.student_profile,
+            # A historical snapshot can originate outside this Agent.  Keep
+            # identity fields out of the prompt even when a caller supplied
+            # an older, less strict snapshot.
+            "historical_profile": self._history_without_identity(
+                state.student_profile
+            ),
         }
         serialized = json.dumps(prompt_payload, ensure_ascii=False, separators=(",", ":"))
         user_prompt = user_template.replace(
@@ -113,8 +124,9 @@ class ProfileAgent(BaseAgent):
         try:
             system_prompt = (_PROMPT_DIR / "system.txt").read_text(encoding="utf-8")
             user_template = (_PROMPT_DIR / "user_template.txt").read_text(encoding="utf-8")
-        except OSError as exc:
-            raise RuntimeError("ProfileAgent prompt could not be loaded") from exc
+        except OSError:
+            system_prompt = _DEFAULT_SYSTEM_PROMPT
+            user_template = _DEFAULT_USER_TEMPLATE
         if "{{profile_material}}" not in user_template:
             raise RuntimeError("ProfileAgent user template is missing profile_material")
         return system_prompt, user_template
@@ -126,6 +138,21 @@ class ProfileAgent(BaseAgent):
     @staticmethod
     def _has_profile_input(state: CareerState) -> bool:
         return bool(state.student_input or state.student_profile)
+
+    @staticmethod
+    def _history_without_identity(
+        profile: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if profile is None:
+            return None
+        safe = dict(profile)
+        safe.pop("user_id", None)
+        basic_info = safe.get("basic_info")
+        if isinstance(basic_info, dict):
+            safe["basic_info"] = {
+                key: value for key, value in basic_info.items() if key != "name"
+            }
+        return safe
 
     def _input_summary(self, state: CareerState) -> str:
         source = state.student_input or {}

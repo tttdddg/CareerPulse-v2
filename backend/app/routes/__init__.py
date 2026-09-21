@@ -1,17 +1,8 @@
-﻿"""Route package exports."""
+"""Retired legacy REST route package.
 
-from .history import router as history_router
-from .jobs import router as jobs_router
-from .matching import router as matching_router
-from .recommendations import router as recommendations_router
-from .reports import router as reports_router
-from .students import router as students_router
+The supported backend surface is assembled in :mod:`app.routers` from the A02
+Agent, platform Tool, TBox and MCP entry points. Legacy modules remain only as
+unmounted migration references and are intentionally not imported here.
+"""
 
-__all__ = [
-    "jobs_router",
-    "students_router",
-    "matching_router",
-    "reports_router",
-    "history_router",
-    "recommendations_router",
-]
+__all__: list[str] = []

@@ -99,18 +99,6 @@
 
 内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“API设计”，要求等级为3，岗位权重为0.1000，重要性为important。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
 
-## 后端开发工程师 · Git/版本控制
-- record_id: `jobkb-f98ba83f8c9f1575`
-- source: `backend/app/data/jobs_demo.json`
-- source_date: `unknown`
-- job_category: `后端开发工程师`
-- industry: `企业服务/SaaS`
-- skills: `Git/版本控制`
-- content_type: `demo_job_skill_requirement`
-- evidence_status: `demo_only_not_market_fact`
-
-内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“Git/版本控制”，要求等级为3，岗位权重为0.1000，重要性为nice_to_have。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
-
 ## 后端开发工程师 · Java
 - record_id: `jobkb-a8f4fba5be9f7c7c`
 - source: `backend/app/data/jobs_demo.json`
@@ -122,30 +110,6 @@
 - evidence_status: `demo_only_not_market_fact`
 
 内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“Java”，要求等级为4，岗位权重为0.2500，重要性为critical。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
-
-## 后端开发工程师 · Linux/运维
-- record_id: `jobkb-d21b3dee985ecdd7`
-- source: `backend/app/data/jobs_demo.json`
-- source_date: `unknown`
-- job_category: `后端开发工程师`
-- industry: `企业服务/SaaS`
-- skills: `Linux/运维`
-- content_type: `demo_job_skill_requirement`
-- evidence_status: `demo_only_not_market_fact`
-
-内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“Linux/运维”，要求等级为2，岗位权重为0.1000，重要性为nice_to_have。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
-
-## 后端开发工程师 · SQL/数据库
-- record_id: `jobkb-95182bc1cdff07ca`
-- source: `backend/app/data/jobs_demo.json`
-- source_date: `unknown`
-- job_category: `后端开发工程师`
-- industry: `企业服务/SaaS`
-- skills: `SQL/数据库`
-- content_type: `demo_job_skill_requirement`
-- evidence_status: `demo_only_not_market_fact`
-
-内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“SQL/数据库”，要求等级为3，岗位权重为0.1500，重要性为important。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
 
 ## 后端开发工程师 · 后端开发
 - record_id: `jobkb-fc3a78d5729f9c0b`
@@ -159,6 +123,42 @@
 
 内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“后端开发”，要求等级为4，岗位权重为0.3000，重要性为critical。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
 
+## 后端开发工程师 · 数据库/SQL
+- record_id: `jobkb-daf02054afde71b2`
+- source: `backend/app/data/jobs_demo.json`
+- source_date: `unknown`
+- job_category: `后端开发工程师`
+- industry: `企业服务/SaaS`
+- skills: `数据库/SQL`
+- content_type: `demo_job_skill_requirement`
+- evidence_status: `demo_only_not_market_fact`
+
+内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“数据库/SQL”，要求等级为3，岗位权重为0.1500，重要性为important。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
+
+## 后端开发工程师 · 版本控制/Git
+- record_id: `jobkb-eb5eaa76cbc4a3c3`
+- source: `backend/app/data/jobs_demo.json`
+- source_date: `unknown`
+- job_category: `后端开发工程师`
+- industry: `企业服务/SaaS`
+- skills: `版本控制/Git`
+- content_type: `demo_job_skill_requirement`
+- evidence_status: `demo_only_not_market_fact`
+
+内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“版本控制/Git”，要求等级为3，岗位权重为0.1000，重要性为nice_to_have。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
+
+## 后端开发工程师 · 运维/Linux
+- record_id: `jobkb-1262936e4b6c484b`
+- source: `backend/app/data/jobs_demo.json`
+- source_date: `unknown`
+- job_category: `后端开发工程师`
+- industry: `企业服务/SaaS`
+- skills: `运维/Linux`
+- content_type: `demo_job_skill_requirement`
+- evidence_status: `demo_only_not_market_fact`
+
+内部匿名演示岗位画像中，后端开发工程师列出标准能力标签“运维/Linux”，要求等级为2，岗位权重为0.1000，重要性为nice_to_have。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
+
 ## 数据分析师 · Python
 - record_id: `jobkb-3b35bbca581e5d4d`
 - source: `backend/app/data/jobs_demo.json`
@@ -170,18 +170,6 @@
 - evidence_status: `demo_only_not_market_fact`
 
 内部匿名演示岗位画像中，数据分析师列出标准能力标签“Python”，要求等级为3，岗位权重为0.2000，重要性为important。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
-
-## 数据分析师 · SQL/数据库
-- record_id: `jobkb-161d886a9b081f16`
-- source: `backend/app/data/jobs_demo.json`
-- source_date: `unknown`
-- job_category: `数据分析师`
-- industry: `电子商务`
-- skills: `SQL/数据库`
-- content_type: `demo_job_skill_requirement`
-- evidence_status: `demo_only_not_market_fact`
-
-内部匿名演示岗位画像中，数据分析师列出标准能力标签“SQL/数据库”，要求等级为4，岗位权重为0.2500，重要性为critical。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
 
 ## 数据分析师 · 数据分析
 - record_id: `jobkb-c8faa2dc8fd05d50`
@@ -206,6 +194,18 @@
 - evidence_status: `demo_only_not_market_fact`
 
 内部匿名演示岗位画像中，数据分析师列出标准能力标签“数据可视化”，要求等级为3，岗位权重为0.1500，重要性为important。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
+
+## 数据分析师 · 数据库/SQL
+- record_id: `jobkb-a9711ef9fd4f29ce`
+- source: `backend/app/data/jobs_demo.json`
+- source_date: `unknown`
+- job_category: `数据分析师`
+- industry: `电子商务`
+- skills: `数据库/SQL`
+- content_type: `demo_job_skill_requirement`
+- evidence_status: `demo_only_not_market_fact`
+
+内部匿名演示岗位画像中，数据分析师列出标准能力标签“数据库/SQL”，要求等级为4，岗位权重为0.2500，重要性为critical。本记录仅用于数据结构与知识库检索测试，不代表真实招聘市场事实或技能趋势。
 
 ## 数据分析师 · 沟通表达
 - record_id: `jobkb-25b30be161d0f3a8`
