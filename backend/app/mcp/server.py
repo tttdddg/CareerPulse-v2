@@ -154,6 +154,7 @@ def create_career_mcp_server(
     *,
     timeout_seconds: float = 25.0,
     database_tools: DatabaseTools | None = None,
+    expose_database_tools: bool = False,
 ) -> MCPServer:
     """Create one MCP server bound to the application's real orchestrator."""
 
@@ -704,6 +705,19 @@ def create_career_mcp_server(
             limit=limit,
         )
         return await service.read_career_graph_edges(request)
+
+    if not expose_database_tools:
+        # The four parameterized database tools remain available for trusted
+        # admin/testing deployments, but the platform-facing server exposes
+        # only the seven workflow-level tools by default.  High-level tools
+        # already use the same repositories and services internally.
+        for database_tool_name in (
+            "read_student_profile",
+            "search_jobs",
+            "read_job_context",
+            "read_career_graph_edges",
+        ):
+            server.remove_tool(database_tool_name)
 
     # MCP SDK 2.0 builds a dynamic root argument model with its default
     # extra="ignore" policy. The project contract requires unknown tool

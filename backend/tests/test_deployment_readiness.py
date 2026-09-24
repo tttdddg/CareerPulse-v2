@@ -129,6 +129,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("MCP_ENABLED=true", environment)
+        self.assertIn("MCP_EXPOSE_DATABASE_TOOLS=false", environment)
         self.assertIn("POSTGRES_PORT=5433", environment)
         self.assertIn("POSTGRES_DATABASE=careerpulse_micro", environment)
         self.assertNotIn("POSTGRES_DB=", environment)

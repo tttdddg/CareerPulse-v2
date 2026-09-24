@@ -5,12 +5,13 @@
 > 工具名、参数名、类型、required 字段不得随意修改。
 > 百宝箱工具配置必须与本文件严格一致。
 
-> **D7-06 仓库侧运行状态（2026-09-19）**：当前标准 MCP Server 的 `tools/list` 注册
+> **平台默认运行状态（2026-09-25）**：当前标准 MCP Server 的 `tools/list` 默认注册
 > `build_student_profile`、`analyze_target_job`、`analyze_job_match`、
 > `generate_career_path`、`generate_and_score_training`、
-> `recommend_learning_and_job_resources`、`save_growth_feedback`、
+> `recommend_learning_and_job_resources`、`save_growth_feedback`，共 7 个高层工具。
+> 只有显式设置 `MCP_EXPOSE_DATABASE_TOOLS=true` 时，才额外公开
 > `read_student_profile`、`search_jobs`、`read_job_context`、
-> `read_career_graph_edges`，共 11 个工具。
+> `read_career_graph_edges`，合计 11 个。数据库 Service 仍由高层工具内部使用。
 > 第 1～4 节的旧名称仍仅为历史语义并映射到当前注册名；第 5～7 节是当前真实运行契约。
 > 这里的“已注册”只表示代码/协议可发现，不表示百宝箱现场已经配置或发布。
 
@@ -852,10 +853,10 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 | 5 | `generate_and_score_training` | 已注册 | 同名 |
 | 6 | `recommend_learning_and_job_resources` | 已注册 | 同名 |
 | 7 | `save_growth_feedback` | 已注册 | 同名 |
-| 8 | `read_student_profile` | 已注册；身份绑定缺失时失败关闭 | 同名 |
-| 9 | `search_jobs` | 已注册 | 同名 |
-| 10 | `read_job_context` | 已注册 | 同名 |
-| 11 | `read_career_graph_edges` | 已注册 | 同名 |
+| 8 | `read_student_profile` | 可选注册；默认对平台隐藏 | 同名 |
+| 9 | `search_jobs` | 可选注册；默认对平台隐藏 | 同名 |
+| 10 | `read_job_context` | 可选注册；默认对平台隐藏 | 同名 |
+| 11 | `read_career_graph_edges` | 可选注册；默认对平台隐藏 | 同名 |
 
 ---
 
@@ -863,6 +864,7 @@ MCP 工具统一要求 `session_id` 和 `user_id`，可选 `trace_id`。匹配�
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-09-25 | v1.5 | 默认只公开 7 个高层工具；4 个数据库工具改由配置显式开放 | Codex |
 | 2026-09-20 | v1.4 | 收口数据库工具测试矩阵、空结果语义与双源日志规则 | Codex |
 | 2026-09-19 | v1.3 | 加法注册四个参数化只读数据库工具；总数为11并冻结安全日志和来源字段 | Codex |
 | 2026-08-04 | v1.0 | 初始冻结：7个工具完整输入输出Schema | 技术负责人 |

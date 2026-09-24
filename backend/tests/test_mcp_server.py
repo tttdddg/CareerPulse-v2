@@ -241,6 +241,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         self.server = create_career_mcp_server(
             self.orchestrator,
             timeout_seconds=2,
+            expose_database_tools=True,
             database_tools=DatabaseTools(
                 student_service=self.student_service,
                 job_service=OfflineJobContextService(),
@@ -270,6 +271,33 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
             mcp_api_token="",
         )
         self.assertFalse(disabled.state.mcp_enabled)
+
+    async def test_database_tools_are_hidden_by_default(self) -> None:
+        server = create_career_mcp_server(
+            self.orchestrator,
+            timeout_seconds=2,
+            database_tools=DatabaseTools(
+                student_service=self.student_service,
+                job_service=OfflineJobContextService(),
+                graph_selector=CareerGraphProviderSelector(
+                    OfflineCareerGraphProvider()
+                ),
+            ),
+        )
+        async with Client(server, mode="legacy") as client:
+            listed = await client.list_tools()
+        self.assertEqual(
+            {
+                "build_student_profile",
+                "analyze_target_job",
+                "analyze_job_match",
+                "generate_career_path",
+                "generate_and_score_training",
+                "recommend_learning_and_job_resources",
+                "save_growth_feedback",
+            },
+            {tool.name for tool in listed.tools},
+        )
 
     async def _run_chain(
         self, client: Client, session_id: str
@@ -1036,6 +1064,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         app = create_app(
             self.orchestrator,
             mcp_enabled=True,
+            mcp_expose_database_tools=True,
             mcp_auth_enabled=True,
             mcp_api_token=TOKEN,
             mcp_host="127.0.0.1",

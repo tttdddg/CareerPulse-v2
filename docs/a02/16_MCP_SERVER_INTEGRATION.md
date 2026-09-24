@@ -5,7 +5,8 @@
 - SDK：官方 Model Context Protocol Python SDK `mcp==2.0.0`（固定稳定版，Python >=3.10）。
 - 传输：Streamable HTTP。
 - 默认端点：`/mcp`。
-- Server 能力版本：`stage4-mcp-v1` 加 D7-06 只读扩展，当前 `tools/list` 返回 11 个工具。
+- Server 能力版本：`stage4-mcp-v1` 加 D7-06 只读扩展；平台默认 `tools/list` 返回
+  7 个高层工具，`MCP_EXPOSE_DATABASE_TOOLS=true` 时返回 11 个。
 - 运行方式：挂载到现有 `app.main:app` FastAPI 应用，共用 CareerOrchestrator、
   CareerState、StateRepository、Agent、Service 和平台调用账本。
 - 鉴权：MCP 独立静态 Bearer Token；不复用或改变 HTTP Tool API 的
@@ -24,6 +25,7 @@ python -m pip install -r requirements.txt
 
 $env:A02_DEMO_MODE = "true"
 $env:MCP_ENABLED = "true"
+$env:MCP_EXPOSE_DATABASE_TOOLS = "false"
 $env:MCP_AUTH_ENABLED = "true"
 $env:MCP_API_TOKEN = "example-local-token-change-me"
 $env:MCP_HOST = "127.0.0.1"
@@ -46,6 +48,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `MCP_ENABLED` | `false` | MCP 总开关 |
+| `MCP_EXPOSE_DATABASE_TOOLS` | `false` | 是否额外公开 4 个底层数据库工具；百宝箱业务 Agent 保持关闭 |
 | `MCP_AUTH_ENABLED` | `true` | 是否要求静态 Bearer；只能在受控本地测试显式关闭 |
 | `MCP_API_TOKEN` | 空 | MCP Bearer secret；鉴权启用时必填 |
 | `MCP_HOST` | `127.0.0.1` | 运行 host 记录/SDK 安全配置 |
@@ -254,7 +257,7 @@ python -m unittest tests.test_mcp_server -v
 python -m unittest tests.test_tbox_stage3_tools -v
 ```
 
-第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、11 工具发现与原高层工具同 session
+第一条测试使用官方 MCP Client，覆盖 `initialize`、`tools/list`、`tools/call`、默认7工具与显式开启后的11工具发现，以及高层工具同 session
 串联、Training 两模式、Schema 拒绝、安全业务失败、Bearer、Streamable HTTP、HTTP 结果一致性、
 fallback 和日志隐私。
 
@@ -304,7 +307,7 @@ asyncio.run(main())
 | 传输 | Streamable HTTP |
 | Authentication | Bearer / Authorization Header |
 | Header | `Authorization: Bearer <deployment-secret>`（密钥字段） |
-| 工具发现 | 从 `tools/list` 读取 11 个工具 |
+| 工具发现 | 默认读取 7 个高层工具；管理/测试环境显式开启后为 11 个 |
 | 超时 | 大于 CareerPulse 后端超时；平台上限待现场验证 |
 
 目前尚未验证目标百宝箱租户是否支持远程 Streamable HTTP MCP、其精确字段名、超时、返回

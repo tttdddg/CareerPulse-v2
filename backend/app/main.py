@@ -70,6 +70,7 @@ def create_app(
     tbox_api_token: str | None = None,
     tbox_tool_timeout_seconds: float | None = None,
     mcp_enabled: bool | None = None,
+    mcp_expose_database_tools: bool | None = None,
     mcp_auth_enabled: bool | None = None,
     mcp_api_token: str | None = None,
     mcp_host: str | None = None,
@@ -89,6 +90,11 @@ def create_app(
     )
     configured_mcp_enabled = (
         _env_bool("MCP_ENABLED", False) if mcp_enabled is None else mcp_enabled
+    )
+    configured_mcp_expose_database_tools = (
+        _env_bool("MCP_EXPOSE_DATABASE_TOOLS", False)
+        if mcp_expose_database_tools is None
+        else mcp_expose_database_tools
     )
     configured_mcp_auth_enabled = (
         _env_bool("MCP_AUTH_ENABLED", True)
@@ -143,6 +149,7 @@ def create_app(
         mcp_server = create_career_mcp_server(
             career_orchestrator,
             timeout_seconds=configured_mcp_timeout,
+            expose_database_tools=configured_mcp_expose_database_tools,
         )
         mcp_asgi_app = create_streamable_http_app(
             mcp_server,
@@ -180,6 +187,9 @@ def create_app(
     )
     application.state.tbox_tool_timeout_seconds = configured_timeout
     application.state.mcp_enabled = configured_mcp_enabled
+    application.state.mcp_expose_database_tools = (
+        configured_mcp_expose_database_tools
+    )
     application.state.mcp_auth_enabled = configured_mcp_auth_enabled
     application.state.mcp_host = configured_mcp_host
     application.state.mcp_port = configured_mcp_port
