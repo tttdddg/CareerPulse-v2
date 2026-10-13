@@ -198,7 +198,9 @@ INITIALIZED
 内部严格 `TargetJobInput` 另支持互斥业务引用 `type_key`。存在 `job_id` 时固定读取
 `job_clean` 并按 `normalized_job_title` 关联 `job_type_profile`；存在 `type_key` 时固定
 读取该类型画像及其代表岗位。数据库引用优先于同请求中的自由文本，分支不得交给 LLM。
-仅有 `job_title/job_description` 时不查询数据库，继续使用原始 JD 分析。
+仅提供公开 `job_title` 时，服务端先以标题及可选 `city/industry` 在内部确定性解析岗位：
+标题直接命中标准类型，或搜索结果可归并为唯一标准类型时读取 PostgreSQL 上下文；无匹配、
+存在多个类型或自动查询不可用时不任意选择，继续使用原始岗位证据分析。
 
 数据库岗位成功响应在既有 `agent_run_id/fallback_used/job_profile/trend_result` 基础上
 加法返回：

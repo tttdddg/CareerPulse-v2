@@ -61,8 +61,9 @@ SessionIdInput = Annotated[
     str,
     Field(
         description=(
-            "Stable CareerPulse session identifier. Reuse the same value for "
-            "every tool in one conversation."
+            "Stable CareerPulse session identifier. In one Ant TBox conversation, "
+            "reuse the same value for every tool so later calls can reuse the "
+            "stored student profile, target job and analysis state."
         )
     ),
 ]
@@ -182,7 +183,8 @@ def create_career_mcp_server(
             "analyze_job_match. Call generate_career_path only after a successful "
             "match. Then call generate_and_score_training, "
             "recommend_learning_and_job_resources or save_growth_feedback as "
-            "needed. Reuse the same session_id and user_id for every step."
+            "needed. Within the same Ant TBox conversation, remember and reuse "
+            "the same session_id and user_id for every step."
         ),
     )
 
@@ -334,7 +336,11 @@ def create_career_mcp_server(
         description=(
             "Analyze and store the target role after the user identifies it. Reuse "
             "the profile session_id and user_id, send job_title plus optional flat "
-            "job evidence, and do not send a nested target_job object. Returns "
+            "job evidence, and do not send a nested target_job object. job_id is "
+            "optional: when absent, the backend safely attempts to resolve one "
+            "unambiguous PostgreSQL job type from the title, city and industry, "
+            "then falls back to the supplied job evidence when no unique type is "
+            "found. Returns "
             "JOB_COMPLETED when the same CareerState is ready for matching."
         ),
         structured_output=True,

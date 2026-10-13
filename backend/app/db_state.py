@@ -516,7 +516,7 @@ class StateRepository:
                            demo, created_at)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb,
                                 %s, %s, %s, %s::timestamptz)
-                        ON CONFLICT (run_key) DO UPDATE SET
+                        ON CONFLICT (run_key) WHERE run_key IS NOT NULL DO UPDATE SET
                           service_name = EXCLUDED.service_name,
                           status = EXCLUDED.status,
                           summary = EXCLUDED.summary,

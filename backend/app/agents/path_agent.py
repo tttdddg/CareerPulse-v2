@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from contextvars import ContextVar
 from typing import Any
 
@@ -15,6 +16,7 @@ from ..repositories.career_graph_repository import (
     CareerGraphProvider,
     CareerGraphProviderError,
 )
+from ..schemas.path_schema import PathResult
 from ..services.path_service import GraphLoadMetadata, PathService
 
 
@@ -24,12 +26,31 @@ _GRAPH_LOAD_METADATA: ContextVar[GraphLoadMetadata | None] = ContextVar(
 )
 
 
+class _LLMStageItem(BaseModel):
+    """Only narrative fields that may safely enhance one deterministic stage."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stage_index: int = Field(ge=1, le=5)
+    objectives: list[str] | None = Field(default=None, min_length=1, max_length=10)
+    suggested_actions: list[str] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+    completion_criteria: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=500,
+    )
+
+
 class _LLMStageEnhancement(BaseModel):
     """Structured output for LLM stage description generation."""
 
     model_config = ConfigDict(extra="forbid")
 
-    stages: list[dict[str, Any]] = Field(default_factory=list)
+    stages: list[_LLMStageItem] = Field(default_factory=list, max_length=5)
 
 
 class PathAgent(BaseAgent):
@@ -129,7 +150,8 @@ class PathAgent(BaseAgent):
 
     async def _enhance_with_llm(self, result: dict[str, Any]) -> None:
         """Enhance CareerStage objectives/suggested_actions/completion_criteria via LLM."""
-        three_year = result.get("three_year_roadmap", {})
+        candidate = deepcopy(result)
+        three_year = candidate.get("three_year_roadmap", {})
         stages = three_year.get("stages", [])
         if not stages:
             return
@@ -159,18 +181,24 @@ class PathAgent(BaseAgent):
             temperature=0.3,
         )
 
-        stage_map = {item.get("stage_index"): item for item in enhanced.stages}
+        stage_map = {item.stage_index: item for item in enhanced.stages}
         for stage in stages:
             idx = stage.get("stage_index")
             llm_item = stage_map.get(idx)
             if llm_item is None:
                 continue
-            if llm_item.get("objectives"):
-                stage["objectives"] = llm_item["objectives"]
-            if llm_item.get("suggested_actions"):
-                stage["suggested_actions"] = llm_item["suggested_actions"]
-            if llm_item.get("completion_criteria"):
-                stage["completion_criteria"] = llm_item["completion_criteria"]
+            if llm_item.objectives:
+                stage["objectives"] = llm_item.objectives
+            if llm_item.suggested_actions:
+                stage["suggested_actions"] = llm_item.suggested_actions
+            if llm_item.completion_criteria:
+                stage["completion_criteria"] = llm_item.completion_criteria
+
+        # LLM text is optional decoration. Never let it replace a valid
+        # deterministic result with data that violates the public PathResult.
+        validated = PathResult.model_validate(candidate).model_dump(mode="json")
+        result.clear()
+        result.update(validated)
 
     @staticmethod
     def _build_path_plan(result: dict[str, Any], state: CareerState) -> dict[str, Any]:

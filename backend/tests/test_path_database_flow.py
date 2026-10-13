@@ -203,6 +203,56 @@ class PathDatabaseFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(job["job_description"], serialized)
         self.assertNotIn(student["abilities"][0]["evidence"], serialized)
 
+    async def test_mcp_regenerates_invalid_completed_path_from_same_session(self) -> None:
+        _, job, match = inputs()
+        provider = MemoryGraphProvider(self.graph)
+        orchestrator = CareerOrchestrator(
+            agents=[PathAgent(client=OfflineClient())],
+            repository=StateRepository(sqlite_path=self.db_path),
+        )
+        orchestrator.persist(
+            CareerState(
+                session_id="path-schema-recovery",
+                user_id="path-user",
+                status="MATCH_COMPLETED",
+                student_profile=unified_student_profile(),
+                job_profile=job,
+                match_result=match,
+            )
+        )
+        tools = CareerMCPToolService(
+            orchestrator,
+            database_tools=DatabaseTools(
+                graph_selector=CareerGraphProviderSelector(provider),
+            ),
+        )
+        first = await tools.generate_career_path(
+            GenerateCareerPathMCPRequest(
+                session_id="path-schema-recovery",
+                user_id="path-user",
+                trace_id="path-schema-recovery-01",
+            )
+        )
+        self.assertTrue(first.success)
+
+        state = orchestrator.get_session("path-schema-recovery")
+        state.career_roadmap["three_year_roadmap"]["stages"][0][
+            "objectives"
+        ] = "invalid-list-value"
+        orchestrator.persist(state)
+
+        recovered = await tools.generate_career_path(
+            GenerateCareerPathMCPRequest(
+                session_id="path-schema-recovery",
+                user_id="path-user",
+                trace_id="path-schema-recovery-02",
+            )
+        )
+
+        self.assertTrue(recovered.success)
+        self.assertEqual("PATH_COMPLETED", recovered.status)
+        self.assertEqual(2, provider.calls)
+
     async def test_database_failure_is_explicit_and_never_uses_demo(self) -> None:
         student, job, match = inputs()
         orchestrator = CareerOrchestrator(

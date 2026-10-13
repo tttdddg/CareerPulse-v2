@@ -48,6 +48,7 @@ from ..schemas.database_tool_schema import (
     SearchJobsResult,
 )
 from ..schemas.job_schema import JobProfile, TrendResult
+from ..schemas.job_context_schema import JobSearchFilters
 from ..schemas.match_schema import MatchResult
 from ..schemas.internal_tool_schema import (
     GenerateAndScoreTrainingData,
@@ -399,6 +400,7 @@ class CareerMCPToolService:
             else:
                 state.target_job_input = incoming
                 database_read_started: float | None = None
+                context = None
                 if self.database_tools.demo_mode:
                     state.job_data_source = "demo_json"
                 elif (
@@ -407,6 +409,15 @@ class CareerMCPToolService:
                 ):
                     database_read_started = perf_counter()
                     context = self._load_job_context(request.target_job_input)
+                elif request.target_job_input.job_title is not None:
+                    discovery_started = perf_counter()
+                    context = self._discover_job_context(
+                        request.target_job_input
+                    )
+                    if context is not None:
+                        database_read_started = discovery_started
+
+                if context is not None:
                     state.job_profile = context.profile.model_dump(mode="json")
                     state.job_record_id = context.profile.job_id
                     state.job_type_key = context.profile.normalized_title
@@ -415,7 +426,7 @@ class CareerMCPToolService:
                         context.profile.normalized_title
                     )
                     state.job_data_source = "postgresql"
-                else:
+                elif not self.database_tools.demo_mode:
                     state.job_record_id = None
                     state.job_type_key = None
                     state.job_profile_snapshot_id = None
@@ -503,6 +514,75 @@ class CareerMCPToolService:
                 "The PostgreSQL job context is unavailable.",
                 retryable=True,
             ) from None
+
+    def _discover_job_context(self, target: Any) -> Any | None:
+        """Resolve public job evidence without exposing database identifiers."""
+
+        title = target.job_title
+        if not isinstance(title, str) or not title.strip():
+            return None
+        service = self.database_tools.job_service
+        loader = getattr(service, "get_context_by_type_key", None)
+        if loader is None:
+            loader = service.get_context_by_normalized_title
+
+        try:
+            # A public title may already be the frozen normalized type key.
+            return loader(title.strip())
+        except JobContextNotFoundError:
+            pass
+        except (
+            JobContextMappingError,
+            JobRepositoryDataError,
+            JobRepositoryUnavailableError,
+        ):
+            # Automatic enrichment is best-effort. Explicit database references
+            # still use _load_job_context and return precise database failures.
+            return None
+
+        try:
+            page = service.search_jobs(
+                JobSearchFilters(
+                    keyword=title,
+                    city=target.city,
+                    industry=target.industry,
+                    page=1,
+                    page_size=50,
+                )
+            )
+        except (JobRepositoryDataError, JobRepositoryUnavailableError):
+            return None
+
+        # A truncated page cannot prove that every exact row maps to one type.
+        if page.has_more:
+            return None
+
+        wanted = title.strip().casefold()
+        exact = [
+            item
+            for item in page.items
+            if item.job_title.strip().casefold() == wanted
+            or (
+                item.normalized_job_title is not None
+                and item.normalized_job_title.strip().casefold() == wanted
+            )
+        ]
+        type_keys = {
+            item.normalized_job_title
+            for item in exact
+            if item.normalized_job_title is not None
+        }
+        if len(type_keys) != 1:
+            return None
+        try:
+            return loader(next(iter(type_keys)))
+        except (
+            JobContextNotFoundError,
+            JobContextMappingError,
+            JobRepositoryDataError,
+            JobRepositoryUnavailableError,
+        ):
+            return None
 
     async def analyze_job_match(
         self, request: AnalyzeJobMatchMCPRequest
@@ -823,7 +903,22 @@ class CareerMCPToolService:
                     "Run analyze_job_match successfully before generating a path.",
                     missing_fields=["match_result"],
                 )
-            if state.career_roadmap is None:
+
+            roadmap: PathResult | None = None
+            if state.career_roadmap is not None:
+                try:
+                    roadmap = PathResult.model_validate(state.career_roadmap)
+                except ValidationError:
+                    # Recover sessions created before strict post-enhancement
+                    # validation was enforced. The trusted match inputs remain
+                    # intact, so the deterministic path can be regenerated.
+                    state.career_roadmap = None
+                    state.path_plan = None
+                    state.learning_plan = None
+                    state.set_status("MATCH_COMPLETED")
+                    self.orchestrator.persist(state)
+
+            if roadmap is None:
                 await self._run_agent(state, "PathAgent", trace_id)
             if state.status == "FAILED" or state.career_roadmap is None:
                 if state.error_type == PostgresCareerGraphProviderError.__name__:
@@ -847,7 +942,16 @@ class CareerMCPToolService:
                     "CareerPulse could not produce a validated career path.",
                     retryable=True,
                 )
-            roadmap = PathResult.model_validate(state.career_roadmap)
+            try:
+                roadmap = PathResult.model_validate(state.career_roadmap)
+            except ValidationError:
+                state.set_status("FAILED", error_type="PATH_RESULT_SCHEMA_INVALID")
+                self.orchestrator.persist(state)
+                raise MCPToolFailure(
+                    "PATH_RESULT_SCHEMA_INVALID",
+                    "CareerPulse could not produce a validated career path.",
+                    retryable=True,
+                ) from None
             data = GenerateCareerPathMCPData(
                 agent_run_id=f"{request.session_id}:PathAgent",
                 career_roadmap=roadmap,

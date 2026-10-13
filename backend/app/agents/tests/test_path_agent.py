@@ -218,6 +218,37 @@ class PathAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(state.path_plan)
         self.assertIsNotNone(state.career_roadmap)
 
+    async def test_invalid_llm_stage_shape_keeps_deterministic_result(self):
+        profile = self._unified_profile_student_c()
+        job = self._job_profile_data_analyst()
+        match = self._compute_match(profile, job)
+        state = CareerState(
+            session_id="test-invalid-llm-stage",
+            student_profile=profile,
+            job_profile=job,
+            match_result=match,
+        )
+        agent = PathAgent(
+            client=QueueClient(
+                {
+                    "stages": [
+                        {
+                            "stage_index": 1,
+                            "objectives": "错误的字符串类型",
+                            "suggested_actions": ["完成一个项目"],
+                            "completion_criteria": "完成项目复盘",
+                        }
+                    ]
+                }
+            )
+        )
+
+        result = await agent.run(state)
+
+        self.assertEqual("success", result.status)
+        self.assertFalse(result.fallback_used)
+        PathResult.model_validate(state.career_roadmap)
+
     async def test_logs_never_include_private_information(self):
         profile = self._unified_profile_student_c()
         job = self._job_profile_data_analyst()

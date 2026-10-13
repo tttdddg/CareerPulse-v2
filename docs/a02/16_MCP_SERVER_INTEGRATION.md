@@ -93,7 +93,8 @@ MatchResult/PathResult 已做逐字段一致性测试。
 
 ## 6. 调用顺序与样例
 
-十一个工具必须复用相同 `session_id` 和 `user_id`。原前四步形成画像→岗位→匹配→路径主链，
+同一轮百宝箱对话必须记住并复用相同 `session_id` 和 `user_id`，这样后续工具才能恢复
+本轮已经建立的学生画像、目标岗位和分析状态。原前四步形成画像→岗位→匹配→路径主链，
 后三个工具按需调用。`trace_id` 可省略由服务端生成；若由平台提供，
 每个逻辑调用使用唯一值。
 
@@ -135,6 +136,8 @@ MatchResult/PathResult 已做逐字段一致性测试。
 ```
 
 不要填写 `target_job_input` JSON 对象；`job_title` 及其他岗位字段直接放在工具参数顶层。
+`job_id` 可省略；生产模式会用 `job_title` 及可选 `city/industry` 在后端内部尝试解析唯一
+PostgreSQL 岗位类型，无法唯一确定时保留原始岗位文本分析，不会任意选择岗位。
 
 成功状态：`JOB_COMPLETED`（即对外 JOB_READY 语义）。
 

@@ -12,7 +12,11 @@ from app.db_state import StateRepository
 from app.mcp.tool_service import CareerMCPToolService
 from app.orchestrator import CareerOrchestrator
 from app.repositories.job_repository import JobRepositoryUnavailableError
-from app.schemas.job_context_schema import JobCleanRecord, JobTypeProfileRecord
+from app.schemas.job_context_schema import (
+    JobCleanRecord,
+    JobSearchPage,
+    JobTypeProfileRecord,
+)
 from app.schemas.mcp_tool_schema import AnalyzeTargetJobRequest, TargetJobInput
 from app.services.job_context_service import JobContextService
 from app.tools.database_tools import DatabaseTools
@@ -67,6 +71,7 @@ class MemoryJobRepository:
             )
         }
         self.job_reads = 0
+        self.search_reads = 0
         self.type_reads = 0
         self.failure: Exception | None = None
 
@@ -94,6 +99,35 @@ class MemoryJobRepository:
                 if item.normalized_job_title == normalized_title
             ),
             None,
+        )
+
+    def search_jobs(self, filters):
+        self._raise_failure()
+        self.search_reads += 1
+        keyword = (filters.keyword or "").casefold()
+        industry = (filters.industry or "").casefold()
+        items = [
+            item
+            for item in self.jobs.values()
+            if (
+                not keyword
+                or keyword in item.job_title.casefold()
+                or (
+                    item.normalized_job_title is not None
+                    and keyword in item.normalized_job_title.casefold()
+                )
+            )
+            and (filters.city is None or item.city == filters.city)
+            and (
+                not industry
+                or (item.industry is not None and industry in item.industry.casefold())
+            )
+        ]
+        return JobSearchPage(
+            items=items[: filters.page_size],
+            page=filters.page,
+            page_size=filters.page_size,
+            has_more=len(items) > filters.page_size,
         )
 
 
@@ -173,7 +207,39 @@ class JobDatabaseFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, self.job_repository.job_reads)
         self.assertEqual(0, self.client.calls)
 
-    async def test_raw_jd_does_not_query_database(self) -> None:
+    async def test_public_title_discovers_unique_database_type(self) -> None:
+        tools = self.tools()
+        result = await tools.analyze_target_job(
+            self.request(
+                TargetJobInput(
+                    job_title="Python后端工程师",
+                    job_description="岗位要求 Python、数据库/SQL 和沟通表达。",
+                    industry="企业服务/SaaS",
+                    city="上海",
+                ),
+                "title-discovery-01",
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("postgresql", result.data.data_source)
+        self.assertEqual(8101, result.data.job_id)
+        self.assertEqual("后端开发", result.data.type_key)
+        self.assertEqual(1, self.job_repository.search_reads)
+        self.assertEqual(0, self.client.calls)
+
+    async def test_normalized_public_title_reads_type_directly(self) -> None:
+        result = await self.tools().analyze_target_job(
+            self.request(TargetJobInput(job_title="后端开发"), "title-type-01")
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("postgresql", result.data.data_source)
+        self.assertEqual("后端开发", result.data.type_key)
+        self.assertEqual(0, self.job_repository.search_reads)
+        self.assertEqual(0, self.client.calls)
+
+    async def test_unmatched_public_title_keeps_text_analysis(self) -> None:
         tools = self.tools()
         result = await tools.analyze_target_job(
             self.request(
@@ -188,8 +254,49 @@ class JobDatabaseFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.success)
         self.assertEqual("session", result.data.data_source)
-        self.assertEqual(0, self.job_repository.job_reads)
-        self.assertEqual(0, self.job_repository.type_reads)
+        self.assertEqual(1, self.job_repository.search_reads)
+        self.assertEqual(1, self.client.calls)
+
+    async def test_ambiguous_public_title_does_not_choose_database_job(self) -> None:
+        self.job_repository.jobs[8102] = self.job_repository.jobs[8101].model_copy(
+            update={
+                "job_id": 8102,
+                "normalized_job_title": "Python开发",
+            }
+        )
+        result = await self.tools().analyze_target_job(
+            self.request(
+                TargetJobInput(
+                    job_title="Python后端工程师",
+                    job_description="岗位要求 Python 和沟通表达。",
+                ),
+                "ambiguous-title-01",
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("session", result.data.data_source)
+        self.assertEqual(1, self.client.calls)
+
+    async def test_truncated_public_title_search_does_not_assume_unique_type(self) -> None:
+        template = self.job_repository.jobs[8101]
+        for offset in range(1, 51):
+            job_id = 8101 + offset
+            self.job_repository.jobs[job_id] = template.model_copy(
+                update={"job_id": job_id}
+            )
+        result = await self.tools().analyze_target_job(
+            self.request(
+                TargetJobInput(
+                    job_title="Python后端工程师",
+                    job_description="岗位要求 Python 和沟通表达。",
+                ),
+                "truncated-title-01",
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("session", result.data.data_source)
         self.assertEqual(1, self.client.calls)
 
     async def test_missing_database_record_returns_explicit_error(self) -> None:
@@ -211,6 +318,22 @@ class JobDatabaseFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("JOB_DATABASE_UNAVAILABLE", result.error_code)
         self.assertTrue(result.retryable)
         self.assertEqual(0, self.client.calls)
+
+    async def test_automatic_discovery_database_failure_keeps_text_analysis(self) -> None:
+        self.job_repository.failure = JobRepositoryUnavailableError("unavailable")
+        result = await self.tools().analyze_target_job(
+            self.request(
+                TargetJobInput(
+                    job_title="Python后端工程师",
+                    job_description="岗位要求 Python 和沟通表达。",
+                ),
+                "auto-db-fail-01",
+            )
+        )
+
+        self.assertTrue(result.success)
+        self.assertEqual("session", result.data.data_source)
+        self.assertEqual(1, self.client.calls)
 
     async def test_explicit_demo_mode_skips_database_and_marks_fallback(self) -> None:
         result = await self.tools(demo_mode=True).analyze_target_job(

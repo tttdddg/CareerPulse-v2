@@ -1,0 +1,22 @@
+{
+  "description": "Synthetic MCP arguments. Copy only arguments into the named tool. Run success in order. Replace runtime training ID before S06. New runs must replace all session_id and trace_id values consistently.",
+  "success": [
+    {"id":"S01","tool":"build_student_profile","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-profile-01","education_level":"本科","major":"计算机科学","graduation_year":2027,"target_job":"AI应用开发工程师","target_industry":"人工智能","years_of_experience":0,"skills":["Python","数据库/SQL","版本控制/Git"],"projects":["使用 Python 编写课程管理 API，使用数据库/SQL 保存课程数据，使用版本控制/Git 管理代码并完成接口测试。"]}},
+    {"id":"S02","tool":"analyze_target_job","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-job-01","job_title":"AI应用开发工程师","job_id":"REPLACE_WITH_REAL_DATABASE_JOB_ID"}},
+    {"id":"S03","tool":"analyze_job_match","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-match-01"}},
+    {"id":"S04","tool":"generate_career_path","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-path-01"}},
+    {"id":"S05","tool":"generate_and_score_training","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-training-generate-01","training_type":"remote_collaboration"}},
+    {"id":"S06","tool":"generate_and_score_training","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-training-score-01","training_id":"REPLACE_WITH_S05_TRAINING_ID","user_answer":"先确认任务目标、交付标准和各成员时区，在共享文档中拆分任务并指定负责人和截止时间。用异步消息同步每日进展、阻塞和下一步，紧急问题安排重叠时段会议。争议记录事实和备选方案，由负责人确认决策；交付前执行检查并保存结果，复盘延期原因和协作改进。"}},
+    {"id":"S07","tool":"recommend_learning_and_job_resources","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-resources-01"}},
+    {"id":"S08","tool":"save_growth_feedback","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-feedback-01","satisfaction":4}}
+  ],
+  "failure": [
+    {"id":"F01","tool":"build_student_profile","arguments":{"session_id":"qa-20261009-empty-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-empty-profile-01"},"expect":"MCP validation error; no profile write"},
+    {"id":"F02","tool":"analyze_target_job","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-invalid-job-01","job_title":"AI应用开发工程师","job_id":0},"expect":"MCP validation error; positive job_id required"},
+    {"id":"F03","tool":"analyze_job_match","arguments":{"session_id":"qa-20261009-absent-match-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-absent-match-01"},"expect":"success=false; error_code=SESSION_NOT_FOUND"},
+    {"id":"F04","tool":"generate_career_path","arguments":{"session_id":"qa-20261009-absent-path-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-absent-path-01"},"expect":"success=false; error_code=SESSION_NOT_FOUND"},
+    {"id":"F05","tool":"generate_and_score_training","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-invalid-training-01","training_type":"interview"},"expect":"MCP validation error; unsupported training type"},
+    {"id":"F06","tool":"recommend_learning_and_job_resources","arguments":{"session_id":"qa-20261009-absent-resources-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-absent-resources-01"},"expect":"success=false; error_code=SESSION_NOT_FOUND"},
+    {"id":"F07","tool":"save_growth_feedback","arguments":{"session_id":"qa-20261009-01","user_id":"qa-anonymous-01","trace_id":"qa-20261009-invalid-feedback-01","satisfaction":6},"expect":"MCP validation error; rating must be 1..5"}
+  ]
+}

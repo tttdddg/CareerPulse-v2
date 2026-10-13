@@ -355,6 +355,7 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
         }
         self.assertEqual(expected, {tool.name for tool in listed.tools})
         schemas = {tool.name: tool.input_schema for tool in listed.tools}
+        descriptions = {tool.name: tool.description for tool in listed.tools}
         for name, schema in schemas.items():
             self.assertEqual(False, schema.get("additionalProperties"), name)
             self.assertTrue({"session_id", "user_id"}.issubset(schema["required"]))
@@ -364,6 +365,16 @@ class CareerPulseMCPTests(unittest.IsolatedAsyncioTestCase):
                     field_schema.get("description"),
                     f"{name}.{field_name} is missing a parameter description",
                 )
+        self.assertIn(
+            "one Ant TBox conversation",
+            schemas["build_student_profile"]["properties"]["session_id"][
+                "description"
+            ],
+        )
+        self.assertIn(
+            "job_id is optional",
+            descriptions["analyze_target_job"],
+        )
         profile_schema = schemas["build_student_profile"]
         job_schema = schemas["analyze_target_job"]
         nested_schema_json = json.dumps(
