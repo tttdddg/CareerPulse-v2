@@ -76,10 +76,20 @@ export class TrainingApiUnavailableError extends Error {
   }
 }
 
-const capability: TrainingApiCapability = Object.freeze({
-  available: false,
-  reason: '当前 Vue 尚无可调用的职场训练 HTTP API，训练服务接入中。'
-})
+import { isDemoMode } from '../../demo/demoMode'
+import { generateDemoTrainingTask, scoreDemoTrainingTask } from '../../demo/trainingDemo'
+
+const capability: TrainingApiCapability = Object.freeze(
+  isDemoMode
+    ? {
+        available: true,
+        reason: '训练任务与评分已就绪。'
+      }
+    : {
+        available: false,
+        reason: '当前 Vue 尚无可调用的职场训练 HTTP API，训练服务接入中。'
+      }
+)
 
 const unavailable = async <T>(): Promise<T> => {
   throw new TrainingApiUnavailableError(capability.reason)
@@ -87,6 +97,6 @@ const unavailable = async <T>(): Promise<T> => {
 
 export const trainingApiAdapter: TrainingApiAdapter = {
   capability,
-  generateTask: unavailable,
-  scoreTask: unavailable
+  generateTask: isDemoMode ? generateDemoTrainingTask : unavailable,
+  scoreTask: isDemoMode ? scoreDemoTrainingTask : unavailable
 }

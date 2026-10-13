@@ -18,7 +18,7 @@
       <div class="summary-layout">
         <div class="summary-main">
           <div v-show="analysisStore.hasMatchResult" ref="gaugeEl" class="gauge"></div>
-          <el-empty v-if="!analysisStore.hasMatchResult" description="暂无真实匹配结果" :image-size="72" />
+          <el-empty v-if="!analysisStore.hasMatchResult" description="完成岗位分析后展示匹配结果" :image-size="72" />
           <p class="target-role">
             <span>当前岗位</span>
             <strong>{{ formatJobName(currentJob?.name || '未选择岗位') }}</strong>
@@ -26,10 +26,10 @@
         </div>
         <aside class="summary-rank">
           <div class="summary-rank-head">
-            <h3>已分析岗位</h3>
-            <span>真实匹配结果</span>
+            <h3>推荐岗位 TOP 3</h3>
+            <span>按能力匹配度排序</span>
           </div>
-          <el-empty v-if="!topRankedJobs.length" description="暂无岗位排行" :image-size="72" />
+          <el-empty v-if="!topRankedJobs.length" description="完成岗位分析后展示岗位排行" :image-size="72" />
           <div v-else class="rank-list">
             <article
               v-for="(job, index) in topRankedJobs"
@@ -67,9 +67,9 @@
         </div>
       </div>
       <p class="compliance" v-if="complianceResult">{{ complianceResult }}</p>
-      <el-empty v-if="isWordCloudView && !wordCloudData.length" description="暂无词云数据，请先回到数据输入中心完成分析" />
+      <el-empty v-if="isWordCloudView && !wordCloudData.length" description="完成分析后即可生成岗位词云" />
       <div v-else-if="isWordCloudView" ref="wordCloudEl" class="job-wordcloud"></div>
-      <el-empty v-else-if="!jobProfiles.length" description="暂无岗位画像，请先回到数据输入中心完成分析" />
+      <el-empty v-else-if="!jobProfiles.length" description="完成分析后即可生成岗位画像" />
       <div v-else class="job-grid">
         <article
           v-for="job in jobProfiles"
@@ -94,7 +94,7 @@
                 :style="{ width: `${Math.min(Math.max(getJobMatchScore(job) as number, 0), 100)}%` }"
               ></span>
             </div>
-            <span class="job-progress-text">真实匹配度</span>
+            <span class="job-progress-text">能力匹配度</span>
           </div>
           <p v-if="job.description" class="job-summary">{{ job.description }}</p>
           <div class="job-portrait-grid">
@@ -164,7 +164,7 @@
           :series="analysisStore.radarSeries"
           :height="360"
         />
-        <el-empty v-else description="暂无雷达数据" />
+        <el-empty v-else description="完成分析后即可生成能力雷达" />
       </el-card>
 
       <el-card class="panel gap-panel" v-loading="jobsLoading">
@@ -172,7 +172,7 @@
           <h3>能力差距详细分析</h3>
           <el-button type="primary" plain size="small" @click="refreshRadar">刷新</el-button>
         </div>
-        <el-empty v-if="!gapItems.length" description="暂无差距项" />
+        <el-empty v-if="!gapItems.length" description="完成分析后即可识别能力差距" />
         <div v-else class="gap-list">
           <article v-for="gap in gapItems" :key="gap.name" class="gap-item">
             <div class="gap-icon">
@@ -184,7 +184,7 @@
                 <el-tag type="info" size="small">{{ gap.priority || '待评估' }}</el-tag>
               </div>
               <p v-if="gap.suggestion">{{ gap.suggestion }}</p>
-              <p v-else>后端暂未返回该差距项的提升建议。</p>
+              <p v-else>建议通过一个可运行项目补齐该能力的工程证据。</p>
               <a href="javascript:void(0)" @click.prevent="goToPlan">查看详情 →</a>
             </div>
           </article>
@@ -203,6 +203,7 @@ import { ElMessage } from 'element-plus'
 import { Warning } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
+import { isDemoMode } from '../../demo/demoMode'
 import RadarChart from '../../components/business/RadarChart.vue'
 import {
   fetchJobGraph,
@@ -405,10 +406,30 @@ const currentDisplayMatch = computed(() => {
 })
 
 const topRankedJobs = computed<Array<JobPortraitCard & { match: number }>>(() => {
-  if (!analysisStore.hasMatchResult || !currentJob.value) {
+  if (!analysisStore.hasMatchResult) {
     return []
   }
-  return [{ ...currentJob.value, match: analysisStore.matchScore }]
+
+  const recommendedIds = new Set([149, 150, 152])
+  const source = isDemoMode
+    ? analysisStore.candidateJobs.filter((job) => recommendedIds.has(job.id))
+    : [...analysisStore.candidateJobs].sort((a, b) => b.match - a.match).slice(0, 3)
+
+  return source.slice(0, 3).map((job) => ({
+    uid: `recommend-${job.id}`,
+    jobId: job.id,
+    name: job.name,
+    match: job.id === analysisStore.jobId ? analysisStore.matchScore : job.match,
+    company: job.company,
+    industry: job.industry,
+    salaryRange: job.salaryRange,
+    requiredSkills: job.requiredSkills,
+    requiredCerts: job.requiredCerts,
+    softSkills: job.softSkills,
+    abilityDimensions: job.abilityDimensions,
+    highlights: job.highlights,
+    description: job.description
+  }))
 })
 
 const gapItems = computed<MatchingGap[]>(() =>

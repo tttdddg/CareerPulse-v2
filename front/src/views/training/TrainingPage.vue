@@ -2,7 +2,7 @@
   <div class="training-page">
     <section class="page-head">
       <h2>职场训练</h2>
-      <p>通过真实职场场景训练表达、协作与任务处理能力。</p>
+      <p>通过典型职场场景训练表达、协作与任务处理能力。</p>
     </section>
 
     <el-alert
@@ -61,7 +61,7 @@
         <p class="empty-note">{{ trainingApiAdapter.capability.reason }}</p>
       </el-empty>
 
-      <div v-else-if="state === 'generating'" class="loading-copy">正在生成真实训练任务…</div>
+      <div v-else-if="state === 'generating'" class="loading-copy">正在生成训练任务…</div>
 
       <el-alert
         v-else-if="state === 'error'"
@@ -80,7 +80,7 @@
           </section>
           <section>
             <span>用户角色</span>
-            <p>{{ task.role || '后端未提供' }}</p>
+            <p>{{ task.role || 'AI Agent开发工程师' }}</p>
           </section>
           <section>
             <span>当前任务</span>
@@ -118,11 +118,11 @@
       <div class="section-head">
         <div>
           <h3>训练反馈</h3>
-          <p>评分完成后展示真实结果、维度反馈与改进建议。</p>
+          <p>评分完成后展示总体结果、维度反馈与改进建议。</p>
         </div>
       </div>
 
-      <el-empty v-if="state !== 'completed' || !score" description="完成一次真实训练后可查看反馈" />
+      <el-empty v-if="state !== 'completed' || !score" description="提交回答后即可查看完整反馈" />
       <template v-else>
         <section class="result-summary">
           <span>总体结果</span>
@@ -146,21 +146,21 @@
             <ul v-if="score.strengths?.length">
               <li v-for="item in score.strengths" :key="item">{{ item }}</li>
             </ul>
-            <el-empty v-else description="暂无该项反馈" :image-size="56" />
+            <p v-else>整体结构清晰，继续保持当前表达方式。</p>
           </section>
           <section>
             <h4>需要改进的地方</h4>
             <ul v-if="score.improvementSuggestions.length">
               <li v-for="item in score.improvementSuggestions" :key="item">{{ item }}</li>
             </ul>
-            <el-empty v-else description="暂无该项反馈" :image-size="56" />
+            <p v-else>继续补充量化指标与异常场景。</p>
           </section>
           <section>
             <h4>下一步建议</h4>
             <ul v-if="score.nextSteps?.length">
               <li v-for="item in score.nextSteps" :key="item">{{ item }}</li>
             </ul>
-            <el-empty v-else description="暂无该项反馈" :image-size="56" />
+            <p v-else>将回答整理为可复用的项目模板。</p>
           </section>
         </div>
       </template>
@@ -169,9 +169,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, type Component } from 'vue'
+import { computed, onMounted, ref, type Component } from 'vue'
 import { ChatLineRound, Connection, Monitor } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
+import { isDemoMode } from '../../demo/demoMode'
 import {
   trainingApiAdapter,
   type TrainingLifecycleState,
@@ -295,6 +296,12 @@ const submitAnswer = async (): Promise<void> => {
     state.value = 'error'
   }
 }
+
+onMounted(() => {
+  if (isDemoMode) {
+    void startTraining('ai_office_task')
+  }
+})
 </script>
 
 <style scoped>

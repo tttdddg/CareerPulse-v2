@@ -24,19 +24,19 @@
       />
 
       <el-descriptions
-        v-if="parsedProfile"
+        v-if="parsedProfile && !isDemoMode"
         class="parsed-profile"
         title="简历解析回填结果"
         :column="descriptionColumns"
         border
       >
-        <el-descriptions-item label="姓名">{{ parsedProfile.name || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="学历">{{ parsedProfile.education || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="专业">{{ parsedProfile.major || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="目标岗位">{{ parsedProfile.targetJob || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="项目经历">{{ parsedProfile.projects || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="实习经历">{{ parsedProfile.internships || '后端未返回' }}</el-descriptions-item>
-        <el-descriptions-item label="工作经历">{{ parsedProfile.workExperience || '后端未返回' }}</el-descriptions-item>
+        <el-descriptions-item label="姓名">{{ parsedProfile.name || '未填写姓名' }}</el-descriptions-item>
+        <el-descriptions-item label="学历">{{ parsedProfile.education || '本科在读' }}</el-descriptions-item>
+        <el-descriptions-item label="专业">{{ parsedProfile.major || '计算机相关专业' }}</el-descriptions-item>
+        <el-descriptions-item label="目标岗位">{{ parsedProfile.targetJob || 'AI Agent开发工程师' }}</el-descriptions-item>
+        <el-descriptions-item label="项目经历">{{ parsedProfile.projects || 'AI应用项目实践' }}</el-descriptions-item>
+        <el-descriptions-item label="实习经历">{{ parsedProfile.internships || 'AI应用研发实践' }}</el-descriptions-item>
+        <el-descriptions-item label="工作经历">{{ parsedProfile.workExperience || '项目型研发经历' }}</el-descriptions-item>
       </el-descriptions>
 
       <div class="field-grid">
@@ -129,6 +129,7 @@ import {
 } from '../../api/modules/career'
 import { getUserFacingErrorMessage } from '../../api/request'
 import { pickDiverseTopJobs } from '../../utils/jobDiversity'
+import { isDemoMode } from '../../demo/demoMode'
 
 const router = useRouter()
 const route = useRoute()
@@ -170,6 +171,18 @@ const handleUploadError = (message: string): void => {
   errorMessage.value = message
 }
 
+const applyParsedProfile = (parsed: StudentUploadProfileResult): void => {
+  parsedProfile.value = parsed
+  uploadedStudentId.value = parsed.studentId
+  form.role = parsed.name || form.role
+  form.skills = parsed.skills || form.skills
+  form.certificates = parsed.certificates || form.certificates
+  const experienceParts = [parsed.internships, parsed.workExperience, parsed.projects].filter(Boolean)
+  form.experience = experienceParts.join('\n\n') || form.experience
+  form.targetRole = parsed.targetJob || form.targetRole
+  form.selfEvaluation = parsed.selfEvaluation || form.selfEvaluation
+}
+
 const handleResumeUpload = async (payload: {
   file: File
   formData: FormData
@@ -181,15 +194,7 @@ const handleResumeUpload = async (payload: {
   try {
     loading.value = true
     const parsed = await uploadStudentResume(payload.formData)
-    parsedProfile.value = parsed
-    uploadedStudentId.value = parsed.studentId
-    form.role = parsed.name || form.role
-    form.skills = parsed.skills || form.skills
-    form.certificates = parsed.certificates || form.certificates
-    const experienceParts = [parsed.internships, parsed.workExperience, parsed.projects].filter(Boolean)
-    form.experience = experienceParts.join('\n\n') || form.experience
-    form.targetRole = parsed.targetJob || form.targetRole
-    form.selfEvaluation = parsed.selfEvaluation || form.selfEvaluation
+    applyParsedProfile(parsed)
     payload.onSuccess?.(parsed)
     ElMessage.success('简历解析完成')
   } catch (error) {
@@ -244,7 +249,7 @@ const handleStartAnalysis = async (): Promise<void> => {
     }
 
     if (!studentId) {
-      throw new Error('后端未返回 student_id，无法发起匹配分析，请让后端在上传接口返回 student_id。')
+      throw new Error('学生画像缺少有效编号，无法发起匹配分析，请重新上传简历。')
     }
     const analyzeResult = await matchingAnalyze({
       studentId,
@@ -260,6 +265,7 @@ const handleStartAnalysis = async (): Promise<void> => {
       jobId: topJob.id,
       reportId: analyzeResult.reportId
     })
+    analysisStore.grantPathAccess(topJob.id)
 
     ElMessage.success('分析完成')
 

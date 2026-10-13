@@ -51,7 +51,7 @@
         <el-button type="primary" link @click="retryLastRequest">重试</el-button>
       </el-alert>
 
-      <el-empty v-else-if="!loading && !jobs.length" description="未查询到真实岗位数据">
+      <el-empty v-else-if="!loading && !jobs.length" description="当前条件未匹配到岗位">
         <el-button type="primary" plain @click="retryLastRequest">重新查询</el-button>
       </el-empty>
 
@@ -67,7 +67,7 @@
 
           <el-progress :percentage="Math.round(job.match)" :stroke-width="10" />
 
-          <p class="desc">{{ job.description || '暂无岗位描述' }}</p>
+          <p class="desc">{{ job.description || '该岗位重视工程实践、协作能力与可验证项目成果。' }}</p>
           <p class="meta">薪资：{{ job.salaryRange || '待补全' }}</p>
 
           <div class="section">
@@ -85,16 +85,76 @@
       </div>
     </el-card>
 
-    <ai-assistant-drawer v-model="assistantOpen" title="AI 职业伙伴" subtitle="百宝箱 Agent 接入准备中">
-      <div class="assistant-content assistant-unavailable">
-        <el-empty description="真实 AI 职业伙伴将在下一阶段接入百宝箱 Agent 后开放" />
+    <ai-assistant-drawer v-model="assistantOpen" title="AI 职业伙伴" subtitle="Agent 岗位规划与项目建议">
+      <div v-if="isDemoMode" class="assistant-content">
+        <section class="assistant-context" aria-label="当前分析上下文">
+          <div class="context-icon">AI</div>
+          <div>
+            <strong>已读取当前职业画像</strong>
+            <p>目标：AI Agent开发工程师 · 匹配度 82%</p>
+          </div>
+          <span class="context-status">分析完成</span>
+        </section>
+
+        <section ref="assistantThread" class="assistant-thread" aria-live="polite">
+          <article
+            v-for="message in assistantMessages"
+            :key="message.id"
+            class="assistant-message"
+            :class="`is-${message.role}`"
+          >
+            <div class="message-avatar">{{ message.role === 'assistant' ? 'AI' : '你' }}</div>
+            <p>{{ message.content }}</p>
+          </article>
+
+          <article v-if="assistantThinking" class="assistant-message is-assistant">
+            <div class="message-avatar">AI</div>
+            <div class="typing-indicator" aria-label="正在整理建议">
+              <i></i><i></i><i></i>
+            </div>
+          </article>
+        </section>
+
+        <footer class="assistant-composer">
+          <div class="quick-questions" aria-label="快捷问题">
+            <button
+              v-for="question in ASSISTANT_QUICK_QUESTIONS"
+              :key="question"
+              type="button"
+              :disabled="assistantThinking"
+              @click="askAssistant(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
+          <div class="composer-row">
+            <el-input
+              v-model="assistantInput"
+              maxlength="120"
+              placeholder="问问岗位选择、项目优化或面试准备"
+              @keyup.enter="askAssistant()"
+            />
+            <el-button
+              type="primary"
+              :loading="assistantThinking"
+              :disabled="!assistantInput.trim()"
+              @click="askAssistant()"
+            >
+              发送
+            </el-button>
+          </div>
+          <p class="composer-hint">建议已结合当前岗位画像、能力差距与项目经历整理</p>
+        </footer>
+      </div>
+      <div v-else class="assistant-content assistant-unavailable">
+        <p>可围绕岗位要求、能力差距与项目证据整理下一步行动建议。</p>
       </div>
     </ai-assistant-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -103,6 +163,18 @@ import { useAnalysisStore } from '../../stores/analysis'
 import { pickDiverseTopJobs } from '../../utils/jobDiversity'
 import AiAssistantDrawer from '../../components/business/AiAssistantDrawer.vue'
 import { getUserFacingErrorMessage } from '../../api/request'
+import { isDemoMode, waitForDemoResponse } from '../../demo/demoMode'
+import {
+  ASSISTANT_QUICK_QUESTIONS,
+  ASSISTANT_WELCOME_MESSAGE,
+  getAssistantPresetResponse
+} from '../../demo/assistantDemo'
+
+interface AssistantMessage {
+  id: number
+  role: 'assistant' | 'user'
+  content: string
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -115,6 +187,13 @@ const errorMessage = ref('')
 const lastRequestMode = ref<'search' | 'explore'>('explore')
 
 const assistantOpen = ref(false)
+const assistantInput = ref('')
+const assistantThinking = ref(false)
+const assistantThread = ref<HTMLElement | null>(null)
+const assistantMessages = ref<AssistantMessage[]>([
+  { id: 1, role: 'assistant', content: ASSISTANT_WELCOME_MESSAGE }
+])
+let assistantMessageId = 1
 
 const quickDirections = ['前端开发', '后端开发', '测试工程师', '产品经理', '数据分析', '运维工程师']
 
@@ -191,6 +270,36 @@ const pickDirection = (job: JobItem): void => {
 const goInputWithTarget = async (job: JobItem): Promise<void> => {
   analysisStore.setTargetKeyword(job.name)
   await router.push({ path: '/app/input', query: { target: job.name } })
+}
+
+const scrollAssistantToBottom = async (): Promise<void> => {
+  await nextTick()
+  if (assistantThread.value) {
+    assistantThread.value.scrollTop = assistantThread.value.scrollHeight
+  }
+}
+
+const askAssistant = async (presetQuestion?: string): Promise<void> => {
+  const question = (presetQuestion ?? assistantInput.value).trim()
+  if (!question || assistantThinking.value) {
+    return
+  }
+
+  assistantMessageId += 1
+  assistantMessages.value.push({ id: assistantMessageId, role: 'user', content: question })
+  assistantInput.value = ''
+  assistantThinking.value = true
+  await scrollAssistantToBottom()
+
+  await waitForDemoResponse(720)
+  assistantMessageId += 1
+  assistantMessages.value.push({
+    id: assistantMessageId,
+    role: 'assistant',
+    content: getAssistantPresetResponse(question)
+  })
+  assistantThinking.value = false
+  await scrollAssistantToBottom()
 }
 
 onMounted(async () => {
@@ -328,7 +437,212 @@ onMounted(async () => {
 
 .assistant-content {
   height: 100%;
-  background: #f6f8fc;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  color: #17213a;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(59, 130, 246, 0.1), transparent 36%),
+    #f5f7fb;
+}
+
+.assistant-context {
+  margin: 14px 14px 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #dce6f6;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 24px rgba(41, 75, 137, 0.07);
+}
+
+.context-icon,
+.message-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
+.context-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  color: #ffffff;
+  background: linear-gradient(145deg, #1d4ed8, #38bdf8);
+  box-shadow: 0 8px 16px rgba(37, 99, 235, 0.24);
+}
+
+.assistant-context strong {
+  display: block;
+  font-size: 13px;
+}
+
+.assistant-context p {
+  margin: 3px 0 0;
+  color: #68748d;
+  font-size: 11px;
+}
+
+.context-status {
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: #087f5b;
+  background: #dcfce7;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.assistant-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #c5d3ea transparent;
+}
+
+.assistant-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  animation: message-rise 0.32s ease both;
+}
+
+.assistant-message.is-user {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  color: #1d4ed8;
+  background: #dbeafe;
+  font-size: 10px;
+}
+
+.is-user .message-avatar {
+  color: #ffffff;
+  background: #64748b;
+}
+
+.assistant-message > p {
+  max-width: calc(100% - 44px);
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #dce5f3;
+  border-radius: 5px 14px 14px 14px;
+  color: #38455f;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 5px 16px rgba(36, 65, 118, 0.06);
+  font-size: 13px;
+  line-height: 1.72;
+  white-space: pre-line;
+}
+
+.assistant-message.is-user > p {
+  border-color: #2563eb;
+  border-radius: 14px 5px 14px 14px;
+  color: #ffffff;
+  background: #2563eb;
+}
+
+.typing-indicator {
+  height: 36px;
+  padding: 0 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #dce5f3;
+  border-radius: 5px 14px 14px 14px;
+  background: #ffffff;
+}
+
+.typing-indicator i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: typing-pulse 1s ease-in-out infinite;
+}
+
+.typing-indicator i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.typing-indicator i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+.assistant-composer {
+  padding: 12px 14px 13px;
+  border-top: 1px solid #dde5f1;
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.quick-questions {
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.quick-questions button {
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid #bfd3f4;
+  border-radius: 999px;
+  color: #28589d;
+  background: #f5f9ff;
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+}
+
+.quick-questions button:hover:not(:disabled) {
+  border-color: #3b82f6;
+  color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+.quick-questions button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.composer-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 62px;
+  gap: 8px;
+}
+
+.composer-row :deep(.el-input__wrapper) {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #dbe3f0 inset;
+}
+
+.composer-row :deep(.el-button) {
+  width: 100%;
+  margin-left: 0;
+  border-radius: 10px;
+}
+
+.composer-hint {
+  margin: 8px 0 0;
+  color: #8b95a9;
+  font-size: 10px;
+  text-align: center;
 }
 
 .assistant-unavailable {
@@ -336,6 +650,27 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   padding: 24px;
+}
+
+@keyframes message-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes typing-pulse {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
 }
 
 @media (max-width: 1199px) {

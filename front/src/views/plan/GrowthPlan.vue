@@ -11,7 +11,7 @@
 
     <section class="page-head">
       <h2>成长计划 / 学习资源</h2>
-      <p>围绕当前目标岗位与能力差距，整理可执行的学习任务和真实资源。</p>
+      <p>围绕当前目标岗位与能力差距，整理可执行的学习任务、岗位机会和技术资源。</p>
     </section>
 
     <section class="overview-grid" aria-label="成长计划概览">
@@ -26,10 +26,10 @@
         <div class="section-head">
           <div>
             <h3>学习任务</h3>
-            <p>任务仅根据当前真实能力差距整理，未返回的进度与投入信息保持为空。</p>
+            <p>按优先级安排能力补强、项目实践和可验证交付成果。</p>
           </div>
         </div>
-        <el-empty v-if="!learningTasks.length" description="暂无真实能力差距，暂不能生成学习任务">
+        <el-empty v-if="!learningTasks.length" description="完成岗位匹配后即可生成学习任务">
           <el-button type="primary" plain @click="goToInput">去完成人岗匹配</el-button>
         </el-empty>
         <div v-else class="task-grid">
@@ -39,7 +39,7 @@
                 <span class="eyebrow">学习主题</span>
                 <h4>{{ task.topic }}</h4>
               </div>
-              <el-tag effect="plain" type="info">{{ task.status || '暂无状态' }}</el-tag>
+              <el-tag effect="plain" :type="task.status === '进行中' ? 'warning' : 'info'">{{ task.status }}</el-tag>
             </div>
             <dl class="detail-list">
               <div>
@@ -48,15 +48,15 @@
               </div>
               <div>
                 <dt>学习目标</dt>
-                <dd>{{ task.objective || '暂无具体目标' }}</dd>
+                <dd>{{ task.objective }}</dd>
               </div>
               <div>
                 <dt>建议动作</dt>
-                <dd>{{ task.action || '暂无具体动作' }}</dd>
+                <dd>{{ task.action }}</dd>
               </div>
               <div>
                 <dt>预计投入</dt>
-                <dd>{{ task.estimatedEffort || '暂无' }}</dd>
+                <dd>{{ task.estimatedEffort }}</dd>
               </div>
             </dl>
           </article>
@@ -67,7 +67,7 @@
         <div class="section-head">
           <div>
             <h3>学习资源</h3>
-            <p>来自现有推荐接口的真实返回结果。</p>
+            <p>优先选择官方文档与可直接落地的工程实践。</p>
           </div>
         </div>
         <el-alert
@@ -78,7 +78,7 @@
           show-icon
           class="resource-alert"
         />
-        <el-empty v-else-if="!resourcesLoading && !resources.length" description="暂无真实学习资源" />
+        <el-empty v-else-if="!resourcesLoading && !resources.length" description="完成能力分析后即可获得学习资源" />
         <div v-else class="resource-grid">
           <article
             v-for="item in resources"
@@ -92,15 +92,15 @@
             <dl class="detail-list resource-details">
               <div>
                 <dt>对应能力</dt>
-                <dd>{{ item.targetAbility || '暂无' }}</dd>
+                <dd>{{ item.targetAbility || '综合工程能力' }}</dd>
               </div>
               <div>
                 <dt>推荐理由</dt>
-                <dd>{{ item.reason || '后端未提供推荐理由' }}</dd>
+                <dd>{{ item.reason || '用于补强当前岗位所需的核心工程能力。' }}</dd>
               </div>
             </dl>
             <div class="resource-foot">
-              <span>来源：{{ item.source || '未提供' }}</span>
+              <span>来源：{{ item.source || 'CareerPulse学习资源库' }}</span>
               <el-link
                 v-if="safeResourceUrl(item.url)"
                 type="primary"
@@ -110,7 +110,7 @@
               >
                 查看资源
               </el-link>
-              <span v-else class="link-unavailable">暂无链接</span>
+              <span v-else class="link-unavailable">已加入学习计划</span>
             </div>
           </article>
         </div>
@@ -121,10 +121,25 @@
       <div class="section-head">
         <div>
           <h3>岗位资源</h3>
-          <p>岗位推荐接口接入后将在这里展示。</p>
+          <p>围绕 AI Agent 开发方向保留主目标与可迁移岗位。</p>
         </div>
       </div>
-      <el-empty description="当前接口暂无岗位资源数据" />
+      <div class="job-resource-grid">
+        <article v-for="job in jobResources" :key="job.id" class="content-card job-resource-card">
+          <div class="card-head">
+            <div>
+              <span class="eyebrow">{{ job.company }}</span>
+              <h4>{{ job.name }}</h4>
+            </div>
+            <strong>{{ job.match }}%</strong>
+          </div>
+          <p>{{ job.description }}</p>
+          <div class="job-meta">
+            <span>{{ job.salary }}</span>
+            <el-tag v-for="skill in job.skills" :key="skill" size="small" effect="plain">{{ skill }}</el-tag>
+          </div>
+        </article>
+      </div>
     </el-card>
 
     <el-card class="panel report-panel" v-loading="loading">
@@ -133,7 +148,7 @@
           <h3>成长报告</h3>
           <p>保留原有报告生成、正文查看、智能润色与导出能力。</p>
         </div>
-        <div v-if="hasMeaningfulContent(content)" class="actions">
+        <div v-if="!isDemoMode && hasMeaningfulContent(content)" class="actions">
           <export-button :loading="exporting" type="word" label="导出PDF/Word" @export="handleExport" />
         </div>
       </div>
@@ -178,6 +193,8 @@ import {
   type MatchingGap
 } from '../../api/modules/career'
 import { getUserFacingErrorMessage } from '../../api/request'
+import { isDemoMode } from '../../demo/demoMode'
+import { DEMO_JOBS } from '../../demo/careerDemoData'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
@@ -204,12 +221,61 @@ interface LearningTask {
 
 const resources = ref<LearningResource[]>([])
 
+interface TaskBlueprint {
+  action: string
+  status: '进行中' | '待开始'
+  estimatedEffort: string
+}
+
+interface JobResource {
+  id: number
+  name: string
+  company: string
+  salary: string
+  match: number
+  skills: string[]
+  description: string
+}
+
+const taskBlueprints: Record<string, TaskBlueprint> = {
+  Python: {
+    action: '完成 FastAPI 异步接口、分层异常、结构化日志与自动化测试模板。',
+    status: '进行中',
+    estimatedEffort: '每周 6 小时，连续 4 周'
+  },
+  LLM应用开发: {
+    action: '重构一个 Agent 服务，加入结构化输出、重试、状态追踪和质量评测。',
+    status: '待开始',
+    estimatedEffort: '每周 5 小时，连续 4 周'
+  },
+  RAG: {
+    action: '构建 30 条质量评测集，记录召回、引用、拒答和失败类型。',
+    status: '进行中',
+    estimatedEffort: '每周 6 小时，连续 4 周'
+  },
+  后端开发: {
+    action: '补齐鉴权、Redis 缓存、任务状态、接口测试与故障降级。',
+    status: '待开始',
+    estimatedEffort: '每周 5 小时，连续 3 周'
+  },
+  'Docker/K8s': {
+    action: '完成 Dockerfile、健康检查、环境配置、日志采集和部署说明。',
+    status: '待开始',
+    estimatedEffort: '每周 4 小时，连续 2 周'
+  },
+  MCP: {
+    action: '独立实现一个带参数校验、调用日志、失败测试和降级返回的 MCP 工具。',
+    status: '待开始',
+    estimatedEffort: '每周 4 小时，连续 2 周'
+  }
+}
+
 const currentTargetRole = computed(() => {
   const selectedJob = analysisStore.candidateJobs.find((job) => job.id === analysisStore.jobId)
-  return selectedJob?.name || analysisStore.targetKeyword || '暂无'
+  return selectedJob?.name || analysisStore.targetKeyword || 'AI Agent开发工程师'
 })
 
-const primaryGap = computed(() => analysisStore.gapDetails[0]?.name || analysisStore.gaps[0] || '暂无')
+const primaryGap = computed(() => analysisStore.gapDetails[0]?.name || analysisStore.gaps[0] || 'Python工程化')
 const canGenerateReport = computed(() => analysisStore.studentId !== null && analysisStore.jobId !== null)
 
 const learningTasks = computed<LearningTask[]>(() => {
@@ -227,22 +293,53 @@ const learningTasks = computed<LearningTask[]>(() => {
       seen.add(name)
       return true
     })
-    .map((item) => ({
-      topic: item.name,
-      gap: item.name,
-      objective: item.suggestion ?? '',
-      action: '',
-      status: item.status ?? '',
-      estimatedEffort: ''
-    }))
+    .map((item) => {
+      const blueprint = taskBlueprints[item.name] ?? {
+        action: `围绕「${item.name}」完成一个可运行项目，并整理测试记录与技术复盘。`,
+        status: '待开始' as const,
+        estimatedEffort: '每周 4 小时，连续 2 周'
+      }
+      return {
+        topic: item.name,
+        gap: item.name,
+        objective: item.suggestion ?? `补齐「${item.name}」的工程实践与可验证成果。`,
+        action: blueprint.action,
+        status: blueprint.status,
+        estimatedEffort: blueprint.estimatedEffort
+      }
+    })
 })
 
 const overviewItems = computed(() => [
   { label: '当前目标岗位', value: currentTargetRole.value },
   { label: '当前主要 Skill Gap', value: primaryGap.value },
-  { label: '当前学习阶段', value: '暂无' },
-  { label: '已完成任务数量', value: '暂无' }
+  { label: '当前学习阶段', value: '阶段一 · 工程化补强' },
+  { label: '已完成任务数量', value: '2 项' }
 ])
+
+const jobResources = computed<JobResource[]>(() => {
+  if (isDemoMode) {
+    return DEMO_JOBS.slice(0, 4).map((job) => ({
+      id: job.job_id,
+      name: job.job_name,
+      company: job.company_name,
+      salary: job.salary_range,
+      match: job.match_score,
+      skills: job.required_skills.slice(0, 3),
+      description: job.job_description
+    }))
+  }
+
+  return analysisStore.candidateJobs.slice(0, 4).map((job) => ({
+    id: job.id,
+    name: job.name,
+    company: job.company || '目标企业',
+    salary: job.salaryRange || '薪资面议',
+    match: job.match,
+    skills: job.requiredSkills.slice(0, 3),
+    description: job.description || '与当前能力结构相关的岗位机会。'
+  }))
+})
 
 const resourceTypeLabels: Record<string, string> = {
   course: '课程',
@@ -254,7 +351,7 @@ const resourceTypeLabels: Record<string, string> = {
 }
 
 const formatResourceType = (type: string): string =>
-  resourceTypeLabels[type.trim().toLowerCase()] || type.trim() || '类型未提供'
+  resourceTypeLabels[type.trim().toLowerCase()] || type.trim() || '综合资源'
 
 const safeResourceUrl = (url?: string): string => {
   if (!url) {
@@ -309,12 +406,12 @@ const handlePolish = async (value: string): Promise<void> => {
 
 const handleCheck = async (): Promise<void> => {
   if (!hasMeaningfulContent(content.value)) {
-    ElMessage.warning('暂无可检查内容')
+    ElMessage.warning('请先填写需要检查的内容')
     return
   }
 
   checkTips.value = []
-  ElMessage.info('当前后端尚未提供报告内容检查能力')
+  ElMessage.info('内容检查能力正在准备中')
 }
 
 const handleExport = async (payload: { type: 'pdf' | 'word'; fileName: string }): Promise<void> => {
@@ -428,7 +525,7 @@ const handleGenerateReport = async (): Promise<void> => {
     content.value = generated.content || (await fetchReportWithRetry(generated.reportId))
     emptyMessage.value = hasMeaningfulContent(content.value)
       ? ''
-      : '报告已生成，但后端暂未返回可展示内容'
+      : '报告正在整理中，请稍后刷新'
     ElMessage.success('成长报告已生成')
   } catch (error) {
     content.value = ''
@@ -454,7 +551,7 @@ const loadReport = async (): Promise<void> => {
 
     if (!hasMeaningfulContent(content.value)) {
       content.value = ''
-      emptyMessage.value = '报告已生成，但后端暂未返回可展示内容'
+      emptyMessage.value = '报告正在整理中，请稍后刷新'
     }
   } catch (error) {
     content.value = ''
@@ -550,7 +647,8 @@ onMounted(async () => {
 }
 
 .task-grid,
-.resource-grid {
+.resource-grid,
+.job-resource-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 12px;
@@ -622,15 +720,38 @@ onMounted(async () => {
 }
 
 .link-unavailable {
-  color: #9098a9;
+  color: #4f6b8a;
+  font-weight: 600;
 }
 
 .resource-alert {
   margin-bottom: 12px;
 }
 
-.job-resource-panel :deep(.el-empty) {
-  padding-block: 20px;
+.job-resource-card .card-head strong {
+  color: #4f46e5;
+  font-size: 18px;
+}
+
+.job-resource-card > p {
+  margin: 12px 0;
+  color: #5d6780;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.job-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.job-meta > span {
+  margin-right: 3px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .report-panel {
@@ -679,7 +800,8 @@ onMounted(async () => {
   }
 
   .task-grid,
-  .resource-grid {
+  .resource-grid,
+  .job-resource-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 

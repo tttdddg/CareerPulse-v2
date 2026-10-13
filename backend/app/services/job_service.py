@@ -17,10 +17,10 @@ def _normalize_relation(relation_type: str | None) -> tuple[str, str]:
       - label: 晋升 or 换岗
       - edge_type: vertical or lateral
     """
-    rt = (relation_type or "").strip()
-    if rt == "晋升":
+    rt = (relation_type or "").strip().lower()
+    if rt in {"vertical", "晋升"}:
         return "晋升", "vertical"
-    if rt in {"平移", "换岗"}:
+    if rt in {"lateral", "平移", "换岗"}:
         return "换岗", "lateral"
     return "换岗", "lateral"
 
@@ -32,8 +32,7 @@ def _compute_match_score(
     industry: str | None,
     location: str | None,
     company_name: str | None,
-    salary_desc: str | None,
-    title_level: int | None,
+    salary_range: str | None,
 ) -> float:
     """暂时用于列表显示的匹配分数，后续根据需要替换成更实际的逻辑"""
     k = (keyword or "").strip().lower()
@@ -60,14 +59,8 @@ def _compute_match_score(
         if k in comp:
             score += 3
 
-    if salary_desc:
+    if salary_range:
         score += 2
-
-    if title_level is not None:
-        try:
-            score += min(int(title_level) * 2, 6)
-        except Exception:
-            pass
 
     return round(_clamp(score, 55.0, 99.0), 1)
 
@@ -139,8 +132,8 @@ def search_jobs(keyword: str, page: int, size: int) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT job_id, job_title, normalized_job_title,
-                       location_raw, salary_desc, company_name, industry,
-                       job_description_clean, title_level
+                       city, salary_range, company_name, industry,
+                       job_description
                 FROM job_clean
                 WHERE job_title ILIKE %s
                    OR normalized_job_title ILIKE %s
@@ -158,8 +151,8 @@ def search_jobs(keyword: str, page: int, size: int) -> dict[str, Any]:
             cur.execute(
                 """
                 SELECT job_id, job_title, normalized_job_title,
-                       location_raw, salary_desc, company_name, industry,
-                       job_description_clean, title_level
+                       city, salary_range, company_name, industry,
+                       job_description
                 FROM job_clean
                 ORDER BY updated_at DESC NULLS LAST, job_id ASC
                 LIMIT %s OFFSET %s
@@ -177,7 +170,6 @@ def search_jobs(keyword: str, page: int, size: int) -> dict[str, Any]:
                 row[3],
                 row[5],
                 row[4],
-                row[8],
             )
             jobs.append(
                 {
@@ -228,7 +220,8 @@ def get_job_profile(job_id: int) -> dict[str, Any]:
 
         cur.execute(
             """
-            SELECT job_id, job_title, normalized_job_title, salary_desc, industry, job_description_clean
+            SELECT job_id, job_title, normalized_job_title,
+                   salary_range, industry, job_description
             FROM job_clean
             WHERE job_id = %s
             """,
@@ -261,7 +254,7 @@ def get_job_profile(job_id: int) -> dict[str, Any]:
         if not table_exists(conn, "job_type_profile"):
             return fallback
 
-        key = make_type_key(base[2], base[4])
+        key = make_type_key(base[2])
         cur.execute(
             """
             SELECT core_skills, optional_skills, soft_skills,
@@ -298,57 +291,14 @@ def get_job_profile(job_id: int) -> dict[str, Any]:
 
 def _load_node_detail(
     cur,
-    node_job_id: int | None,
     node_type_key: str | None,
-    node_name_fallback: str | None,
 ) -> dict[str, Any]:
-    """Load node detail from job_clean first, then job_type_profile fallback."""
-    if node_job_id is not None:
-        cur.execute(
-            """
-            SELECT job_id, job_title, normalized_job_title, salary_desc, industry, job_description_clean
-            FROM job_clean
-            WHERE job_id = %s
-            """,
-            (node_job_id,),
-        )
-        row = cur.fetchone()
-        if row:
-            core_skills: list[str] = []
-            optional_skills: list[str] = []
-            summary = row[5]
-            salary_range = row[3]
-            key = make_type_key(row[2], row[4])
-
-            if table_exists(cur.connection, "job_type_profile"):
-                cur.execute(
-                    """
-                    SELECT core_skills, optional_skills, salary_desc_p50, profile_summary
-                    FROM job_type_profile
-                    WHERE type_key = %s
-                    """,
-                    (key,),
-                )
-                p = cur.fetchone()
-                if p:
-                    core_skills = p[0] or []
-                    optional_skills = p[1] or []
-                    salary_range = p[2] or salary_range
-                    summary = p[3] or summary
-
-            return {
-                "id": str(row[0]),
-                "name": row[1] or node_name_fallback or node_type_key or "",
-                "job_description": summary or "",
-                "core_skills": (core_skills + optional_skills)[:12],
-                "salary_range": salary_range or "",
-            }
-
+    """Load one graph node from the finalized job-type profile table."""
     if node_type_key and table_exists(cur.connection, "job_type_profile"):
         cur.execute(
             """
-            SELECT type_key, normalized_job_title, core_skills, optional_skills,
-                   salary_desc_p50, profile_summary, exemplar_job_id, exemplar_job_title
+            SELECT type_key, core_skills, optional_skills,
+                   salary_desc_p50, profile_summary, exemplar_job_id
             FROM job_type_profile
             WHERE type_key = %s
             """,
@@ -356,20 +306,19 @@ def _load_node_detail(
         )
         p = cur.fetchone()
         if p:
-            node_id = str(p[6]) if p[6] is not None else f"type:{p[0]}"
-            node_name = p[1] or p[7] or node_name_fallback or p[0]
+            node_id = str(p[5]) if p[5] is not None else f"type:{p[0]}"
             return {
                 "id": node_id,
-                "name": node_name,
-                "job_description": p[5] or "",
-                "core_skills": ((p[2] or []) + (p[3] or []))[:12],
-                "salary_range": p[4] or "",
+                "name": p[0],
+                "job_description": p[4] or "",
+                "core_skills": ((p[1] or []) + (p[2] or []))[:12],
+                "salary_range": p[3] or "",
             }
 
-    fallback_id = str(node_job_id) if node_job_id is not None else f"type:{node_type_key or (node_name_fallback or 'unknown')}"
+    fallback_id = f"type:{node_type_key or 'unknown'}"
     return {
         "id": fallback_id,
-        "name": node_name_fallback or node_type_key or "",
+        "name": node_type_key or "",
         "job_description": "",
         "core_skills": [],
         "salary_range": "",
@@ -385,7 +334,8 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
 
         cur.execute(
             """
-            SELECT job_id, job_title, normalized_job_title, salary_desc, industry, job_description_clean
+            SELECT job_id, job_title, normalized_job_title,
+                   salary_range, industry, job_description
             FROM job_clean
             WHERE job_id = %s
             """,
@@ -395,7 +345,7 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
         if not center_row:
             raise ValueError("岗位不存在")
 
-        center_type_key = make_type_key(center_row[2], center_row[4])
+        center_type_key = make_type_key(center_row[2])
         center_core: list[str] = []
         center_optional: list[str] = []
         center_salary = center_row[3]
@@ -437,10 +387,11 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
 
         cur.execute(
             """
-            SELECT target_type_key, target_job_id, target_job_title, relation_type, reason, score
+            SELECT target_type_key, relation_type, reason,
+                   transfer_cost, growth_value, transition_requirements, risk_level
             FROM job_type_graph_edge
             WHERE source_type_key = %s
-            ORDER BY score DESC NULLS LAST, id ASC
+            ORDER BY growth_value DESC, transfer_cost ASC, id ASC
             LIMIT 50
             """,
             (center_type_key,),
@@ -449,18 +400,24 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
         seen_vertical: set[str] = set()
         seen_lateral: set[str] = set()
 
-        for target_type_key, target_job_id, target_job_title, relation_type, reason, score in cur.fetchall():
+        for (
+            target_type_key,
+            relation_type,
+            reason,
+            transfer_cost,
+            growth_value,
+            transition_requirements,
+            risk_level,
+        ) in cur.fetchall():
             label, edge_type = _normalize_relation(relation_type)
 
-            node = _load_node_detail(
-                cur,
-                node_job_id=target_job_id,
-                node_type_key=target_type_key,
-                node_name_fallback=target_job_title,
-            )
+            node = _load_node_detail(cur, node_type_key=target_type_key)
             node["relation"] = label
             node["reason"] = reason
-            node["score"] = float(score) if score is not None else None
+            node["transfer_cost"] = float(transfer_cost)
+            node["growth_value"] = float(growth_value)
+            node["transition_requirements"] = transition_requirements or []
+            node["risk_level"] = risk_level
 
             node_id = str(node["id"])
             if edge_type == "vertical":
@@ -474,6 +431,10 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
                         "target": str(center["id"]),
                         "type": "vertical",
                         "label": "晋升",
+                        "transfer_cost": float(transfer_cost),
+                        "growth_value": float(growth_value),
+                        "transition_requirements": transition_requirements or [],
+                        "risk_level": risk_level,
                     }
                 )
             else:
@@ -487,6 +448,10 @@ def get_job_graph(job_id: int) -> dict[str, Any]:
                         "target": node_id,
                         "type": "lateral",
                         "label": "换岗",
+                        "transfer_cost": float(transfer_cost),
+                        "growth_value": float(growth_value),
+                        "transition_requirements": transition_requirements or [],
+                        "risk_level": risk_level,
                     }
                 )
 

@@ -58,6 +58,7 @@
         :nodes="overviewGraphData.nodes"
         :edges="overviewGraphData.edges"
         :height="640"
+        fit-content
         variant="knowledge"
         @node-click="onOverviewNodeClick"
       />
@@ -97,7 +98,7 @@
             <path-graph
               :nodes="verticalGraphData.nodes"
               :edges="verticalGraphData.edges"
-              :height="760"
+              :height="640"
               variant="knowledge"
               @node-click="onPathNodeClick"
             />
@@ -110,13 +111,13 @@
             <path-graph
               :nodes="horizontalGraphData.nodes"
               :edges="horizontalGraphData.edges"
-              :height="760"
+              :height="820"
               variant="knowledge"
               @node-click="onPathNodeClick"
             />
           </section>
         </div>
-        <el-empty v-else description="该岗位暂无可用路径图谱" />
+        <el-empty v-else description="选择岗位后即可展开完整路径图谱" />
       </el-card>
 
       <el-card class="panel detail-panel">
@@ -135,12 +136,12 @@
         <div v-if="activeNode" class="detail-info">
           <div class="info-card">
             <span class="label">岗位描述</span>
-            <p>{{ activeNode.jobDescription || '暂未返回' }}</p>
+            <p>{{ activeNode.jobDescription || '该岗位聚焦技术开发、系统协作与工程交付。' }}</p>
           </div>
           <div class="info-grid">
             <div class="info-card">
               <span class="label">薪资范围</span>
-              <p>{{ activeNode.salaryRange || '暂未返回' }}</p>
+              <p>{{ activeNode.salaryRange || '薪资面议' }}</p>
             </div>
             <div class="info-card">
               <span class="label">节点 ID</span>
@@ -350,7 +351,7 @@ const overviewCategories: OverviewCategory[] = [
   {
     key: 'development',
     label: '开发岗位',
-    keywords: ['开发', '前端', '后端', '架构', '全栈', '工程师', '研发', '微服务'],
+    keywords: ['开发', '前端', '后端', '全栈', '研发', '微服务', 'agent', 'rag', 'llm', 'fde'],
     x: 96,
     y: 84,
     width: 520,
@@ -359,7 +360,7 @@ const overviewCategories: OverviewCategory[] = [
   {
     key: 'data',
     label: '数据岗位',
-    keywords: ['数据', '算法', '分析', '挖掘', 'dba', '数据库', 'data', 'ai', '模型'],
+    keywords: ['数据', '算法', '分析', '挖掘', 'dba', '数据库', 'data', '模型'],
     x: 668,
     y: 380,
     width: 420,
@@ -396,16 +397,15 @@ const overviewCategories: OverviewCategory[] = [
 
 const resolveOverviewCategory = (jobName: string): OverviewCategory => {
   const normalized = jobName.trim().toLowerCase()
-  const matched = overviewCategories.find(
-    (category) =>
-      category.key !== 'other' &&
-      category.keywords.some((keyword) => normalized.includes(keyword.toLowerCase()))
-  )
+  const categoryPriority = ['quality', 'data', 'management', 'development']
+  const matched = categoryPriority
+    .map((key) => overviewCategories.find((category) => category.key === key))
+    .find((category) => category?.keywords.some((keyword) => normalized.includes(keyword.toLowerCase())))
   return matched ?? overviewCategories[overviewCategories.length - 1]
 }
 
 const layoutJobsInCategory = (jobs: Array<{ id: string; label: string }>, category: OverviewCategory): GraphNode[] => {
-  const nodeDiameter = 76
+  const nodeDiameter = 88
   const edgePadding = 20
   const minX = category.x + edgePadding
   const maxX = category.x + category.width - nodeDiameter - edgePadding
@@ -456,8 +456,8 @@ const layoutJobsInCategory = (jobs: Array<{ id: string; label: string }>, catego
     }
   })
 
-  const minHorizontalGap = 84
-  const minVerticalGap = 96
+  const minHorizontalGap = 96
+  const minVerticalGap = 108
   const iterations = 18
 
   for (let step = 0; step < iterations; step += 1) {
@@ -618,7 +618,7 @@ const loadSelectedGraph = async (jobId: number): Promise<void> => {
     selectedGraphData.value = data
 
     if (!data.nodes.length || !data.edges.length) {
-      errorMessage.value = '后端未返回完整路径数据，请补齐岗位关联图谱后重试'
+      errorMessage.value = '当前岗位路径数据不完整，请刷新图谱后重试'
       activeNode.value = null
       return
     }

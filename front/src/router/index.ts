@@ -10,6 +10,7 @@ import TrainingPageView from '../views/training/TrainingPage.vue'
 import ProfileView from '../views/profile/Profile.vue'
 import JobLibraryPageView from '../views/jobs/JobLibraryPage.vue'
 import { useAnalysisStore } from '../stores/analysis'
+import { isDemoMode } from '../demo/demoMode'
 
 const AUTH_STORAGE_KEY = 'career-pulse:auth'
 
@@ -118,13 +119,13 @@ router.beforeEach((to) => {
   const isPublic = Boolean(to.meta.public)
   const token = getStoredToken()
 
-  if (!isPublic && !token) {
+  if (!isPublic && !token && !isDemoMode) {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   if (to.name === 'path') {
     const analysisStore = useAnalysisStore()
-    if (!analysisStore.canVisitPathGraph) {
+    if (!isDemoMode && !analysisStore.canVisitPathGraph) {
       return { name: 'analysis' }
     }
   }

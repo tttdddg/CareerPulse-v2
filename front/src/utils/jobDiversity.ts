@@ -26,6 +26,9 @@ const canonicalRoleName = (name: string): string => {
   if (/(运维|devops|sre)/i.test(normalized)) {
     return '运维工程师'
   }
+  if (/(agent|智能体|rag|llm|大模型)/i.test(normalized)) {
+    return 'AI应用开发工程师'
+  }
   if (/(数据|data|算法|ai|机器学习|ml)/i.test(normalized)) {
     return '数据/算法工程师'
   }
@@ -55,6 +58,9 @@ const buildKeywordQueue = (keyword: string): string[] => {
   if (/(运维|devops|sre)/i.test(normalized)) {
     ;['运维工程师', 'DevOps工程师', 'SRE工程师'].forEach((item) => queue.add(item))
   }
+  if (/(aiagent|agent|智能体|rag|llm|大模型)/i.test(normalized)) {
+    ;['AI Agent开发工程师', 'RAG应用开发工程师', 'LLM应用开发工程师'].forEach((item) => queue.add(item))
+  }
 
   return [...queue]
 }
@@ -77,6 +83,9 @@ const buildRelevanceTokens = (keyword: string): string[] => {
   }
   if (/前端/i.test(source)) {
     ;['前端', 'frontend', 'web', 'react', 'vue'].forEach((item) => tokens.add(normalizeText(item)))
+  }
+  if (/(ai\s*agent|agent|智能体|rag|llm|大模型)/i.test(source)) {
+    ;['agent', '智能体', 'rag', 'llm', '大模型'].forEach((item) => tokens.add(normalizeText(item)))
   }
 
   return [...tokens].filter(Boolean)

@@ -66,6 +66,7 @@ import { computed, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useAnalysisStore } from '../stores/analysis'
+import { isDemoMode } from '../demo/demoMode'
 import brandLogo from '@/assets/logoo.png'
 import {
   EditPen,
@@ -94,7 +95,7 @@ const mobileMenuOpen = ref(false)
 const navigationItems: NavigationItem[] = [
   { index: '/app/input', label: '数据输入', icon: EditPen },
   { index: '/app/analysis', label: '岗位匹配', icon: TrendCharts },
-  { index: '/app/jobs', label: '岗位', icon: Briefcase },
+  { index: '/app/jobs', label: '岗位库', icon: Briefcase },
   { index: '/app/path', label: '职业路径', icon: Share },
   { index: '/app/plan', label: '成长计划', icon: DocumentChecked },
   { index: '/app/training', label: '职场训练', icon: ChatLineSquare },
@@ -107,7 +108,7 @@ const handleLogout = (): void => {
 }
 
 const activeMenu = computed(() => route.path)
-const pathMenuDisabled = computed(() => !analysisStore.canVisitPathGraph)
+const pathMenuDisabled = computed(() => !isDemoMode && !analysisStore.canVisitPathGraph)
 
 const closeMobileMenu = (): void => {
   mobileMenuOpen.value = false

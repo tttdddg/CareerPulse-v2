@@ -26,7 +26,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertEqual(response.json(), {"status": "ok"})
         self.assertNotIn("/healthz", client.get("/openapi.json").json()["paths"])
 
-    def test_legacy_postgres_config_reads_environment(self) -> None:
+    def test_postgres_config_reads_environment(self) -> None:
         values = {
             "POSTGRES_HOST": "db.internal",
             "POSTGRES_PORT": "5544",
@@ -50,7 +50,7 @@ class DeploymentReadinessTests(unittest.TestCase):
             },
         )
 
-    def test_legacy_postgres_password_default_is_empty(self) -> None:
+    def test_postgres_defaults_to_lightweight_database_and_empty_password(self) -> None:
         names = {
             "POSTGRES_HOST",
             "POSTGRES_PORT",
@@ -72,7 +72,7 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertEqual(config["password"], "")
         self.assertEqual(config["connect_timeout"], 5)
 
-    def test_legacy_postgres_rejects_invalid_port(self) -> None:
+    def test_postgres_rejects_invalid_port(self) -> None:
         with patch.dict(os.environ, {"POSTGRES_PORT": "70000"}, clear=False):
             with self.assertRaisesRegex(ValueError, "POSTGRES_PORT"):
                 get_postgres_config()
@@ -137,6 +137,7 @@ class DeploymentReadinessTests(unittest.TestCase):
             "A02_STATE_DB_PATH=/var/lib/careerpulse/career_state.sqlite3",
             environment,
         )
+        self.assertIn("POSTGRES_DATABASE=careerpulse_micro", environment)
         for variable in (
             "A02_LLM_API_KEY",
             "A02_TBOX_API_TOKEN",

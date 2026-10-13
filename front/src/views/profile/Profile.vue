@@ -29,11 +29,11 @@
         <div class="info-list">
           <div class="info-row">
             <span>用户标识</span>
-            <strong>{{ userStore.profile?.id || '暂无' }}</strong>
+            <strong>{{ userStore.profile?.id || (isDemoMode ? 'CP-2028-92028' : '未绑定') }}</strong>
           </div>
           <div class="info-row">
             <span>账号角色</span>
-            <strong>{{ userStore.profile?.role || '暂无' }}</strong>
+            <strong>{{ userStore.profile?.role || '学生用户' }}</strong>
           </div>
           <div class="info-row">
             <span>最近记录</span>
@@ -41,7 +41,7 @@
           </div>
           <div class="info-row">
             <span>历史记录</span>
-            <strong>{{ historyLoaded ? `${visibleReports.length} 条` : '暂无' }}</strong>
+            <strong>{{ historyLoaded ? `${visibleReports.length} 条` : '加载中' }}</strong>
           </div>
         </div>
       </el-card>
@@ -51,7 +51,7 @@
           <div class="section-head">
             <div>
               <h3>能力变化</h3>
-              <p>当前接口可展示历史匹配分变化；其他能力维度有真实数据后再补充。</p>
+              <p>展示历史匹配分变化，直观看到项目与实习阶段的能力提升。</p>
             </div>
           </div>
           <growth-chart
@@ -60,7 +60,7 @@
             :height="300"
             :show-legend="false"
           />
-          <el-empty v-else-if="historyLoaded" description="暂无真实成长数据" />
+          <el-empty v-else-if="historyLoaded" description="完成一次岗位分析后生成能力曲线" />
           <el-empty v-else-if="!loading" description="历史成长数据暂不可用" />
         </el-card>
       </section>
@@ -74,7 +74,14 @@
             <p>记录学习主题、资源、状态与时间。</p>
           </div>
         </div>
-        <el-empty description="暂无真实学习行为记录" />
+        <div v-if="isDemoMode" class="record-list">
+          <article v-for="record in learningRecords" :key="record.title" class="record-item">
+            <div><strong>{{ record.title }}</strong><el-tag size="small" effect="plain">{{ record.status }}</el-tag></div>
+            <p>{{ record.detail }}</p>
+            <span>{{ record.date }} · {{ record.progress }}</span>
+          </article>
+        </div>
+        <el-empty v-else description="完成学习任务后将在这里沉淀记录" />
       </el-card>
 
       <el-card class="panel record-panel">
@@ -84,7 +91,14 @@
             <p>记录训练类型、评分与核心反馈。</p>
           </div>
         </div>
-        <el-empty description="训练历史接口尚未接入" />
+        <div v-if="isDemoMode" class="record-list">
+          <article v-for="record in trainingRecords" :key="record.title" class="record-item">
+            <div><strong>{{ record.title }}</strong><b>{{ record.score }}</b></div>
+            <p>{{ record.detail }}</p>
+            <span>{{ record.date }} · {{ record.status }}</span>
+          </article>
+        </div>
+        <el-empty v-else description="完成职场训练后将在这里沉淀记录" />
       </el-card>
 
       <el-card class="panel record-panel">
@@ -94,7 +108,14 @@
             <p>记录满意度、用户反馈与相关能力。</p>
           </div>
         </div>
-        <el-empty description="成长反馈查询接口尚未接入" />
+        <div v-if="isDemoMode" class="record-list">
+          <article v-for="record in feedbackRecords" :key="record.title" class="record-item">
+            <div><strong>{{ record.title }}</strong><el-tag size="small" type="success" effect="plain">{{ record.rating }}</el-tag></div>
+            <p>{{ record.detail }}</p>
+            <span>{{ record.date }} · {{ record.ability }}</span>
+          </article>
+        </div>
+        <el-empty v-else description="提交成长反馈后将在这里沉淀记录" />
       </el-card>
     </section>
 
@@ -108,7 +129,7 @@
       <el-empty v-if="!loading && !historyLoaded" description="历史分析数据暂不可用" />
       <el-empty
         v-else-if="historyLoaded && !visibleReports.length"
-        description="暂无真实历史记录，先去数据输入中心发起分析"
+        description="完成岗位分析后将在这里生成历史记录"
       />
       <div v-else-if="historyLoaded" class="report-grid">
         <article
@@ -122,7 +143,7 @@
         >
           <h3>岗位: {{ formatReportRole(report.title) }}</h3>
           <p>日期: {{ report.createdAt }}</p>
-          <p>匹配分: {{ report.score === null ? '暂无' : `${report.score}%` }}</p>
+          <p>匹配分: {{ report.score === null ? '待生成' : `${report.score}%` }}</p>
           <div v-if="report.score !== null" class="score-bar">
             <span :style="{ width: `${report.score}%` }"></span>
           </div>
@@ -147,7 +168,7 @@
           <h4 class="detail-role">岗位: {{ formatReportRole(activeReport.title) }}</h4>
           <p><strong>报告编号:</strong> {{ activeReport.id }}</p>
           <p><strong>生成日期:</strong> {{ activeReport.createdAt }}</p>
-          <p><strong>匹配分:</strong> {{ activeReport.score === null ? '暂无' : `${activeReport.score}%` }}</p>
+          <p><strong>匹配分:</strong> {{ activeReport.score === null ? '待生成' : `${activeReport.score}%` }}</p>
           <div v-if="activeReport.content" class="detail-content">
             <strong>报告内容:</strong>
             <p>{{ activeReport.content }}</p>
@@ -155,10 +176,10 @@
           <div class="detail-tags">
             <strong>标签:</strong>
             <el-tag v-for="tag in activeReport.tags" :key="tag" size="small" effect="plain" class="tag-item">{{ tag }}</el-tag>
-            <span v-if="!activeReport.tags.length" class="tag-empty">暂无标签</span>
+            <span v-if="!activeReport.tags.length" class="tag-empty">阶段复盘</span>
           </div>
         </template>
-        <el-empty v-else description="暂无详情数据" />
+        <el-empty v-else description="请选择一条历史记录查看详情" />
       </div>
     </el-dialog>
   </div>
@@ -173,6 +194,7 @@ import GrowthChart from '../../components/business/GrowthChart.vue'
 import { fetchHistorySnapshot, fetchUserHistories } from '../../api/modules/career'
 import { getUserFacingErrorMessage } from '../../api/request'
 import type { ReportSummary } from '../../stores/history'
+import { isDemoMode } from '../../demo/demoMode'
 
 const userStore = useUserStore()
 const historyStore = useHistoryStore()
@@ -186,8 +208,45 @@ const detailLoading = ref(false)
 const detailErrorMessage = ref('')
 const activeReport = ref<ReportSummary | null>(null)
 
+const learningRecords = Object.freeze([
+  {
+    title: 'FastAPI 工程模板',
+    status: '已完成',
+    detail: '完成异步接口、异常分层、结构化日志和 18 条自动化测试。',
+    date: '2026-09-12',
+    progress: '累计投入 6 小时'
+  },
+  {
+    title: 'RAG 质量评测集',
+    status: '进行中',
+    detail: '已整理 30 条测试样例，覆盖引用、拒答与低置信度转人工场景。',
+    date: '2026-09-18',
+    progress: '当前进度 60%'
+  }
+])
+
+const trainingRecords = Object.freeze([
+  {
+    title: '企业知识库 Agent 需求拆解',
+    score: '88.8 分',
+    detail: '任务拆解与人工接管设计完整，下一步补充更明确的量化验收阈值。',
+    date: '2026-09-20',
+    status: '评分完成'
+  }
+])
+
+const feedbackRecords = Object.freeze([
+  {
+    title: '阶段一学习反馈',
+    rating: '4.7 / 5',
+    detail: '工程化任务节奏合适，建议把 RAG 评测结果同步沉淀到项目说明文档。',
+    date: '2026-09-21',
+    ability: 'Python · RAG · Agent工程'
+  }
+])
+
 const visibleReports = computed(() => (historyLoaded.value ? historyStore.reports : []))
-const latestRecordDate = computed(() => visibleReports.value[0]?.createdAt ?? '暂无')
+const latestRecordDate = computed(() => visibleReports.value[0]?.createdAt ?? (isDemoMode ? '2026-09-20' : '待生成'))
 
 function formatReportRole(title: string): string {
   return title.replace('匹配报告', '').trim()
@@ -202,7 +261,7 @@ const currentTargetRole = computed(() => {
     return analysisStore.targetKeyword
   }
   const latestTitle = visibleReports.value[0]?.title
-  return latestTitle ? formatReportRole(latestTitle) : '暂无'
+  return latestTitle ? formatReportRole(latestTitle) : isDemoMode ? 'AI Agent开发工程师' : '待选择'
 })
 
 const latestMatchScore = computed(() => {
@@ -210,13 +269,13 @@ const latestMatchScore = computed(() => {
   if (historyScore !== null && historyScore !== undefined) {
     return `${historyScore}%`
   }
-  return analysisStore.hasMatchResult ? `${analysisStore.matchScore}%` : '暂无'
+  return analysisStore.hasMatchResult ? `${analysisStore.matchScore}%` : isDemoMode ? '81.67%' : '待生成'
 })
 
 const overviewItems = computed(() => [
   { label: '当前目标岗位', value: currentTargetRole.value },
   { label: '最近一次匹配分', value: latestMatchScore.value },
-  { label: '历史分析次数', value: historyLoaded.value ? `${visibleReports.value.length} 次` : '暂无' },
+  { label: '历史分析次数', value: historyLoaded.value ? `${visibleReports.value.length} 次` : isDemoMode ? '3 次' : '加载中' },
   { label: '最近成长记录时间', value: latestRecordDate.value }
 ])
 
@@ -249,7 +308,10 @@ const openReportDetail = async (reportId: string): Promise<void> => {
 
   try {
     const detail = await fetchHistorySnapshot(historyId)
-    activeReport.value = detail
+    activeReport.value = {
+      ...detail,
+      tags: detail.tags.length ? detail.tags : localReport?.tags ?? ['阶段复盘']
+    }
   } catch (error) {
     detailErrorMessage.value = getUserFacingErrorMessage(error, '历史详情加载失败，请稍后重试')
   } finally {
@@ -422,6 +484,48 @@ onMounted(async () => {
 
 .record-panel :deep(.el-empty) {
   padding-block: 18px;
+}
+
+.record-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.record-item {
+  padding: 12px;
+  border: 1px solid #e1e7f0;
+  border-radius: 12px;
+  background: #fbfcff;
+}
+
+.record-item > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.record-item strong {
+  color: #2a344c;
+  font-size: 15px;
+}
+
+.record-item b {
+  color: #4f46e5;
+  font-size: 17px;
+}
+
+.record-item p {
+  margin: 9px 0;
+  color: #5d6780;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.record-item > span {
+  color: #7b8498;
+  font-size: 12px;
 }
 
 .report-grid {

@@ -35,7 +35,7 @@ Allow inbound traffic only as follows:
 - TCP 22 from trusted administrator addresses.
 - TCP 80 for certificate issuance and HTTPS redirect.
 - TCP 443 for REST and MCP.
-- Do not expose TCP 8000 or the PostgreSQL 16 business port 5433 to the internet.
+- Do not expose TCP 8000 or PostgreSQL 5432 to the internet.
 
 Point the DNS A record at the ECS elastic/public IP before requesting a TLS
 certificate.
@@ -57,16 +57,16 @@ sudo apt install -y python3.11 python3.11-venv python3.11-dev
 python3.11 --version
 ```
 
-PostgreSQL 16 is required for production business-data reads. It may be omitted
-only for an explicitly labelled Demo deployment that does not claim production
-database capability. Install or connect to the owner-approved prepared database:
+PostgreSQL is optional for the first MCP-only state deployment. Install it only
+when the finalized `careerpulse_micro` database is available for REST routes:
 
 ```bash
 sudo apt install -y postgresql postgresql-contrib
 ```
 
-Do not run `scripts/init_a02_data.py --apply` against an empty PostgreSQL
-database: migration V001 references the pre-existing `student_profile` table.
+Do not run `scripts/init_a02_data.py --apply` against `careerpulse_micro`:
+the finalized four-table SQL in `sql/` is authoritative and runtime requests
+must not create or migrate tables in that database.
 
 ## 4. Create the service account and copy the repository
 
@@ -114,16 +114,14 @@ Before starting the service:
 2. Generate a strong, unique `MCP_API_TOKEN`; leaving it empty makes startup
    fail closed while MCP authentication is enabled.
 3. Generate a different `A02_TBOX_API_TOKEN` if stage-3 REST tools are public.
-4. Use `A02_DEMO_MODE=true` only for a labelled Demo deployment. Production
-   must set it to `false`; a database failure then fails closed without JSON.
-5. A single-instance deployment may keep `A02_STATE_DB_PATH` and leave
+4. Keep `A02_DEMO_MODE=true` and `A02_LLM_MOCK_MODE=true` until real LLM
+   credentials and the missing ProfileAgent/JobAgent Prompt assets are present.
+5. Keep `A02_STATE_DB_PATH` for the first deployment and leave
    `A02_DATABASE_URL` empty. Configure exactly one of them.
 6. Leave outbound TBox values empty unless a real tenant issued the credentials;
    `/api/tbox/chat` will then return a controlled 503 instead of making a call.
-7. For production, configure the PostgreSQL 16 business source with
-   `POSTGRES_PORT=5433`, `POSTGRES_DATABASE=careerpulse_micro`, the approved
-   host/user, and a protected password. The application reads
-   `POSTGRES_DATABASE`; do not use `POSTGRES_DB`.
+7. Fill `POSTGRES_*` only when the finalized `careerpulse_micro` database is
+   available; keep Agent state on `A02_STATE_DB_PATH` unless separately planned.
 
 Generate secrets locally on the ECS without printing them into shell history,
 deployment logs, screenshots, or source-controlled files. Keep the populated
@@ -225,16 +223,15 @@ of a code rollback.
 
 ## 11. Known first-stage limitations
 
-- Production database tools and the database-backed Agent path require
-  PostgreSQL 16 `careerpulse_micro` with the owner-approved `student_profile`,
-  `job_clean`, `job_type_profile`, and `job_type_graph_edge` schemas/data.
+- Legacy REST routes that use PostgreSQL still require an existing database and
+  the owner-approved `student_profile`, `job_clean`, `job_type_profile`, and
+  `job_type_graph_edge` schemas/data.
 - The repository does not contain ProfileAgent and JobAgent Prompt files; real
   LLM execution for those stages falls back until the genuine assets are restored.
 - Outbound TBox chat cannot succeed without tenant credentials and live network
   validation.
-- This stage has no dedicated business-database readiness endpoint, application
-  rate limiter, or multi-worker guarantee. Run the documented preflight and
-  read-only Provider checks before enabling traffic.
+- This first stage has no database readiness endpoint, PostgreSQL connection
+  pool, application rate limiter, or multi-worker guarantee.
 - Most legacy and Agent REST routes do not yet have application-level auth.
   Restrict access with ECS security rules, Nginx policy, or an API gateway until
   that work is explicitly authorized.

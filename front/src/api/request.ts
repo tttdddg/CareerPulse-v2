@@ -6,6 +6,8 @@ import axios, {
   type AxiosResponse
 } from 'axios'
 import { useUserStore } from '../stores/user'
+import { demoRequest } from '../demo/demoRequest'
+import { isDemoMode } from '../demo/demoMode'
 
 export interface ApiResponse<T> {
   code?: number | string
@@ -176,8 +178,12 @@ instance.interceptors.response.use(
   (error) => Promise.reject(normalizeError(error))
 )
 
-export const request = async <T>(config: RequestConfigWithAuth): Promise<T> =>
-  instance.request<unknown, T>(config)
+export const request = async <T>(config: RequestConfigWithAuth): Promise<T> => {
+  if (isDemoMode) {
+    return demoRequest<T>(config)
+  }
+  return instance.request<unknown, T>(config)
+}
 
 export default instance
 

@@ -34,11 +34,13 @@ export interface PathGraphProps {
   edges?: PathEdge[]
   height?: number | string
   variant?: 'default' | 'knowledge'
+  fitContent?: boolean
 }
 
 const props = withDefaults(defineProps<PathGraphProps>(), {
   height: 420,
-  variant: 'knowledge'
+  variant: 'knowledge',
+  fitContent: false
 })
 
 const emit = defineEmits<{
@@ -381,7 +383,7 @@ const buildAutoLayout = (nodes: PathNode[], edges: PathEdge[], width: number): P
   const leftBranchX = horizontalPadding
   const rightBranchX = Math.max(horizontalPadding, safeWidth - branchNodeWidth - horizontalPadding)
   const targetY = 64
-  const rhythmStep = 124
+  const rhythmStep = sanitized.length >= 10 ? 104 : 124
   const verticalGap = rhythmStep
   const lateralGapY = rhythmStep
   const branchStartOffsetY = 2 * rhythmStep
@@ -472,8 +474,8 @@ const toDisplayLabel = (label: string, type: PathNodeType, width: number, varian
   }
 
   const compactWidth = Math.max(70, Math.round(width))
-  const charsPerLine = compactWidth >= 118 ? 6 : compactWidth >= 96 ? 5 : 4
-  const maxLines = type === 'target' ? 2 : 2
+  const charsPerLine = compactWidth >= 118 ? 7 : compactWidth >= 96 ? 6 : compactWidth >= 84 ? 5 : 4
+  const maxLines = type === 'category' ? 2 : 3
   const maxChars = charsPerLine * maxLines
   const trimmed = label.replace(/\s+/g, '')
   const sliced = trimmed.slice(0, maxChars)
@@ -726,7 +728,7 @@ const renderGraph = (): void => {
   })
 
   const compactViewport = graphEl.value.clientWidth < 480
-  if (compactViewport) {
+  if (compactViewport || props.fitContent) {
     graph.zoomToFit({ padding: 16, minScale: 0.45, maxScale: 1 })
   } else {
     graph.centerContent({ padding: 20 })
@@ -740,7 +742,7 @@ const resizeObserver = new ResizeObserver(() => {
     return
   }
   graph.resize(width, height)
-  if (width < 480) {
+  if (width < 480 || props.fitContent) {
     graph.zoomToFit({ padding: 16, minScale: 0.45, maxScale: 1 })
   } else {
     graph.centerContent({ padding: 20 })
