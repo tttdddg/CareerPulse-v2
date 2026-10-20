@@ -10,6 +10,9 @@ python-multipart==0.0.27
 # PostgreSQL persistence
 psycopg2==2.9.12
 
+# End-user password hashing
+argon2-cffi==25.1.0
+
 # LLM and HTTP integrations
 openai==2.24.0
 httpx==0.28.1

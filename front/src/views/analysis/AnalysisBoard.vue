@@ -206,9 +206,10 @@ import { useAnalysisStore } from '../../stores/analysis'
 import { isDemoMode } from '../../demo/demoMode'
 import RadarChart from '../../components/business/RadarChart.vue'
 import {
+  analyzeWorkflowMatch,
   fetchJobGraph,
   fetchJobProfile,
-  matchingAnalyze,
+  saveWorkflowTargetJob,
   type JobItem,
   type MatchingGap
 } from '../../api/modules/career'
@@ -638,23 +639,17 @@ const toggleJobView = async (): Promise<void> => {
 }
 
 const refreshRadar = async (): Promise<void> => {
-  if (!analysisStore.studentId || !analysisStore.jobId) {
+  if (!analysisStore.sessionId) {
     errorMessage.value = '缺少分析上下文，请先在数据输入中心完成一次分析'
     return
   }
 
   try {
     loading.value = true
-    const result = await matchingAnalyze({
-      studentId: analysisStore.studentId,
-      jobId: analysisStore.jobId
-    })
+    const result = await analyzeWorkflowMatch(analysisStore.sessionId)
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
     analysisStore.setInsights(result.strengths, result.gaps, result.gapDetails)
-    if (result.reportId) {
-      analysisStore.setContext({ reportId: result.reportId })
-    }
     ElMessage.success('分析结果已更新')
     renderGauge()
   } catch (error) {
@@ -799,23 +794,18 @@ const selectTargetJob = async (job: { jobId: number | null; name: string }): Pro
 
   analysisStore.setContext({ jobId: job.jobId })
 
-  if (!analysisStore.studentId) {
-    ElMessage.warning('缺少学生画像上下文，已切换目标岗位，请先返回数据输入中心完成分析')
+  if (!analysisStore.sessionId) {
+    ElMessage.warning('缺少分析上下文，已切换目标岗位，请先返回数据输入中心完成分析')
     return
   }
 
   try {
     loading.value = true
-    const result = await matchingAnalyze({
-      studentId: analysisStore.studentId,
-      jobId: job.jobId
-    })
+    await saveWorkflowTargetJob(analysisStore.sessionId, { job_id: job.jobId })
+    const result = await analyzeWorkflowMatch(analysisStore.sessionId)
     analysisStore.setMatchScore(result.matchScore)
     analysisStore.setRadarData(result.radarIndicators, result.radarSeries)
     analysisStore.setInsights(result.strengths, result.gaps, result.gapDetails)
-    if (result.reportId) {
-      analysisStore.setContext({ reportId: result.reportId })
-    }
     await fetchJobs(true)
     renderGauge()
     ElMessage.success(`已切换目标岗位：${job.name}`)
@@ -880,7 +870,7 @@ let chartResizeObserver: ResizeObserver | null = null
 
 onMounted(async () => {
   await fetchJobs(true)
-  if (!analysisStore.hasRadar && analysisStore.studentId && analysisStore.jobId) {
+  if (!analysisStore.hasRadar && analysisStore.sessionId && analysisStore.jobId) {
     await refreshRadar()
   }
   renderGauge()

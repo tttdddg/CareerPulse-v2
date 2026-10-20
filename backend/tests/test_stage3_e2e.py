@@ -14,12 +14,19 @@ from fastapi.testclient import TestClient
 from app.agents.match_agent import MatchAgent
 from app.agents.path_agent import PathAgent
 from app.db_state import StateRepository
-from app.main import create_app
+from app.main import create_app as create_application
 from app.orchestrator import CareerOrchestrator
 from app.services.career_graph_repository import CareerGraphRepository
 from app.services.match_service import MatchService
 from app.services.path_service import PathService
 from .stage3_fixtures import OfflineLLMClient, job_profile, student_profile
+
+
+def create_app(*args: Any, **kwargs: Any):
+    """Keep legacy stage tests focused on Agent behavior, not Web auth."""
+
+    kwargs.setdefault("web_auth_enabled", False)
+    return create_application(*args, **kwargs)
 
 
 class NarrativeLLMClient:

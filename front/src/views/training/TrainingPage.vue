@@ -171,7 +171,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, type Component } from 'vue'
 import { ChatLineRound, Connection, Monitor } from '@element-plus/icons-vue'
-import { useUserStore } from '../../stores/user'
+
 import { isDemoMode } from '../../demo/demoMode'
 import {
   trainingApiAdapter,
@@ -189,7 +189,6 @@ interface TrainingTypeOption {
   icon: Component
 }
 
-const userStore = useUserStore()
 const state = ref<TrainingLifecycleState>('idle')
 const selectedType = ref<TrainingType | null>(null)
 const task = ref<TrainingTask | null>(null)
@@ -267,7 +266,6 @@ const startTraining = async (type: TrainingType): Promise<void> => {
   try {
     state.value = 'generating'
     task.value = await trainingApiAdapter.generateTask({
-      userId: userStore.profile?.id ?? 'default',
       trainingType: type
     })
     state.value = 'ready'
@@ -286,7 +284,6 @@ const submitAnswer = async (): Promise<void> => {
     state.value = 'scoring'
     errorMessage.value = ''
     score.value = await trainingApiAdapter.scoreTask({
-      userId: userStore.profile?.id ?? 'default',
       trainingId: task.value.trainingId,
       answer: answer.value.trim()
     })

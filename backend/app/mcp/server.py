@@ -10,6 +10,8 @@ from mcp.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
+from ..auth.identity import external_owner_id
+
 from ..orchestrator import CareerOrchestrator
 from ..schemas.internal_tool_schema import (
     GenerateAndScoreTrainingRequest,
@@ -325,7 +327,7 @@ def create_career_mcp_server(
         )
         request = BuildStudentProfileRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             student_input=student_input,
         )
@@ -384,7 +386,7 @@ def create_career_mcp_server(
         )
         request = AnalyzeTargetJobRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             target_job_input=target_job_input,
         )
@@ -408,7 +410,7 @@ def create_career_mcp_server(
     ) -> AnalyzeJobMatchMCPResult:
         request = AnalyzeJobMatchMCPRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
         )
         return await service.analyze_job_match(request)
@@ -430,7 +432,7 @@ def create_career_mcp_server(
     ) -> GenerateCareerPathMCPResult:
         request = GenerateCareerPathMCPRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
         )
         return await service.generate_career_path(request)
@@ -479,7 +481,7 @@ def create_career_mcp_server(
         )
         request = GenerateAndScoreTrainingRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             training_type=normalized_training_type,
             training_id=training_id,
@@ -504,7 +506,7 @@ def create_career_mcp_server(
     ) -> RecommendLearningAndJobResourcesResult:
         request = RecommendLearningAndJobResourcesRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
         )
         return await service.recommend_learning_and_job_resources(request)
@@ -547,7 +549,7 @@ def create_career_mcp_server(
     ) -> SaveGrowthFeedbackResult:
         request = SaveGrowthFeedbackRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             satisfaction=parse_optional_int(
                 satisfaction, field_name="satisfaction"
@@ -585,7 +587,7 @@ def create_career_mcp_server(
     ) -> ReadStudentProfileResult:
         request = ReadStudentProfileRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             student_id=student_id,
         )
@@ -627,7 +629,7 @@ def create_career_mcp_server(
     ) -> SearchJobsResult:
         request = SearchJobsRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             keyword=keyword,
             city=city,
@@ -665,7 +667,7 @@ def create_career_mcp_server(
     ) -> ReadJobContextResult:
         request = ReadJobContextRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             job_id=job_id,
             normalized_title=normalized_title,
@@ -704,7 +706,7 @@ def create_career_mcp_server(
     ) -> ReadCareerGraphEdgesResult:
         request = ReadCareerGraphEdgesRequest(
             session_id=session_id,
-            user_id=user_id,
+            user_id=external_owner_id(user_id),
             trace_id=trace_id,
             source_type_key=source_type_key,
             relation_type=relation_type,

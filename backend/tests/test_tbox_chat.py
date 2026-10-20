@@ -12,8 +12,9 @@ from typing import Any
 import httpx
 from fastapi.testclient import TestClient
 
+from app.auth.identity import external_owner_id
 from app.db_state import StateRepository
-from app.main import create_app
+from app.main import create_app as create_application
 from app.orchestrator import CareerOrchestrator, CareerState
 from app.platform.tbox import (
     TBoxChatService,
@@ -26,6 +27,13 @@ from app.platform.tbox import (
 AUTHORIZATION = "Tbox-test-only-authorization"
 APP_ID = "career-pulse-test-agent"
 USER_ID_SECRET = "test-only-user-id-hmac-secret"
+
+
+def create_app(*args: Any, **kwargs: Any):
+    """Keep gateway protocol tests independent from browser authentication."""
+
+    kwargs.setdefault("web_auth_enabled", False)
+    return create_application(*args, **kwargs)
 
 
 class TBoxChatGatewayTests(unittest.TestCase):
@@ -160,7 +168,7 @@ class TBoxChatGatewayTests(unittest.TestCase):
         state = self.orchestrator.get_session("chat-session-001")
         assert state is not None
         self.assertEqual("conversation-001", state.platform_session_id)
-        self.assertEqual("anonymous-user-001", state.user_id)
+        self.assertEqual(external_owner_id("anonymous-user-001"), state.user_id)
 
         for response in (first_body, second.json()):
             record = self.repository.get_tool_call(response["request_id"])

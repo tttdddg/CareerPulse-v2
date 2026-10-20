@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.exceptions import RequestValidationError
 
+from ..auth.identity import external_owner_id
 from ..orchestrator import (
     AgentLog,
     CareerOrchestrator,
@@ -188,6 +189,20 @@ def _hash_user_id(user_id: str | None) -> str | None:
     if user_id is None:
         return None
     return hashlib.sha256(user_id.encode("utf-8")).hexdigest()
+
+
+def _trusted_external_payload(payload: Any) -> Any:
+    """Replace caller identity strings with one isolated external owner."""
+
+    raw_subject = payload.user_id or payload.platform_session_id or payload.session_id
+    owner_id = external_owner_id(raw_subject)
+    updates: dict[str, Any] = {"user_id": owner_id}
+    student_profile = getattr(payload, "student_profile", None)
+    if student_profile is not None:
+        updates["student_profile"] = student_profile.model_copy(
+            update={"user_id": owner_id}
+        )
+    return payload.model_copy(update=updates)
 
 
 def _validate_tool_call_id(tool_call_id: str) -> None:
@@ -446,6 +461,7 @@ async def analyze_job_match(
     payload: AnalyzeJobMatchRequest,
     request: Request,
 ) -> AnalyzeJobMatchResponse:
+    payload = _trusted_external_payload(payload)
     career_orchestrator = _orchestrator(request)
     record, created = _begin_call(
         career_orchestrator, tool_name="analyze_job_match", payload=payload
@@ -633,6 +649,7 @@ async def generate_career_path(
     payload: GenerateCareerPathRequest,
     request: Request,
 ) -> GenerateCareerPathResponse:
+    payload = _trusted_external_payload(payload)
     career_orchestrator = _orchestrator(request)
     record, created = _begin_call(
         career_orchestrator, tool_name="generate_career_path", payload=payload

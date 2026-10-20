@@ -48,12 +48,10 @@ export interface TrainingScore {
 }
 
 export interface GenerateTrainingPayload {
-  userId: string
   trainingType: TrainingType
 }
 
 export interface ScoreTrainingPayload {
-  userId: string
   trainingId: string
   answer: string
 }

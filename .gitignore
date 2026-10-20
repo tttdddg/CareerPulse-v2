@@ -20,3 +20,15 @@ deploy/env/*.env
 *.key
 *.p12
 *.pfx
+
+# Workspace artefacts that are not product source. sql/ holds a PostgreSQL dump
+# that contains real student_profile rows and must never enter Git.
+sql/
+outputs/
+.pptx-work/
+.pptx-finalizer/
+.hermes/
+
+# Legacy test that still imports the removed app.db.ensure_business_tables and
+# therefore fails during pytest collection. Drop this line once it is repaired.
+backend/tests/test_micro_database_adaptation.py

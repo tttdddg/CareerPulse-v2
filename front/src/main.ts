@@ -26,16 +26,12 @@ app.use(ElementPlus)
 
 const userStore = useUserStore(pinia)
 if (isDemoMode) {
-  userStore.setToken('career-pulse-local-demo', false)
-  userStore.setProfile(
-    {
-      id: 'CP-2028-0928',
-      name: '林晓宁',
-      role: '学生用户',
-      title: 'AI Agent开发方向'
-    },
-    false
-  )
+  userStore.setDemoProfile({
+    id: 'CP-2028-0928',
+    name: '林晓宁',
+    role: '学生用户',
+    title: 'AI Agent开发方向'
+  })
 
   const analysisStore = useAnalysisStore(pinia)
   const primaryJob = DEMO_JOBS[0]
@@ -62,6 +58,7 @@ if (isDemoMode) {
   analysisStore.setTargetKeyword(primaryJob.job_name)
   analysisStore.setCandidateJobs(recommendedJobs)
   analysisStore.setContext({
+    sessionId: 'demo-session',
     studentId: DEMO_STUDENT_ID,
     jobId: DEMO_PRIMARY_JOB_ID,
     reportId: DEMO_REPORT_ID
@@ -91,11 +88,23 @@ if (isDemoMode) {
     }))
   )
   analysisStore.grantPathAccess(DEMO_PRIMARY_JOB_ID)
-} else {
-  userStore.hydrateFromStorage()
 }
 useHistoryStore(pinia).hydrateFromStorage()
 
 app.use(router)
 
-app.mount('#app')
+const bootstrap = async (): Promise<void> => {
+  if (!isDemoMode) {
+    await userStore.hydrateSession()
+  }
+  window.addEventListener('career-pulse:unauthorized', () => {
+    userStore.clearSession('expired')
+    if (router.currentRoute.value.name !== 'login') {
+      void router.push({ name: 'login', query: { redirect: router.currentRoute.value.fullPath } })
+    }
+  })
+  await router.isReady()
+  app.mount('#app')
+}
+
+void bootstrap()

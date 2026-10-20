@@ -7,11 +7,11 @@
             <h2 class="title">登录</h2>
             <div class="input-field">
               <el-icon class="account-icon"><User /></el-icon>
-              <input v-model.trim="signInForm.account" type="text" placeholder="userName" />
+              <input v-model.trim="signInForm.account" type="text" placeholder="用户名或邮箱" />
             </div>
             <div class="input-field">
               <el-icon class="account-icon"><Lock /></el-icon>
-              <input v-model="signInForm.password" type="password" placeholder="passWord" />
+              <input v-model="signInForm.password" type="password" placeholder="密码" />
             </div>
             <span class="error-message">{{ signInError }}</span>
             <button type="submit" class="btn" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
@@ -21,36 +21,18 @@
             <h2 class="title">注册</h2>
             <div class="input-field">
               <el-icon class="account-icon"><User /></el-icon>
-              <input v-model.trim="signUpForm.username" type="text" placeholder="userName" />
-            </div>
-            <div class="input-field">
-              <el-icon class="account-icon"><Iphone /></el-icon>
-              <input v-model.trim="signUpForm.phone" type="text" placeholder="手机号" />
+              <input v-model.trim="signUpForm.username" type="text" placeholder="用户名" />
             </div>
             <div class="input-field">
               <el-icon class="account-icon"><Message /></el-icon>
-              <input v-model.trim="signUpForm.email" type="email" placeholder="email地址" />
-            </div>
-            <div class="sms-row">
-              <div class="input-field sms-field">
-                <el-icon class="account-icon"><Key /></el-icon>
-                <input v-model.trim="signUpForm.smsCode" type="text" placeholder="短信验证码" />
-              </div>
-              <button
-                class="sms-btn"
-                type="button"
-                :disabled="smsCountdown > 0"
-                @click="handleSendSmsCode"
-              >
-                {{ smsCountdown > 0 ? `${smsCountdown}s` : '发送验证码' }}
-              </button>
+              <input v-model.trim="signUpForm.email" type="email" placeholder="邮箱地址" />
             </div>
             <div class="input-field">
               <el-icon class="account-icon"><Lock /></el-icon>
-              <input v-model="signUpForm.password" type="password" placeholder="passWord" />
+              <input v-model="signUpForm.password" type="password" placeholder="密码（至少 10 个字符）" />
             </div>
             <span class="error-message">{{ signUpError }}</span>
-            <button type="submit" class="btn">注册</button>
+            <button type="submit" class="btn" :disabled="loading">{{ loading ? '提交中...' : '注册' }}</button>
           </form>
         </div>
       </div>
@@ -59,7 +41,7 @@
         <div class="panel left-panel">
           <div class="content">
             <h3>还没注册？</h3>
-            <p>创建账号后可保存职业分析与成长计划历史。</p>
+            <p>创建账号后即可使用正式认证入口。</p>
             <button class="btn transparent" type="button" @click="switchToSignUp">去注册</button>
           </div>
         </div>
@@ -76,11 +58,12 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Iphone, Key, Lock, Message, User } from '@element-plus/icons-vue'
+import { Lock, Message, User } from '@element-plus/icons-vue'
 import { useUserStore } from '../../stores/user'
+import { ApiError, getUserFacingErrorMessage } from '../../api/request'
 
 const router = useRouter()
 const route = useRoute()
@@ -90,20 +73,14 @@ const isSignUpMode = ref(false)
 const loading = ref(false)
 const signInError = ref('')
 const signUpError = ref('')
-const smsCountdown = ref(0)
-const smsCodeSent = ref('')
-let smsTimer: ReturnType<typeof setInterval> | null = null
-
 const signInForm = reactive({
-  account: 'admin',
-  password: '123456'
+  account: '',
+  password: ''
 })
 
 const signUpForm = reactive({
   username: '',
-  phone: '',
   email: '',
-  smsCode: '',
   password: ''
 })
 
@@ -135,87 +112,55 @@ const handleSignIn = async (): Promise<void> => {
     return
   }
 
-  if (signInForm.account !== 'admin' || signInForm.password !== '123456') {
-    signInError.value = '账号或密码错误，仅支持 admin / 123456'
-    return
-  }
-
   loading.value = true
-  userStore.setToken('fixed-admin-token', true)
-  userStore.setProfile(
-    {
-      id: 'admin',
-      name: 'admin',
-      role: 'administrator',
-      title: '系统管理员'
-    },
-    true
-  )
-  ElMessage.success('登录成功')
-  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/app/input'
-  await router.push(redirect)
-  loading.value = false
-}
-
-const handleSendSmsCode = (): void => {
-  signUpError.value = ''
-  const phoneRegex = /^1\d{10}$/
-
-  if (!phoneRegex.test(signUpForm.phone)) {
-    signUpError.value = '请输入有效的 11 位手机号'
-    return
-  }
-
-  smsCodeSent.value = `${Math.floor(100000 + Math.random() * 900000)}`
-  smsCountdown.value = 60
-
-  ElMessage.success(`验证码已发送（模拟）: ${smsCodeSent.value}`)
-
-  if (smsTimer) {
-    clearInterval(smsTimer)
-  }
-
-  smsTimer = setInterval(() => {
-    if (smsCountdown.value <= 1) {
-      smsCountdown.value = 0
-      if (smsTimer) {
-        clearInterval(smsTimer)
-        smsTimer = null
-      }
-      return
+  try {
+    await userStore.login({
+      identifier: signInForm.account,
+      password: signInForm.password
+    })
+    ElMessage.success('登录成功')
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/app/input'
+    await router.push(redirect)
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 429) {
+      signInError.value = '尝试次数过多，请稍后再试'
+    } else if (error instanceof ApiError && error.status === 401) {
+      signInError.value = '用户名、邮箱或密码错误'
+    } else {
+      signInError.value = getUserFacingErrorMessage(error, '登录失败，请稍后重试')
     }
-    smsCountdown.value -= 1
-  }, 1000)
+  } finally {
+    loading.value = false
+  }
 }
 
-const handleSignUp = (): void => {
+const handleSignUp = async (): Promise<void> => {
   signUpError.value = ''
 
-  if (
-    !signUpForm.username ||
-    !signUpForm.phone ||
-    !signUpForm.email ||
-    !signUpForm.password ||
-    !signUpForm.smsCode
-  ) {
-    signUpError.value = '所有字段都不能为空'
+  if (!signUpForm.username || !signUpForm.email || !signUpForm.password) {
+    signUpError.value = '用户名、邮箱和密码都不能为空'
     return
   }
-
-  if (!smsCodeSent.value) {
-    signUpError.value = '请先发送短信验证码'
+  if (signUpForm.password.length < 10) {
+    signUpError.value = '密码至少需要 10 个字符'
     return
   }
-
-  if (signUpForm.smsCode !== smsCodeSent.value) {
-    signUpError.value = '短信验证码不正确'
-    return
+  loading.value = true
+  try {
+    await userStore.register({ ...signUpForm })
+    signInForm.account = signUpForm.username
+    signInForm.password = ''
+    signUpForm.password = ''
+    ElMessage.success('注册成功，请登录')
+    await switchToSignIn()
+  } catch (error) {
+    signUpError.value =
+      error instanceof ApiError && error.status === 409
+        ? '用户名或邮箱已经被注册'
+        : getUserFacingErrorMessage(error, '注册失败，请稍后重试')
+  } finally {
+    loading.value = false
   }
-
-  ElMessage.success('注册成功！快去登录吧！')
-  signUpForm.smsCode = ''
-  smsCodeSent.value = ''
-  void switchToSignIn()
 }
 
 watch(
@@ -226,12 +171,6 @@ watch(
   { immediate: true }
 )
 
-onBeforeUnmount(() => {
-  if (smsTimer) {
-    clearInterval(smsTimer)
-    smsTimer = null
-  }
-})
 </script>
 
 <style scoped>

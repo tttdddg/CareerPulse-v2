@@ -23,6 +23,7 @@ export interface AnalysisState {
   gapDetails: MatchingGap[]
   targetKeyword: string
   candidateJobs: JobItem[]
+  sessionId: string | null
   studentId: number | null
   jobId: number | null
   reportId: number | null
@@ -41,6 +42,7 @@ export const useAnalysisStore = defineStore('analysis', {
     gapDetails: [],
     targetKeyword: '',
     candidateJobs: [],
+    sessionId: null,
     studentId: null,
     jobId: null,
     reportId: null,
@@ -87,8 +89,16 @@ export const useAnalysisStore = defineStore('analysis', {
       this.updatedAt = new Date().toISOString()
     },
 
-    // 保存当前分析上下文（学生、岗位、报告）
-    setContext(payload: { studentId?: number | null; jobId?: number | null; reportId?: number | null }): void {
+    // 保存当前分析上下文（workflow、学生、岗位、报告）
+    setContext(payload: {
+      sessionId?: string | null
+      studentId?: number | null
+      jobId?: number | null
+      reportId?: number | null
+    }): void {
+      if (payload.sessionId !== undefined) {
+        this.sessionId = payload.sessionId
+      }
       if (payload.studentId !== undefined) {
         this.studentId = payload.studentId
       }
@@ -120,6 +130,7 @@ export const useAnalysisStore = defineStore('analysis', {
       this.gapDetails = []
       this.targetKeyword = ''
       this.candidateJobs = []
+      this.sessionId = null
       this.studentId = null
       this.jobId = null
       this.reportId = null

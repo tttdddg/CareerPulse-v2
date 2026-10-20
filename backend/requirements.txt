@@ -2,6 +2,7 @@
 uvicorn
 pydantic
 psycopg2
+argon2-cffi==25.1.0
 openai
 python-docx
 reportlab

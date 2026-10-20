@@ -21,7 +21,7 @@ class TBoxChatRequest(TBoxSchemaModel):
         min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
     )
     user_id: str = Field(
-        min_length=1, max_length=128, pattern=_IDENTIFIER_PATTERN
+        default="", max_length=128, pattern=r"^$|^[A-Za-z0-9][A-Za-z0-9._:-]*$"
     )
     message: str = Field(min_length=1, max_length=20_000)
     stream: bool = False

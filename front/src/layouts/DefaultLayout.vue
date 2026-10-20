@@ -64,8 +64,10 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
 import { useAnalysisStore } from '../stores/analysis'
+import { useHistoryStore } from '../stores/history'
 import { isDemoMode } from '../demo/demoMode'
 import brandLogo from '@/assets/logoo.png'
 import {
@@ -90,6 +92,7 @@ const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
 const analysisStore = useAnalysisStore()
+const historyStore = useHistoryStore()
 const mobileMenuOpen = ref(false)
 
 const navigationItems: NavigationItem[] = [
@@ -102,9 +105,18 @@ const navigationItems: NavigationItem[] = [
   { index: '/app/profile', label: '成长档案', icon: User }
 ]
 
-const handleLogout = (): void => {
-  userStore.logout()
-  router.push('/login')
+const handleLogout = async (): Promise<void> => {
+  let serverLogoutFailed = false
+  try {
+    await userStore.logout()
+  } catch {
+    serverLogoutFailed = true
+  }
+  historyStore.clearLocalHistory()
+  await router.push('/login')
+  if (serverLogoutFailed) {
+    ElMessage.warning('本地登录状态已清除，但服务端会话撤销失败，请稍后重试')
+  }
 }
 
 const activeMenu = computed(() => route.path)

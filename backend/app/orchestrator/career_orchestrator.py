@@ -15,7 +15,7 @@ from ..agents import (
     ProfileAgent,
     TrainingAgent,
 )
-from ..db_state import StateRepository
+from ..db_state import SessionOwnershipConflict, StateRepository
 from .career_state import CareerState
 
 
@@ -97,6 +97,8 @@ class CareerOrchestrator:
                 state.model_dump(mode="json"),
                 [log.model_dump(mode="json") for log in state.agent_logs],
             )
+        except SessionOwnershipConflict as exc:
+            raise StateOwnershipError("career session ownership conflict") from exc
         except Exception as exc:
             state.set_status("FAILED", error_type=f"DATABASE_WRITE_FAILED:{type(exc).__name__}")
             raise StatePersistenceError("career state persistence failed") from exc
@@ -151,4 +153,8 @@ class StatePersistenceError(RuntimeError):
     """Raised after a database transaction fails and has been rolled back."""
 
 
-__all__ = ["CareerOrchestrator", "StatePersistenceError"]
+class StateOwnershipError(StatePersistenceError):
+    """Raised when a write attempts to replace another subject's session."""
+
+
+__all__ = ["CareerOrchestrator", "StateOwnershipError", "StatePersistenceError"]

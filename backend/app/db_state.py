@@ -28,6 +28,10 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+class SessionOwnershipConflict(RuntimeError):
+    """A persisted session is already owned by another canonical subject."""
+
+
 class StateRepository:
     """Persist one latest state and one idempotent log per Agent/session."""
 
@@ -426,7 +430,7 @@ class StateRepository:
             now,
         )
         if self.database_kind == "sqlite":
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO career_state
                   (session_id, platform_session_id, user_id, status, error_type,
@@ -439,9 +443,15 @@ class StateRepository:
                   error_type = excluded.error_type,
                   state_data = excluded.state_data,
                   updated_at = excluded.updated_at
+                WHERE career_state.user_id IS NULL
+                   OR career_state.user_id = excluded.user_id
                 """,
                 values,
             )
+            if cursor.rowcount != 1:
+                raise SessionOwnershipConflict(
+                    "career session belongs to another subject"
+                )
             return
         with connection.cursor() as cursor:
             cursor.execute(
@@ -458,9 +468,15 @@ class StateRepository:
                   error_type = EXCLUDED.error_type,
                   state_data = EXCLUDED.state_data,
                   updated_at = EXCLUDED.updated_at
+                WHERE career_state.user_id IS NULL
+                   OR career_state.user_id = EXCLUDED.user_id
                 """,
                 values,
             )
+            if cursor.rowcount != 1:
+                raise SessionOwnershipConflict(
+                    "career session belongs to another subject"
+                )
 
     def _upsert_logs(
         self,
@@ -553,6 +569,100 @@ class StateRepository:
         finally:
             connection.close()
 
+    def list_states_by_owner(
+        self,
+        owner_id: str,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """List one owner's sessions with basic pagination.
+
+        Returns a page of lightweight state rows plus the total row count for
+        the owner. Only rows whose ``user_id`` exactly equals ``owner_id`` are
+        returned, so callers can never observe another subject's sessions.
+        """
+
+        if limit < 1 or limit > 100:
+            raise ValueError("limit must be between 1 and 100")
+        if offset < 0:
+            raise ValueError("offset must not be negative")
+        connection = self._connect()
+        try:
+            if self.database_kind == "sqlite":
+                self._ensure_sqlite_schema(connection)
+                total_row = connection.execute(
+                    "SELECT COUNT(*) FROM career_state WHERE user_id = ?",
+                    (owner_id,),
+                ).fetchone()
+                rows = connection.execute(
+                    """
+                    SELECT session_id, platform_session_id, status, error_type,
+                           state_data, created_at, updated_at
+                      FROM career_state
+                     WHERE user_id = ?
+                     ORDER BY updated_at DESC, session_id DESC
+                     LIMIT ? OFFSET ?
+                    """,
+                    (owner_id, limit, offset),
+                ).fetchall()
+            else:
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT COUNT(*) FROM career_state WHERE user_id = %s",
+                        (owner_id,),
+                    )
+                    total_row = cursor.fetchone()
+                    cursor.execute(
+                        """
+                        SELECT session_id, platform_session_id, status, error_type,
+                               state_data, created_at, updated_at
+                          FROM career_state
+                         WHERE user_id = %s
+                         ORDER BY updated_at DESC, session_id DESC
+                         LIMIT %s OFFSET %s
+                        """,
+                        (owner_id, limit, offset),
+                    )
+                    rows = cursor.fetchall()
+            items = [self._state_list_row(row) for row in rows]
+            total = int(total_row[0]) if total_row else 0
+            return items, total
+        finally:
+            connection.close()
+
+    @staticmethod
+    def _state_list_row(row: Any) -> dict[str, Any]:
+        """Build a summary row without the heavy ``state_data`` payload."""
+
+        state_data = row[4]
+        if isinstance(state_data, str):
+            state_data = json.loads(state_data)
+        state_data = state_data or {}
+        job_profile = state_data.get("job_profile") or {}
+        match_result = state_data.get("match_result") or {}
+        job_title = (
+            job_profile.get("title")
+            or job_profile.get("job_title")
+            or state_data.get("job_type_key")
+        )
+        overall_score = match_result.get("overall_score")
+        return {
+            "session_id": row[0],
+            "platform_session_id": row[1],
+            "status": row[2],
+            "error_type": row[3],
+            "job_title": job_title,
+            "job_id": state_data.get("job_record_id"),
+            "overall_score": overall_score,
+            "has_student_profile": state_data.get("student_profile") is not None,
+            "has_job_profile": state_data.get("job_profile") is not None,
+            "has_match_result": state_data.get("match_result") is not None,
+            "has_career_roadmap": state_data.get("career_roadmap") is not None,
+            "created_at": row[5],
+            "updated_at": row[6],
+        }
+
     def list_agent_logs(
         self,
         session_id: str,
@@ -615,4 +725,4 @@ class StateRepository:
         }
 
 
-__all__ = ["StateRepository"]
+__all__ = ["SessionOwnershipConflict", "StateRepository"]

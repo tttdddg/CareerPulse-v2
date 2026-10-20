@@ -1,11 +1,9 @@
 import axios, {
   AxiosError,
-  AxiosHeaders,
   type AxiosInstance,
   type AxiosRequestConfig,
   type AxiosResponse
 } from 'axios'
-import { useUserStore } from '../stores/user'
 import { demoRequest } from '../demo/demoRequest'
 import { isDemoMode } from '../demo/demoMode'
 
@@ -52,32 +50,7 @@ export const getUserFacingErrorMessage = (error: unknown, fallback: string): str
 }
 
 const API_BASE_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_BASE_URL ?? '/api')
-
-const resolveToken = (): string | null => {
-  try {
-    const store = useUserStore()
-    if (store.token) {
-      return store.token
-    }
-  } catch {
-    // ignore store access errors (e.g., pinia not initialized yet)
-  }
-
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  try {
-    const raw = window.localStorage.getItem('career-pulse:auth')
-    if (!raw) {
-      return null
-    }
-    const parsed = JSON.parse(raw) as { token?: unknown }
-    return typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null
-  } catch {
-    return null
-  }
-}
+const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'careerpulse_csrf'
 
 const isApiResponse = <T>(value: unknown): value is ApiResponse<T> => {
   if (!value || typeof value !== 'object') {
@@ -109,7 +82,12 @@ const isSuccessCode = (value: unknown): boolean | null => {
 
 const normalizeError = (error: unknown): ApiError => {
   if (axios.isAxiosError(error)) {
-    const axiosError = error as AxiosError<{ message?: string; msg?: string; code?: number }>
+    const axiosError = error as AxiosError<{
+      message?: string
+      msg?: string
+      code?: number
+      detail?: { message?: string; code?: string }
+    }>
     const status = axiosError.response?.status
     if (axiosError.code === 'ECONNABORTED' || axiosError.message.toLowerCase().includes('timeout')) {
       return new ApiError('Request timed out. Backend did not respond within the timeout window.', undefined, status)
@@ -118,6 +96,7 @@ const normalizeError = (error: unknown): ApiError => {
       return new ApiError('No response from backend. Please check backend service or gateway forwarding.')
     }
     const message =
+      axiosError.response?.data?.detail?.message ??
       axiosError.response?.data?.message ??
       axiosError.response?.data?.msg ??
       axiosError.message ??
@@ -135,26 +114,14 @@ const normalizeError = (error: unknown): ApiError => {
 
 const instance: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 15000
+  timeout: 15000,
+  withCredentials: true,
+  xsrfCookieName: CSRF_COOKIE_NAME,
+  xsrfHeaderName: 'X-CSRF-Token'
 })
 
-interface RequestConfigWithAuth extends AxiosRequestConfig {
-  skipAuth?: boolean
-}
-
-instance.interceptors.request.use(
-  (config) => {
-    const requestConfig = config as RequestConfigWithAuth
-    const token = resolveToken()
-    if (token && !requestConfig.skipAuth) {
-      const headers = AxiosHeaders.from(config.headers)
-      headers.set('Authorization', `Bearer ${token}`)
-      config.headers = headers
-    }
-    return config
-  },
-  (error) => Promise.reject(normalizeError(error))
-)
+// 业务请求一律携带 Cookie 会话与 CSRF，不再提供跳过认证的开关。
+type RequestConfigWithAuth = AxiosRequestConfig
 
 instance.interceptors.response.use(
   (response: AxiosResponse) => {
@@ -175,7 +142,17 @@ instance.interceptors.response.use(
     }
     return data
   },
-  (error) => Promise.reject(normalizeError(error))
+  (error) => {
+    if (
+      axios.isAxiosError(error) &&
+      error.response?.status === 401 &&
+      error.config?.url !== '/auth/login' &&
+      typeof window !== 'undefined'
+    ) {
+      window.dispatchEvent(new CustomEvent('career-pulse:unauthorized'))
+    }
+    return Promise.reject(normalizeError(error))
+  }
 )
 
 export const request = async <T>(config: RequestConfigWithAuth): Promise<T> => {

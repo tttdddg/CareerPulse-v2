@@ -16,11 +16,21 @@
 
     <el-card class="form-card" v-loading="loading">
       <resume-upload
+        v-if="isDemoMode"
         class="resume-zone"
         :show-file-list="false"
         :max-size-m-b="10"
         @upload="handleResumeUpload"
         @error="handleUploadError"
+      />
+
+      <el-alert
+        v-else
+        class="feature-notice"
+        type="info"
+        title="简历文件解析功能暂未开放，将在 M3.2 提供；请先在下方手动填写个人画像"
+        show-icon
+        :closable="false"
       />
 
       <el-descriptions
@@ -121,10 +131,13 @@ import { useAnalysisStore } from '../../stores/analysis'
 import { useUserStore } from '../../stores/user'
 import ResumeUpload from '../../components/business/ResumeUpload.vue'
 import {
+  analyzeWorkflowMatch,
+  createWorkflow,
   fetchJobs,
-  matchingAnalyze,
-  uploadStudentProfile,
+  saveWorkflowProfile,
+  saveWorkflowTargetJob,
   uploadStudentResume,
+  type ProfileInput,
   type StudentUploadProfileResult
 } from '../../api/modules/career'
 import { getUserFacingErrorMessage } from '../../api/request'
@@ -206,6 +219,22 @@ const handleResumeUpload = async (payload: {
   }
 }
 
+const buildProfilePayload = (): ProfileInput => {
+  const payload: ProfileInput = {}
+  if (form.skills.trim()) payload.skills = form.skills
+  if (form.certificates.trim()) payload.certificates = form.certificates
+  if (form.experience.trim()) payload.internships = form.experience
+  if (form.selfEvaluation.trim()) payload.supplementary_info = form.selfEvaluation
+
+  const formFields: Record<string, unknown> = {}
+  if (form.targetRole.trim()) formFields.target_job = form.targetRole.trim()
+  if (form.industry.trim()) formFields.target_industry = form.industry.trim()
+  if (Object.keys(formFields).length > 0) {
+    payload.form_fields = formFields
+  }
+  return payload
+}
+
 const handleStartAnalysis = async (): Promise<void> => {
   errorMessage.value = ''
 
@@ -235,35 +264,29 @@ const handleStartAnalysis = async (): Promise<void> => {
       throw new Error('未查询到可分析的目标岗位，请调整岗位关键词后重试')
     }
 
-    let studentId = uploadedStudentId.value
-    // 如果简历解析已返回 studentId，直接复用，避免再次上传资料导致流程中断。
-    if (!studentId && hasManualProfileInput.value) {
-      const profile = await uploadStudentProfile({
-        name: form.role || undefined,
-        skills: form.skills,
-        certificates: form.certificates,
-        internships: form.experience,
-        selfEvaluation: form.selfEvaluation
-      })
-      studentId = profile.studentId ?? studentId
+    // 业务身份只来自后端会话：浏览器仅持有 sessionId，不提交 user_id。
+    const sessionId = analysisStore.sessionId ?? (await createWorkflow()).session_id
+    if (!sessionId) {
+      throw new Error('未能创建职业分析会话，请稍后重试')
     }
 
-    if (!studentId) {
-      throw new Error('学生画像缺少有效编号，无法发起匹配分析，请重新上传简历。')
+    const profilePayload = buildProfilePayload()
+    if (Object.keys(profilePayload).length > 0) {
+      await saveWorkflowProfile(sessionId, profilePayload)
     }
-    const analyzeResult = await matchingAnalyze({
-      studentId,
-      jobId: topJob.id,
-      userId: userStore.profile?.id ?? 'default'
+
+    await saveWorkflowTargetJob(sessionId, {
+      job_id: topJob.id,
+      job_title: topJob.name
     })
+    const analyzeResult = await analyzeWorkflowMatch(sessionId)
 
     analysisStore.setMatchScore(analyzeResult.matchScore)
     analysisStore.setRadarData(analyzeResult.radarIndicators, analyzeResult.radarSeries)
     analysisStore.setInsights(analyzeResult.strengths, analyzeResult.gaps, analyzeResult.gapDetails)
     analysisStore.setContext({
-      studentId,
-      jobId: topJob.id,
-      reportId: analyzeResult.reportId
+      sessionId,
+      jobId: topJob.id
     })
     analysisStore.grantPathAccess(topJob.id)
 

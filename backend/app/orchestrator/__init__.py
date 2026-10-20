@@ -6,6 +6,7 @@ __all__ = [
     "AgentLog",
     "CareerOrchestrator",
     "CareerState",
+    "StateOwnershipError",
     "StatePersistenceError",
     "Status",
     "ToolCallLog",
@@ -13,11 +14,16 @@ __all__ = [
 
 
 def __getattr__(name: str):
-    if name in {"CareerOrchestrator", "StatePersistenceError"}:
-        from .career_orchestrator import CareerOrchestrator, StatePersistenceError
+    if name in {"CareerOrchestrator", "StateOwnershipError", "StatePersistenceError"}:
+        from .career_orchestrator import (
+            CareerOrchestrator,
+            StateOwnershipError,
+            StatePersistenceError,
+        )
 
         return {
             "CareerOrchestrator": CareerOrchestrator,
+            "StateOwnershipError": StateOwnershipError,
             "StatePersistenceError": StatePersistenceError,
         }[name]
     raise AttributeError(name)

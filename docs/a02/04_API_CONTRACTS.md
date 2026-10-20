@@ -1047,10 +1047,99 @@ JD、数据库凭据或 SQL 参数正文。
 - Feedback 的 `growth_snapshot.competitiveness_score` 可记录 Match 的 `overall_score`，但不得回写或覆盖 `student_profile.competitiveness_score` / `career_competitiveness_score`。
 - `training_tasks.json` 与 `resources.json` 保持原契约与加载路径，不增加数据库来源字段。
 
+## 12.6 Web 用户认证 API（M1）
+
+Web 登录使用服务端不透明会话。会话随机值只写入 `HttpOnly` Cookie，数据库仅保存其
+SHA-256 摘要；Cookie 默认启用 `Secure`、`SameSite=Lax`。修改会话状态的请求同时校验
+CSRF Cookie 与 `X-CSRF-Token` 请求头。密码只保存 Argon2id 哈希。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| `POST` | `/api/auth/register` | 使用用户名、邮箱和密码注册；用户名与邮箱均唯一 |
+| `POST` | `/api/auth/login` | 用户名或邮箱登录，成功后签发 Cookie 会话 |
+| `GET` | `/api/auth/me` | 读取当前登录用户；无有效会话返回 401 |
+| `POST` | `/api/auth/logout` | 校验 CSRF 后撤销当前会话并清除 Cookie |
+
+登录失败统一返回相同凭据错误，避免泄露用户是否存在；失败次数按登录标识与来源地址
+限流。M1 只建立真实身份和会话，不改变现有 Agent/MCP 业务数据的 `user_id` 语义；长期
+用户数据归属和逐接口授权属于后续 M2。
+
+## 12.7 用户数据归属与身份隔离（M2）
+
+M2 为每条业务数据绑定不可伪造的数据所有者（owner），并按通道区分身份命名空间。
+客户端传入的 `user_id` 只作为逻辑主体标识，**永远不直接作为数据 owner**，必须在
+服务端边界转换：
+
+| 通道 | 认证方式 | owner 生成规则 |
+|---|---|---|
+| Web（浏览器） | HttpOnly Session Cookie + CSRF | `web:<app_user.id>`，仅由已验证会话生成 |
+| Platform/MCP（外部调用方） | Bearer 服务 Token | `external:<sha256(逻辑主体)>`，调用方无法构造 `web:` 主体 |
+
+转换点固定在边界层：Career Agent/TBox 路由、Platform Tool 入口、MCP Server 入口。
+内部 Service 与 Tool 层不再二次规范化，避免重复哈希导致身份不匹配。Platform Tool
+会同时覆盖请求顶层与画像内部的客户端 `user_id`。
+
+归属与授权规则：
+
+- 一个 session 只属于一个 owner；不同 owner 复用同一 `session_id` 时，写入返回
+  HTTP 409 `SESSION_OWNERSHIP_CONFLICT`，读取返回 HTTP 404 `SESSION_NOT_FOUND`
+  （不泄露会话是否存在）。
+- Web 读写接口要求已登录会话；写操作额外校验 CSRF。匿名访问返回 401，缺少或错误
+  CSRF 返回 403。
+- CareerState 的所有权校验下沉到 Repository 条件 upsert，作为并发竞态下的最终防线；
+  API 层检查不作为唯一防线。
+- `external:` 身份无法读取或改写 `web:` 数据，反之亦然；不同外部逻辑主体之间同样
+  互相隔离。
+- Platform/MCP 调用日志只保存哈希后的 `user_id`，不落盘明文。
+
+## 12.8 M3 Web 业务 API（`/api/web/v1`）
+
+M3 把浏览器业务闭环收敛到一组受会话保护的 Workflow API：前端只持有 `sessionId`，
+不再持有也不再提交 `user_id`、`student_id`、`report_id`。所有字段复用既有
+CareerState、ToolService、CareerOrchestrator 与 Service/Tool 契约，不重复实现算法。
+
+| 方法 | 路径 | 说明 | 前置状态 |
+|---|---|---|---|
+| `POST` | `/api/web/v1/workflows` | 创建 Workflow；可选 `session_id`（服务端可生成） | — |
+| `GET` | `/api/web/v1/workflows` | 当前用户 Workflow 分页列表（`page`、`page_size`≤50） | — |
+| `GET` | `/api/web/v1/workflows/{sessionId}` | 读取 Workflow 明细（画像、岗位、匹配、路径、Agent 日志） | — |
+| `PUT` | `/api/web/v1/workflows/{sessionId}/profile` | 提交学生画像证据（调用 `build_student_profile`） | Workflow 存在 |
+| `PUT` | `/api/web/v1/workflows/{sessionId}/target-job` | 确认目标岗位（调用 `analyze_target_job`） | 已有画像 |
+| `POST` | `/api/web/v1/workflows/{sessionId}/match` | 执行人岗匹配（调用 `analyze_job_match`） | 画像 + 岗位 |
+| `POST` | `/api/web/v1/workflows/{sessionId}/path` | 生成职业路径（调用 `generate_career_path`） | 匹配完成 |
+| `GET` | `/api/web/v1/jobs` | 岗位检索（`keyword`、`city`、`industry`、分页） | 已登录 |
+| `GET` | `/api/web/v1/jobs/{jobId}` | 单岗位上下文 | 已登录 |
+| `GET` | `/api/web/v1/jobs/{jobId}/graph` | 该岗位的职业图谱边 | 已登录 |
+
+约束与失败语义：
+
+- **身份**：`owner` 只能是 `web_owner_id(已验证会话用户.id)`；请求体使用
+  `extra="forbid"`，因此伪造 `user_id` 字段在校验层返回 422，不可能改写归属。
+- **授权**：所有接口要求已登录会话（401）；`PUT/POST` 写操作要求 CSRF
+  Cookie 与 `X-CSRF-Token` 一致（缺失或伪造 403）。校验顺序固定为 CSRF → 归属。
+- **隔离**：非本人或不存在的 Workflow 一律返回 404 `WORKFLOW_NOT_FOUND`，不泄露
+  会话是否存在；并发竞态下 Repository 条件 upsert 仍返回 409 `SESSION_OWNERSHIP_CONFLICT`。
+- **前置条件**：未按顺序提交数据时返回 409 `WORKFLOW_PRECONDITION_FAILED`。
+- **幂等**：`match`、`path` 在状态已满足且输入未变化时重放既有结果
+  （`idempotent_replay=true`），不重复消耗 LLM/工具调用。
+- **超时与降级**：工具调用受 `WEB_TOOL_TIMEOUT_SECONDS`（默认 25s，上限 60s）约束，
+  超时返回 504；底层服务不可用返回 503，两者都带统一错误体。
+- **审计归属**：只读岗位/图谱查询仍会产生 Tool 审计记录，但其 CareerState 落在
+  `system:web-read-auditor` 系统 owner 域：可审计、用户不可读、也不进入用户的历史列表。
+- **Demo 隔离**：Demo 数据只存在于浏览器（`demoRequest` 离线返回），不会写入任何
+  正式用户数据域；服务端 Demo 会话与正式用户会话互相不可见。
+- **M3.2 能力**：简历解析、报告生成/润色/导出、学习资源推荐、职场训练不在本版本
+  暴露；正式模式前端直接禁用并提示“功能暂未开放”，不返回模拟成功，也不请求已解除
+  挂载的旧接口（`/jobs`、`/matching/*`、`/student/upload/*`、`/histories/*`、
+  `/users/{userId}/histories`、`/reports/*`、`/recommendations`）。
+
 ## 13. 版本记录
 
 | 日期 | 版本 | 变更 | 作者 |
 |------|------|------|------|
+| 2026-10-20 | v2.1 | 新增 M3 Web 业务 API（`/api/web/v1`）契约：Workflow 闭环、会话中心身份、CSRF/归属/幂等/超时语义、系统审计 owner 与 M3.2 未开放能力边界 | Codex |
+| 2026-10-20 | v2.0 | 新增 Web/外部身份隔离与用户数据归属契约（M2）：`web:` 与 `external:` owner 命名空间、边界转换规则、归属冲突与授权语义 | Codex |
+| 2026-10-15 | v1.9 | 新增 Web 注册、登录、会话、CSRF 与退出登录契约（M1） | Codex |
 | 2026-09-21 | v1.8 | 比赛模式启用完整画像 PostgreSQL 持久化及 CareerState 三元引用授权；部分画像保持 session 兼容 | Codex |
 | 2026-09-20 | v1.7 | 冻结双数据源等价、生产失败关闭、Demo 回退和 Feedback 不回写画像规则 | Codex |
 | 2026-09-20 | v1.6 | 接入 analyze_target_job 的确定性 PostgreSQL 岗位上下文与来源元数据 | Codex |

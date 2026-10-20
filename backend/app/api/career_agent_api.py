@@ -4,15 +4,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..orchestrator import (
     AgentLog,
     CareerOrchestrator,
     CareerState,
+    StateOwnershipError,
     StatePersistenceError,
 )
+from ..auth.dependencies import (
+    AuthenticatedRequest,
+    require_web_authenticated_request,
+    require_web_csrf,
+)
+from ..auth.identity import external_owner_id, web_owner_id
 from ..schemas.career_profile_schema import StudentProfile as UnifiedStudentProfile
 from ..schemas.job_schema import JobProfile as StageTwoJobProfile
 
@@ -105,12 +112,32 @@ def _load_state(
     return state_value
 
 
-def _check_user(state_value: CareerState, user_id: str | None) -> None:
-    if user_id and state_value.user_id and user_id != state_value.user_id:
+def _owner_id(
+    authenticated: AuthenticatedRequest | None,
+    *,
+    session_id: str,
+    legacy_user_id: str | None = None,
+) -> str | None:
+    if authenticated is not None:
+        return web_owner_id(authenticated.user.id)
+    if legacy_user_id:
+        return external_owner_id(legacy_user_id)
+    return None
+
+
+def _check_owner(state_value: CareerState, owner_id: str | None) -> None:
+    if owner_id is not None and state_value.user_id != owner_id:
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": -2, "type": "SESSION_USER_MISMATCH"},
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": -3, "type": "SESSION_NOT_FOUND"},
         )
+
+
+def _ownership_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={"code": -2, "type": "SESSION_OWNERSHIP_CONFLICT"},
+    )
 
 
 def _persist_failure(
@@ -135,11 +162,27 @@ def _persist_failure(
 async def run_career_agent(
     payload: CareerAgentRunRequest,
     request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+    _csrf: None = Depends(require_web_csrf),
 ) -> CareerState:
+    owner_id = _owner_id(
+        authenticated,
+        session_id=payload.session_id,
+        legacy_user_id=payload.user_id,
+    )
+    career_orchestrator = _get_orchestrator(request)
     try:
-        return await _get_orchestrator(request).run(
-            CareerState(**payload.model_dump())
+        existing = career_orchestrator.get_session(payload.session_id)
+        if existing is not None:
+            _check_owner(existing, owner_id)
+        state_data = payload.model_dump(exclude={"user_id"})
+        return await career_orchestrator.run(
+            CareerState(**state_data, user_id=owner_id)
         )
+    except StateOwnershipError as exc:
+        raise _ownership_error() from exc
     except StatePersistenceError as exc:
         raise _database_error() from exc
 
@@ -148,8 +191,17 @@ async def run_career_agent(
 def prepare_stage_three(
     payload: PrepareStageThreeRequest,
     request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+    _csrf: None = Depends(require_web_csrf),
 ) -> CareerState:
     career_orchestrator = _get_orchestrator(request)
+    owner_id = _owner_id(
+        authenticated,
+        session_id=payload.session_id,
+        legacy_user_id=payload.user_id,
+    )
     try:
         existing = career_orchestrator.get_session(payload.session_id)
     except Exception as exc:
@@ -174,7 +226,7 @@ def prepare_stage_three(
             and existing.job_profile is not None
             and existing.job_profile != supplied_job
         )
-        _check_user(existing, payload.user_id)
+        _check_owner(existing, owner_id)
         if conflict:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -189,12 +241,14 @@ def prepare_stage_three(
         state_value = CareerState(
             session_id=payload.session_id,
             platform_session_id=payload.platform_session_id,
-            user_id=payload.user_id,
+            user_id=owner_id,
             student_profile=supplied_student,
             job_profile=supplied_job,
         )
     try:
         career_orchestrator.persist(state_value)
+    except StateOwnershipError as exc:
+        raise _ownership_error() from exc
     except StatePersistenceError as exc:
         raise _database_error() from exc
     return state_value
@@ -204,10 +258,21 @@ def prepare_stage_three(
 async def run_stage_three_match(
     payload: StageExecutionRequest,
     request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+    _csrf: None = Depends(require_web_csrf),
 ) -> CareerState:
     career_orchestrator = _get_orchestrator(request)
     state_value = _load_state(career_orchestrator, payload.session_id)
-    _check_user(state_value, payload.user_id)
+    _check_owner(
+        state_value,
+        _owner_id(
+            authenticated,
+            session_id=payload.session_id,
+            legacy_user_id=payload.user_id,
+        ),
+    )
     if state_value.match_result is not None and state_value.status in {
         "MATCH_COMPLETED",
         "PATH_COMPLETED",
@@ -255,6 +320,8 @@ async def run_stage_three_match(
         )
     try:
         await career_orchestrator.run_stage(state_value, "MatchAgent")
+    except StateOwnershipError as exc:
+        raise _ownership_error() from exc
     except StatePersistenceError as exc:
         raise _database_error() from exc
     if state_value.status == "FAILED" or state_value.match_result is None:
@@ -269,10 +336,21 @@ async def run_stage_three_match(
 async def run_stage_three_path(
     payload: StageExecutionRequest,
     request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+    _csrf: None = Depends(require_web_csrf),
 ) -> CareerState:
     career_orchestrator = _get_orchestrator(request)
     state_value = _load_state(career_orchestrator, payload.session_id)
-    _check_user(state_value, payload.user_id)
+    _check_owner(
+        state_value,
+        _owner_id(
+            authenticated,
+            session_id=payload.session_id,
+            legacy_user_id=payload.user_id,
+        ),
+    )
     if state_value.career_roadmap is not None and state_value.status == "PATH_COMPLETED":
         return state_value
     if state_value.match_result is None or state_value.status != "MATCH_COMPLETED":
@@ -284,6 +362,8 @@ async def run_stage_three_path(
         )
     try:
         await career_orchestrator.run_stage(state_value, "PathAgent")
+    except StateOwnershipError as exc:
+        raise _ownership_error() from exc
     except StatePersistenceError as exc:
         raise _database_error() from exc
     if state_value.status == "FAILED" or state_value.career_roadmap is None:
@@ -295,14 +375,35 @@ async def run_stage_three_path(
 
 
 @router.get("/session/{session_id}", response_model=CareerState)
-async def get_career_session(session_id: str, request: Request) -> CareerState:
-    return _load_state(_get_orchestrator(request), session_id)
+async def get_career_session(
+    session_id: str,
+    request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+) -> CareerState:
+    state_value = _load_state(_get_orchestrator(request), session_id)
+    _check_owner(
+        state_value,
+        _owner_id(authenticated, session_id=session_id),
+    )
+    return state_value
 
 
 @agent_log_router.get("/logs/{session_id}", response_model=list[AgentLog])
-async def get_agent_logs(session_id: str, request: Request) -> list[AgentLog]:
+async def get_agent_logs(
+    session_id: str,
+    request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+) -> list[AgentLog]:
     career_orchestrator = _get_orchestrator(request)
-    _load_state(career_orchestrator, session_id)
+    state_value = _load_state(career_orchestrator, session_id)
+    _check_owner(
+        state_value,
+        _owner_id(authenticated, session_id=session_id),
+    )
     try:
         return [
             AgentLog.model_validate(item)

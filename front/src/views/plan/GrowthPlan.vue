@@ -71,7 +71,15 @@
           </div>
         </div>
         <el-alert
-          v-if="resourceErrorMessage"
+          v-if="resourcesUnavailable"
+          type="info"
+          title="学习资源推荐功能暂未开放，将在 M3.2 提供"
+          show-icon
+          :closable="false"
+          class="resource-alert"
+        />
+        <el-alert
+          v-else-if="resourceErrorMessage"
           type="error"
           :title="resourceErrorMessage"
           :closable="false"
@@ -160,7 +168,10 @@
         @check="handleCheck"
       />
       <el-empty v-else-if="!loading" :description="emptyMessage">
-        <el-button v-if="canGenerateReport" type="primary" :loading="generating" @click="handleGenerateReport">
+        <el-button v-if="reportUnavailable" type="primary" disabled>
+          报告生成功能暂未开放（M3.2）
+        </el-button>
+        <el-button v-else-if="canGenerateReport" type="primary" :loading="generating" @click="handleGenerateReport">
           生成成长报告
         </el-button>
         <el-button v-else type="primary" plain @click="goToInput">去完成画像与匹配</el-button>
@@ -180,7 +191,6 @@ import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useRouter } from 'vue-router'
 import { useAnalysisStore } from '../../stores/analysis'
-import { useUserStore } from '../../stores/user'
 import RichTextEditor from '../../components/business/RichTextEditor.vue'
 import ExportButton from '../../components/business/ExportButton.vue'
 import {
@@ -198,7 +208,6 @@ import { DEMO_JOBS } from '../../demo/careerDemoData'
 
 const router = useRouter()
 const analysisStore = useAnalysisStore()
-const userStore = useUserStore()
 const loading = ref(false)
 const generating = ref(false)
 const exporting = ref(false)
@@ -206,7 +215,9 @@ const resourcesLoading = ref(false)
 const errorMessage = ref('')
 const resourceErrorMessage = ref('')
 const content = ref('')
-const emptyMessage = ref('请先完成学生画像与人岗匹配，再生成成长计划')
+const emptyMessage = ref(
+  isDemoMode ? '请先完成学生画像与人岗匹配，再生成成长计划' : '成长报告功能暂未开放，将在 M3.2 提供'
+)
 const checkTips = ref<string[]>([])
 const reportId = ref<number | null>(null)
 
@@ -277,6 +288,10 @@ const currentTargetRole = computed(() => {
 
 const primaryGap = computed(() => analysisStore.gapDetails[0]?.name || analysisStore.gaps[0] || 'Python工程化')
 const canGenerateReport = computed(() => analysisStore.studentId !== null && analysisStore.jobId !== null)
+// M3.1 正式模式只开放画像、岗位、匹配、路径与历史闭环；
+// 报告与学习资源推荐在 M3.2 提供，正式模式明确禁用而不是返回模拟成功。
+const reportUnavailable = computed(() => !isDemoMode)
+const resourcesUnavailable = computed(() => !isDemoMode)
 
 const learningTasks = computed<LearningTask[]>(() => {
   const details: MatchingGap[] = analysisStore.gapDetails.length
@@ -444,8 +459,7 @@ const resolveReportId = async (): Promise<number | null> => {
 
   const generated = await generateReport({
     studentId: analysisStore.studentId,
-    jobId: analysisStore.jobId,
-    userId: userStore.profile?.id ?? 'default'
+    jobId: analysisStore.jobId
   })
 
   if (!generated.reportId) {
@@ -486,6 +500,12 @@ const fetchReportWithRetry = async (id: number): Promise<string> => {
 }
 
 const loadResources = async (): Promise<void> => {
+  if (resourcesUnavailable.value) {
+    resources.value = []
+    resourceErrorMessage.value = ''
+    return
+  }
+
   try {
     resourcesLoading.value = true
     resourceErrorMessage.value = ''
@@ -503,6 +523,11 @@ const goToInput = async (): Promise<void> => {
 }
 
 const handleGenerateReport = async (): Promise<void> => {
+  if (reportUnavailable.value) {
+    errorMessage.value = '成长报告功能暂未开放，将在 M3.2 提供'
+    return
+  }
+
   if (!analysisStore.studentId || !analysisStore.jobId) {
     errorMessage.value = '请先完成学生画像与人岗匹配'
     return
@@ -513,8 +538,7 @@ const handleGenerateReport = async (): Promise<void> => {
     errorMessage.value = ''
     const generated = await generateReport({
       studentId: analysisStore.studentId,
-      jobId: analysisStore.jobId,
-      userId: userStore.profile?.id ?? 'default'
+      jobId: analysisStore.jobId
     })
     if (!generated.reportId) {
       throw new Error('报告生成接口未返回报告编号')
@@ -536,6 +560,13 @@ const handleGenerateReport = async (): Promise<void> => {
 }
 
 const loadReport = async (): Promise<void> => {
+  if (reportUnavailable.value) {
+    content.value = ''
+    reportId.value = null
+    emptyMessage.value = '成长报告功能暂未开放，将在 M3.2 提供'
+    return
+  }
+
   try {
     loading.value = true
     reportId.value = await resolveReportId()

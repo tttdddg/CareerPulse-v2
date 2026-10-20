@@ -1,4 +1,11 @@
 ﻿import { request } from '../request'
+import { isDemoMode } from '../../demo/demoMode'
+import {
+  DEMO_PROFILE_RESPONSE,
+  DEMO_REPORT_HTML,
+  DEMO_REPORT_ID,
+  DEMO_RESOURCES
+} from '../../demo/careerDemoData'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -171,12 +178,6 @@ export interface StudentUploadProfileResult {
   selfEvaluation: string
 }
 
-export interface MatchingAnalyzePayload {
-  studentId: number
-  jobId: number
-  userId?: string
-}
-
 export interface RadarIndicator {
   name: string
   max: number
@@ -284,7 +285,6 @@ export interface ReportGeneratePayload {
   studentId: number
   jobId: number
   customInstructions?: string
-  userId?: string
 }
 
 export interface ReportDocument {
@@ -759,181 +759,372 @@ const normalizeHistorySnapshot = (source: unknown): ReportItem => {
   }
 }
 
-export const fetchJobs = async (params: FetchJobsParams): Promise<JobItem[]> => {
-  const query = {
-    keyword: params.keyword,
-    page: params.page ?? 1,
-    size: params.size ?? 20
-  }
+const WORKFLOW_BASE = '/web/v1/workflows'
 
+export interface WorkflowSummary {
+  session_id: string
+  status: string
+  job_title: string | null
+  job_id: number | null
+  overall_score: number | null
+  has_student_profile: boolean
+  has_job_profile: boolean
+  has_match_result: boolean
+  has_career_roadmap: boolean
+  updated_at: string | null
+}
+
+export interface WorkflowListPage {
+  items: WorkflowSummary[]
+  page: number
+  page_size: number
+  total: number
+  has_more: boolean
+}
+
+export interface WorkflowDetail extends WorkflowSummary {
+  student_profile: UnknownRecord | null
+  job_profile: UnknownRecord | null
+  match_result: UnknownRecord | null
+  career_roadmap: UnknownRecord | null
+}
+
+export interface CreateWorkflowInput {
+  session_id?: string
+}
+
+export interface ProfileInput {
+  resume_text?: string
+  form_fields?: Record<string, unknown>
+  form_data?: Record<string, unknown>
+  parsed_data?: Record<string, unknown>
+  skills?: string[] | string
+  education?: unknown
+  projects?: unknown
+  internships?: unknown
+  work_experience?: unknown
+  competitions?: unknown
+  certificates?: unknown
+  supplementary_info?: string
+}
+
+export interface TargetJobInput {
+  job_id?: number
+  job_title?: string
+  industry?: string
+  city?: string
+  job_description?: string
+}
+
+const normalizeWorkflowSummary = (value: UnknownRecord): WorkflowSummary => ({
+  session_id: toStringSafe(getByKeys(value, ['session_id', 'sessionId']), ''),
+  status: toStringSafe(getByKeys(value, ['status']), ''),
+  job_title: toStringSafe(getByKeys(value, ['job_title', 'jobTitle']), '') || null,
+  job_id: toOptionalNumber(getByKeys(value, ['job_id', 'jobId'])) ?? null,
+  overall_score: toOptionalNumber(getByKeys(value, ['overall_score', 'overallScore'])) ?? null,
+  has_student_profile: Boolean(value.has_student_profile),
+  has_job_profile: Boolean(value.has_job_profile),
+  has_match_result: Boolean(value.has_match_result),
+  has_career_roadmap: Boolean(value.has_career_roadmap),
+  updated_at: toStringSafe(getByKeys(value, ['updated_at', 'updatedAt']), '') || null
+})
+
+const normalizeWorkflowList = (value: unknown): WorkflowListPage => {
+  const record = isRecord(value) ? value : {}
+  return {
+    items: asArray(record.items).filter(isRecord).map(normalizeWorkflowSummary),
+    page: toNumber(record.page, 1),
+    page_size: toNumber(record.page_size, 20),
+    total: toNumber(record.total, 0),
+    has_more: Boolean(record.has_more)
+  }
+}
+
+export const createWorkflow = async (input: CreateWorkflowInput = {}): Promise<WorkflowSummary> => {
   const response = await request<unknown>({
-    url: '/jobs',
-    method: 'GET',
-    params: query
+    url: WORKFLOW_BASE,
+    method: 'POST',
+    data: { session_id: input.session_id }
   })
+  return normalizeWorkflowSummary(isRecord(response) ? response : {})
+}
 
-  const items = pickRecordList(response, ['jobs'])
-  if (items.length > 0) {
-    return items.map(normalizeJob).filter((job) => job.id > 0)
+export const listWorkflows = async (
+  params: { page?: number; page_size?: number } = {}
+): Promise<WorkflowListPage> => {
+  const response = await request<unknown>({
+    url: WORKFLOW_BASE,
+    method: 'GET',
+    params: { page: params.page ?? 1, page_size: params.page_size ?? 20 }
+  })
+  return normalizeWorkflowList(response)
+}
+
+export const fetchWorkflow = async (sessionId: string): Promise<WorkflowDetail> => {
+  const response = await request<unknown>({
+    url: `${WORKFLOW_BASE}/${encodeURIComponent(sessionId)}`,
+    method: 'GET'
+  })
+  const record = isRecord(response) ? response : {}
+  return {
+    ...normalizeWorkflowSummary(record),
+    student_profile: isRecord(record.student_profile) ? record.student_profile : null,
+    job_profile: isRecord(record.job_profile) ? record.job_profile : null,
+    match_result: isRecord(record.match_result) ? record.match_result : null,
+    career_roadmap: isRecord(record.career_roadmap) ? record.career_roadmap : null
   }
+}
 
-  return []
+export const saveWorkflowProfile = async (
+  sessionId: string,
+  input: ProfileInput
+): Promise<WorkflowSummary> => {
+  const response = await request<unknown>({
+    url: `${WORKFLOW_BASE}/${encodeURIComponent(sessionId)}/profile`,
+    method: 'PUT',
+    data: input
+  })
+  return normalizeWorkflowSummary(isRecord(response) ? response : {})
+}
+
+export const saveWorkflowTargetJob = async (
+  sessionId: string,
+  input: TargetJobInput
+): Promise<WorkflowSummary> => {
+  const response = await request<unknown>({
+    url: `${WORKFLOW_BASE}/${encodeURIComponent(sessionId)}/target-job`,
+    method: 'PUT',
+    data: input
+  })
+  return normalizeWorkflowSummary(isRecord(response) ? response : {})
+}
+
+export const runWorkflowMatch = async (sessionId: string): Promise<UnknownRecord> => {
+  const response = await request<unknown>({
+    url: `${WORKFLOW_BASE}/${encodeURIComponent(sessionId)}/match`,
+    method: 'POST',
+    timeout: 120000
+  })
+  return isRecord(response) ? response : {}
+}
+
+export const runWorkflowPath = async (sessionId: string): Promise<UnknownRecord> => {
+  const response = await request<unknown>({
+    url: `${WORKFLOW_BASE}/${encodeURIComponent(sessionId)}/path`,
+    method: 'POST',
+    timeout: 120000
+  })
+  return isRecord(response) ? response : {}
+}
+
+export const fetchJobs = async (params: FetchJobsParams): Promise<JobItem[]> => {
+  const response = await request<unknown>({
+    url: '/web/v1/jobs',
+    method: 'GET',
+    params: {
+      keyword: params.keyword,
+      page: params.page ?? 1,
+      page_size: params.size ?? 20
+    }
+  })
+  const record = isRecord(response) ? response : {}
+  return asArray(record.items)
+    .filter(isRecord)
+    .map(normalizeJob)
+    .filter((job) => job.id > 0)
 }
 
 export const fetchJobProfile = async (jobId: number): Promise<JobItem> => {
   const response = await request<unknown>({
-    url: `/jobs/${jobId}/profile`,
+    url: `/web/v1/jobs/${jobId}`,
     method: 'GET'
   })
-  return normalizeJob(isRecord(response) ? response : {})
+  const context = isRecord(response) ? response.context : undefined
+  return normalizeJob(isRecord(context) ? context : {})
 }
 
 export const fetchJobGraph = async (jobId: number): Promise<PathGraphResult> => {
   const response = await request<unknown>({
-    url: `/jobs/${jobId}/graph`,
+    url: `/web/v1/jobs/${jobId}/graph`,
     method: 'GET'
   })
-  return normalizeGraph(response)
+  const record = isRecord(response) ? response : {}
+  const edges = asArray(record.edges).filter(isRecord)
+  const nodes: PathGraphNode[] = []
+  const graphEdges: PathGraphEdge[] = []
+  const seen = new Set<string>()
+
+  edges.forEach((edge, index) => {
+    const source = toStringSafe(getByKeys(edge, ['source_key', 'source']), '')
+    const target = toStringSafe(getByKeys(edge, ['target_key', 'target']), '')
+    const relation = toStringSafe(getByKeys(edge, ['relation_type', 'relation']), '')
+    const type: PathGraphNode['type'] = relation === 'lateral' ? 'horizontal' : 'vertical'
+    const description = toStringSafe(getByKeys(edge, ['reason']), '')
+
+    for (const [key, position] of [
+      [source, 0],
+      [target, 1]
+    ] as const) {
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      nodes.push({
+        id: key,
+        label: key,
+        x: position === 0 ? 80 : 320,
+        y: 80 + index * 60,
+        type,
+        jobDescription: description,
+        coreSkills: toStringArray(getByKeys(edge, ['transition_requirements']))
+      })
+    }
+
+    if (source && target) {
+      graphEdges.push({
+        source,
+        target,
+        label: description || undefined,
+        type,
+        weight: toOptionalNumber(getByKeys(edge, ['transfer_cost', 'growth_value']))
+      })
+    }
+  })
+
+  return { nodes, edges: graphEdges }
+}
+
+// M3.1 正式模式只开放画像、岗位、匹配、路径、历史闭环。
+// 以下能力在 M3.2 提供：正式模式明确抛出“暂未开放”，不请求已解除挂载的旧接口，
+// 也不返回模拟成功；Demo 模式仍使用纯浏览器离线数据，不进入正式用户数据域。
+const featureUnavailable = (feature: string): never => {
+  throw new Error(`${feature}尚未开放（计划于 M3.2 提供）`)
 }
 
 export const uploadStudentResume = async (formData: FormData): Promise<StudentUploadProfileResult> => {
-  const response = await request<unknown>({
-    url: '/student/upload/resume',
-    method: 'POST',
-    data: formData,
-    timeout: 90000,
-    skipAuth: true
-  })
-
-  return normalizeStudentUploadResponse(response)
+  if (!isDemoMode) {
+    return featureUnavailable('简历文件解析')
+  }
+  void formData
+  return normalizeStudentUploadResponse(DEMO_PROFILE_RESPONSE)
 }
 
 export const uploadStudentProfile = async (
   payload: StudentUploadProfilePayload
 ): Promise<StudentUploadProfileResult> => {
-  const response = await request<unknown>({
-    url: '/student/upload/profile',
-    method: 'POST',
-    skipAuth: true,
-    data: {
-      name: payload.name,
-      skills: payload.skills,
-      certificates: payload.certificates,
-      internships: payload.internships,
-      self_evaluation: payload.selfEvaluation
-    }
-  })
-
-  return normalizeStudentUploadResponse(response, payload)
+  if (!isDemoMode) {
+    return featureUnavailable('结构化画像上传')
+  }
+  return normalizeStudentUploadResponse(DEMO_PROFILE_RESPONSE, payload)
 }
 
-export const matchingAnalyze = async (payload: MatchingAnalyzePayload): Promise<MatchingAnalyzeResult> => {
-  const response = await request<unknown>({
-    url: '/matching/analyze',
-    method: 'POST',
-    skipAuth: true,
-    timeout: 120000,
-    data: {
-      student_id: payload.studentId,
-      job_id: payload.jobId,
-      user_id: payload.userId ?? 'default'
-    }
-  })
-
-  return normalizeAnalysis(response)
+export const analyzeWorkflowMatch = async (
+  sessionId: string
+): Promise<MatchingAnalyzeResult> => {
+  const response = await runWorkflowMatch(sessionId)
+  const matchResult = getByKeys(response, ['match_result', 'matchResult'])
+  if (!isRecord(matchResult)) {
+    throw new Error('匹配分析未返回有效结果')
+  }
+  return normalizeAnalysis(matchResult)
 }
 
 export const generateReport = async (payload: ReportGeneratePayload): Promise<ReportDocument> => {
-  const response = await request<unknown>({
-    url: '/reports/generate',
-    method: 'POST',
-    skipAuth: true,
-    timeout: 45000,
-    data: {
-      student_id: payload.studentId,
-      job_id: payload.jobId,
-      custom_instructions: payload.customInstructions,
-      user_id: payload.userId ?? 'default'
-    }
-  })
-
-  const record = pickPayloadRecord(response)
-  return {
-    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? null,
-    content: extractContent(record),
-    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+  if (!isDemoMode) {
+    return featureUnavailable('报告生成')
   }
+  void payload
+  return { reportId: DEMO_REPORT_ID, content: DEMO_REPORT_HTML, status: 'ready' }
 }
 
 export const fetchReport = async (reportId: number): Promise<ReportDocument> => {
-  const response = await request<unknown>({
-    url: `/reports/${reportId}`,
-    method: 'GET',
-    skipAuth: true,
-    timeout: 30000
-  })
-  const record = pickPayloadRecord(response)
-  return {
-    reportId: toOptionalNumber(getByKeys(record, ['report_id', 'reportId'])) ?? reportId,
-    content: extractContent(record),
-    status: toStringSafe(getByKeys(record, ['status']), '') || undefined
+  if (!isDemoMode) {
+    return featureUnavailable('报告读取')
   }
+  return { reportId, content: DEMO_REPORT_HTML, status: 'ready' }
 }
 
 export const polishReport = async (
   reportId: number,
   payload: { text: string; paragraphIndex?: number }
 ): Promise<string> => {
-  const response = await request<unknown>({
-    url: `/reports/${reportId}/polish`,
-    method: 'POST',
-    data: {
-      paragraph_index: payload.paragraphIndex ?? 0,
-      text: payload.text
-    }
-  })
-
-  if (typeof response === 'string') {
-    return response
+  if (!isDemoMode) {
+    return featureUnavailable('报告润色')
   }
-  if (isRecord(response)) {
-    const polished = toStringSafe(getByKeys(response, ['polished_text', 'polishedText']), '').trim()
-    if (polished) {
-      return polished
-    }
+  void reportId
+  void payload
+  return payload.text
+}
+
+export const exportReport = async (
+  reportId: number,
+  format: 'pdf' | 'word' = 'pdf'
+): Promise<Blob> => {
+  if (!isDemoMode) {
+    return featureUnavailable('报告导出')
   }
-  throw new Error('报告润色接口未返回 polished_text')
-}
-
-export const exportReport = async (reportId: number, format: 'pdf' | 'word' = 'pdf'): Promise<Blob> => {
-  return request<Blob>({
-    url: `/reports/${reportId}/export`,
-    method: 'GET',
-    params: { format: format === 'word' ? 'docx' : 'pdf' },
-    responseType: 'blob'
+  void reportId
+  void format
+  return new Blob(['CareerPulse 成长报告\n\n技术匹配分：81.67\n目标岗位：AI Agent开发工程师'], {
+    type: 'text/plain;charset=utf-8'
   })
 }
 
-export const fetchUserHistories = async (userId: string): Promise<UserHistoriesResult> => {
-  const response = await request<unknown>({
-    url: `/users/${userId}/histories`,
-    method: 'GET'
-  })
-
-  const reports = pickRecordList(response, ['reports', 'histories', 'items', 'list'])
-    .map(normalizeReport)
-    .filter((item): item is ReportItem => item !== null)
-  const growth = buildGrowthFromReports(reports)
-
-  return { reports, growth }
+export const fetchWorkflowHistories = async (
+  params: { page?: number; page_size?: number } = {}
+): Promise<UserHistoriesResult> => {
+  const page = await listWorkflows(params)
+  const reports: ReportItem[] = page.items
+    .filter((item) => item.has_match_result)
+    .map((item) => ({
+      id: item.session_id,
+      title: `${item.job_title ?? '职业'} 匹配报告`,
+      createdAt: (item.updated_at ?? '').slice(0, 10),
+      score: item.overall_score,
+      tags: []
+    }))
+  return { reports, growth: buildGrowthFromReports(reports) }
 }
 
-export const fetchHistorySnapshot = async (historyId: number): Promise<ReportItem> => {
-  const response = await request<unknown>({
-    url: `/histories/${historyId}/snapshot`,
-    method: 'GET'
-  })
-  return normalizeHistorySnapshot(response)
+const buildMatchSnapshotContent = (detail: WorkflowDetail): string => {
+  const embedded = extractContent(detail.match_result)
+  if (embedded.trim()) {
+    return embedded
+  }
+
+  const matchResult = detail.match_result ?? {}
+  const score = detail.overall_score
+  const level = toStringSafe(getByKeys(matchResult, ['match_level', 'matchLevel']), '').trim()
+  const strengths = toStringArray(getByKeys(matchResult, ['strengths']))
+  const missing = toStringArray(getByKeys(matchResult, ['missing_skills', 'missingSkills', 'gaps']))
+  const jobTitle = detail.job_title ?? '目标岗位'
+
+  const sections: string[] = [
+    `<p>目标岗位：<strong>${jobTitle}</strong></p>`,
+    score !== null ? `<p>综合匹配分：<strong>${score}</strong>${level ? `（${level}）` : ''}</p>` : ''
+  ]
+  if (strengths.length) {
+    sections.push(`<p>匹配优势：</p><ul>${strengths.map((item) => `<li>${item}</li>`).join('')}</ul>`)
+  }
+  if (missing.length) {
+    sections.push(`<p>待补齐能力：</p><ul>${missing.map((item) => `<li>${item}</li>`).join('')}</ul>`)
+  }
+  return sections.filter(Boolean).join('\n')
+}
+
+export const fetchWorkflowSnapshot = async (sessionId: string): Promise<ReportItem> => {
+  const detail = await fetchWorkflow(sessionId)
+  const jobProfile = detail.job_profile ?? {}
+  const jobTitle =
+    toStringSafe(getByKeys(jobProfile, ['title', 'job_title', 'name']), '').trim() ||
+    detail.job_title ||
+    '职业'
+  return {
+    id: detail.session_id,
+    title: `${jobTitle} 匹配报告`,
+    createdAt: (detail.updated_at ?? '').slice(0, 10),
+    score: detail.overall_score,
+    tags: [],
+    content: buildMatchSnapshotContent(detail)
+  }
 }
 
 const normalizeLearningResource = (value: unknown): LearningResource | null => {
@@ -966,23 +1157,11 @@ const normalizeLearningResource = (value: unknown): LearningResource | null => {
 }
 
 export const fetchRecommendations = async (gap = ''): Promise<LearningResource[]> => {
-  const response = await request<unknown>({
-    url: '/recommendations',
-    method: 'GET',
-    params: { gap }
-  })
-
-  if (Array.isArray(response)) {
-    return response
-      .map(normalizeLearningResource)
-      .filter((item): item is LearningResource => item !== null)
+  if (!isDemoMode) {
+    return featureUnavailable('学习资源推荐')
   }
-
-  if (isRecord(response)) {
-    return asArray(getByKeys(response, ['recommendations', 'items', 'tips']))
-      .map(normalizeLearningResource)
-      .filter((item): item is LearningResource => item !== null)
-  }
-
-  return []
+  void gap
+  return DEMO_RESOURCES.map(normalizeLearningResource).filter(
+    (item): item is LearningResource => item !== null
+  )
 }

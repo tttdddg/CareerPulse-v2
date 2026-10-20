@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from ...orchestrator import CareerOrchestrator, CareerState
+from ...orchestrator import CareerOrchestrator, CareerState, StateOwnershipError
 
 
 class TBoxSessionMappingError(RuntimeError):
@@ -107,6 +107,8 @@ class TBoxSessionMapper:
     def _persist(self, state: CareerState) -> None:
         try:
             self._orchestrator.persist(state)
+        except StateOwnershipError as exc:
+            raise TBoxSessionIdentityConflict() from exc
         except Exception as exc:
             raise TBoxSessionPersistenceError() from exc
 

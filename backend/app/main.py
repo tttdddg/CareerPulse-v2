@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, Request, Response
+﻿from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from contextlib import asynccontextmanager
@@ -7,12 +7,14 @@ import os
 
 from fastapi.exceptions import RequestValidationError
 
+from .auth import AuthService
 from .api.platform_tool_api import (
     PlatformToolException,
     platform_request_validation_exception_handler,
     platform_tool_exception_handler,
 )
 from .orchestrator import CareerOrchestrator
+from .mcp.tool_service import CareerMCPToolService
 from .platform.tbox import (
     TBoxChatException,
     TBoxChatService,
@@ -25,14 +27,6 @@ from .platform.tbox.router import (
     tbox_chat_request_validation_exception_handler,
 )
 from .routers import router
-
-# Handle browser preflight (OPTIONS) for cross-origin frontend calls.
-# Allow localhost + common private-network dev origins.
-CORS_ORIGIN_REGEX = (
-    r"^https?://((localhost|127\\.0\\.0\\.1)"
-    r"|((10|192\\.168)\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})"
-    r"|(172\\.(1[6-9]|2\\d|3[0-1])\\.\\d{1,3}\\.\\d{1,3}))(:\\d+)?$"
-)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -79,10 +73,40 @@ def create_app(
     mcp_tool_timeout_seconds: float | None = None,
     mcp_allowed_hosts: list[str] | None = None,
     mcp_allowed_origins: list[str] | None = None,
+    auth_service: AuthService | None = None,
+    web_allowed_origins: list[str] | None = None,
+    web_auth_enabled: bool | None = None,
 ) -> FastAPI:
     """Create a fresh application instance for runtime and persistence tests."""
 
     career_orchestrator = orchestrator or CareerOrchestrator()
+    configured_web_tool_timeout = float(os.getenv("WEB_TOOL_TIMEOUT_SECONDS", "25") or 25)
+    if configured_web_tool_timeout <= 0 or configured_web_tool_timeout > 60:
+        configured_web_tool_timeout = 25.0
+    career_web_tool_service = CareerMCPToolService(
+        career_orchestrator,
+        timeout_seconds=configured_web_tool_timeout,
+        # The Web API must not rebind PathAgent's shared graph source; only the
+        # MCP/competition service owns that runtime policy.
+        bind_runtime_graph_provider=False,
+    )
+    configured_auth_service = auth_service or AuthService()
+    configured_web_auth_enabled = (
+        _env_bool("WEB_AUTH_ENABLED", True)
+        if web_auth_enabled is None
+        else web_auth_enabled
+    )
+    configured_web_origins = (
+        web_allowed_origins
+        if web_allowed_origins is not None
+        else _env_csv("WEB_ALLOWED_ORIGINS")
+        or [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
     configured_tbox_chat_service = tbox_chat_service or TBoxChatService(
         TBoxClient(TBoxClientConfig.from_env()),
         TBoxSessionMapper(career_orchestrator),
@@ -179,6 +203,11 @@ def create_app(
         lifespan=lifespan,
     )
     application.state.career_orchestrator = career_orchestrator
+    application.state.career_state_repository = career_orchestrator.repository
+    application.state.career_web_tool_service = career_web_tool_service
+    application.state.web_tool_timeout_seconds = configured_web_tool_timeout
+    application.state.auth_service = configured_auth_service
+    application.state.web_auth_enabled = configured_web_auth_enabled
     application.state.tbox_chat_service = configured_tbox_chat_service
     application.state.tbox_api_token = (
         os.getenv("A02_TBOX_API_TOKEN", "")
@@ -207,13 +236,7 @@ def create_app(
     )
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-        ],
-        allow_origin_regex=CORS_ORIGIN_REGEX,
+        allow_origins=configured_web_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -225,25 +248,6 @@ def create_app(
         """Return minimal process health without probing configuration."""
 
         return {"status": "ok"}
-
-    @application.middleware("http")
-    async def preflight_fallback(request: Request, call_next):
-        if request.method == "OPTIONS":
-            origin = request.headers.get("origin", "")
-            response = Response(status_code=204)
-            if origin:
-                response.headers["Access-Control-Allow-Origin"] = origin
-                response.headers["Vary"] = "Origin"
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Allow-Methods"] = (
-                "GET,POST,PUT,PATCH,DELETE,OPTIONS"
-            )
-            response.headers["Access-Control-Allow-Headers"] = request.headers.get(
-                "access-control-request-headers", "Authorization,Content-Type"
-            )
-            response.headers["Access-Control-Max-Age"] = "86400"
-            return response
-        return await call_next(request)
 
     application.include_router(router)
     if mcp_asgi_app is not None:

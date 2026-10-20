@@ -11,26 +11,7 @@ import ProfileView from '../views/profile/Profile.vue'
 import JobLibraryPageView from '../views/jobs/JobLibraryPage.vue'
 import { useAnalysisStore } from '../stores/analysis'
 import { isDemoMode } from '../demo/demoMode'
-
-const AUTH_STORAGE_KEY = 'career-pulse:auth'
-
-const getStoredToken = (): string | null => {
-  if (typeof window === 'undefined') {
-    return null
-  }
-
-  const raw = window.localStorage.getItem(AUTH_STORAGE_KEY)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as { token?: unknown }
-    return typeof parsed.token === 'string' && parsed.token.length > 0 ? parsed.token : null
-  } catch {
-    return null
-  }
-}
+import { useUserStore } from '../stores/user'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -115,12 +96,20 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
   const isPublic = Boolean(to.meta.public)
-  const token = getStoredToken()
+  const userStore = useUserStore()
 
-  if (!isPublic && !token && !isDemoMode) {
+  if (!isDemoMode && userStore.status === 'unknown') {
+    await userStore.hydrateSession()
+  }
+
+  if (!isPublic && !userStore.isAuthenticated && !isDemoMode) {
     return { name: 'login', query: { redirect: to.fullPath } }
+  }
+
+  if (isPublic && userStore.isAuthenticated && (to.name === 'login' || to.name === 'register')) {
+    return { name: 'input' }
   }
 
   if (to.name === 'path') {

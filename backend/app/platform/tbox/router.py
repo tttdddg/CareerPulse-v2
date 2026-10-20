@@ -5,10 +5,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from ...auth.dependencies import (
+    AuthenticatedRequest,
+    require_web_authenticated_request,
+    require_web_csrf,
+)
+from ...auth.identity import external_owner_id, web_owner_id
 from .chat_service import TBoxChatException, TBoxChatService
 from .schemas import (
     TBoxChatErrorResponse,
@@ -107,13 +113,32 @@ async def _encode_stream(
 async def chat_with_tbox_agent(
     payload: TBoxChatRequest,
     request: Request,
+    authenticated: AuthenticatedRequest | None = Depends(
+        require_web_authenticated_request
+    ),
+    _csrf: None = Depends(require_web_csrf),
 ) -> Any:
+    if authenticated is not None:
+        owner_id = web_owner_id(authenticated.user.id)
+    elif payload.user_id:
+        owner_id = external_owner_id(payload.user_id)
+    else:
+        raise TBoxChatException(
+            code=-2,
+            http_status=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            error_type="REQUEST_VALIDATION_FAILED",
+            message="request validation failed",
+            detail="user_id is required when Web authentication is disabled",
+            retryable=False,
+            request_id=TBoxChatService._new_request_id(),
+        )
+    trusted_payload = payload.model_copy(update={"user_id": owner_id})
     service = _service(request)
-    if not payload.stream:
-        return await service.chat(payload)
+    if not trusted_payload.stream:
+        return await service.chat(trusted_payload)
     service.ensure_configured()
     return StreamingResponse(
-        _encode_stream(service.stream(payload)),
+        _encode_stream(service.stream(trusted_payload)),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

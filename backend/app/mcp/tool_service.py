@@ -137,6 +137,7 @@ class CareerMCPToolService:
         database_tools: DatabaseTools | None = None,
         profile_persistence_service: StudentProfilePersistenceService | None = None,
         demo_mode: bool = False,
+        bind_runtime_graph_provider: bool = True,
     ) -> None:
         if timeout_seconds <= 0 or timeout_seconds > 60:
             raise ValueError("MCP tool timeout must be in (0, 60]")
@@ -171,6 +172,16 @@ class CareerMCPToolService:
             self.database_tools.authorize_student = (
                 self._authorize_session_student_reference
             )
+        # Rebinding PathAgent's graph source mutates the shared orchestrator, so
+        # it is opt-in per service instance: the MCP/competition service binds at
+        # construction, while the Web business API binds only when it actually
+        # serves a path request.
+        if bind_runtime_graph_provider:
+            self.configure_runtime_graph_provider()
+
+    def configure_runtime_graph_provider(self) -> None:
+        """Bind this service's source-policy Provider onto the shared PathAgent."""
+
         graph_provider = ConfiguredCareerGraphProvider(
             self.database_tools.graph_selector,
             demo_mode=self.database_tools.demo_mode,

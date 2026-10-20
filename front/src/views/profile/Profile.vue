@@ -191,7 +191,7 @@ import { useAnalysisStore } from '../../stores/analysis'
 import { useHistoryStore } from '../../stores/history'
 import { useUserStore } from '../../stores/user'
 import GrowthChart from '../../components/business/GrowthChart.vue'
-import { fetchHistorySnapshot, fetchUserHistories } from '../../api/modules/career'
+import { fetchWorkflowHistories, fetchWorkflowSnapshot } from '../../api/modules/career'
 import { getUserFacingErrorMessage } from '../../api/request'
 import type { ReportSummary } from '../../stores/history'
 import { isDemoMode } from '../../demo/demoMode'
@@ -299,15 +299,14 @@ const openReportDetail = async (reportId: string): Promise<void> => {
   const localReport = historyStore.reports.find((report) => report.id === reportId) ?? null
   activeReport.value = localReport
 
-  const historyId = Number(reportId)
-  if (!Number.isInteger(historyId) || historyId <= 0) {
+  if (!reportId || reportId === 'default') {
     detailErrorMessage.value = '该记录没有可用的服务端历史编号'
     detailLoading.value = false
     return
   }
 
   try {
-    const detail = await fetchHistorySnapshot(historyId)
+    const detail = await fetchWorkflowSnapshot(reportId)
     activeReport.value = {
       ...detail,
       tags: detail.tags.length ? detail.tags : localReport?.tags ?? ['阶段复盘']
@@ -323,7 +322,7 @@ onMounted(async () => {
   try {
     loading.value = true
     errorMessage.value = ''
-    const result = await fetchUserHistories(userStore.profile?.id ?? 'default')
+    const result = await fetchWorkflowHistories({ page: 1, page_size: 20 })
     historyStore.setReports(result.reports)
     historyStore.setGrowthSeries(normalizeGrowthInput(result.growth))
     historyLoaded.value = true
