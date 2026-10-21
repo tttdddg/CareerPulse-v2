@@ -295,3 +295,24 @@ Rollback is the same switch in reverse: point `careerpulse_backend` back to the
 previous port, `nginx -t`, `systemctl reload nginx`. Both instances share
 `A02_STATE_DB_PATH`, so rolling back code does not roll back or delete user
 data; never delete `/var/lib/careerpulse` during a rollback.
+
+## 13. Pre-release checks (`deploy/checks/`)
+
+Run these against a **non-production** database before every rollout. They are
+idempotent, never print credentials, and the two smoke scripts delete every row
+they create.
+
+```bash
+python deploy/checks/migration_rehearsal.py probe   # which database am I touching?
+python deploy/checks/migration_rehearsal.py apply   # V008: additive-only
+python deploy/checks/migration_rehearsal.py link    # V009: additive-only
+python deploy/checks/migration_rehearsal.py rerun   # a second run must be a no-op
+python deploy/checks/auth_repository_smoke.py       # PostgreSQL-backed login
+python deploy/checks/web_http_smoke.py              # routes, cookies, CSRF
+python deploy/checks/ownership_check.py             # every stored row has an owner
+```
+
+`V008__create_identity_auth.sql` must be applied to the target database before
+web login works; the same file runs unchanged under `psql -f`. The browser half
+of the checklist (cookies, CORS, route guard, cross-account isolation) is a
+manual walk-through documented in `deploy/checks/browser_e2e.md`.
