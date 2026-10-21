@@ -34,11 +34,12 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       proxy: {
+        // Backend routes are registered under /api (identical to the nginx
+        // location /api/ block), so the prefix must be forwarded unchanged.
         '/api': {
           target: proxyTarget,
           changeOrigin: true,
-          secure: false,
-          rewrite: (requestPath) => requestPath.replace(/^\/api/, '')
+          secure: false
         }
       }
     }
